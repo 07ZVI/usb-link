@@ -57,3 +57,15 @@
 - **dotnet 10.0.12 (SHA512)**: `844fa99e16fd6f44e0a7c29def7a82d7846902334d6a955248a9519a4dddb3f5acceb9c9223bef69f8c83b8ae2417537e5b76dddf79fb7117dc85b5039bc1297`
 
 有关组件打包、许可证和校验实现，参见[英文技术说明](DEPENDENCIES.md#packaging-verification-and-licenses)。
+
+## 0.9.3 安装目录
+
+新界面文件放在 `Program Files/USB Link/Desktop/<版本号>`；私有运行时、
+组件和已校验的下载放在 `ProgramData/USB Link/Dependencies`。
+清理时保留一个已验证的上一版程序供回退。现有配置、共享文件和恢复日志
+仍保留在原来的受保护位置，尚未完成的事务不会因整理目录而失去恢复材料。
+
+从旧版迁移时，可复用受保护目录中与官方校验值完全一致的 Wintun DLL，
+或导入旧版已接收、符合固定目录校验值的官方运行时 ZIP。实际字节经过校验后
+复制到新的组件目录；被修改的文件无法启用组件。这不会恢复公开版本已移除的
+文件上传或远程维护入口。

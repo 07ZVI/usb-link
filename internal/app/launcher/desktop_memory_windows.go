@@ -2,10 +2,13 @@
 
 package launcher
 
-import "suhang/usbnet/internal/app/connectioninstall"
+import (
+	"bytes"
+	"suhang/usbnet/internal/app/connectioninstall"
+)
 
-// The desktop component has its own release identity. Reusing verified bytes
-// must not make the installer version select an unembedded archive name.
+// Embedded bytes remain the verification authority. Release numbers select
+// readable folders only; they cannot authorize changed or foreign UI files.
 const bundledDesktopAsset = "assets/desktop.zip"
 
 // The integrator calls these helpers from the normal/recovery launcher and
@@ -31,11 +34,11 @@ func prepareBundledDesktop() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return connectioninstall.PrepareDesktop(b)
+		return connectioninstall.PrepareDesktopVersion(bytes.NewReader(b), int64(len(b)), version)
 	}
 	archive, err := macArchive(bundledDesktopAsset)
 	if err != nil {
 		return "", err
 	}
-	return connectioninstall.PrepareDesktopArchive(archive.Reader, archive.Size)
+	return connectioninstall.PrepareDesktopVersion(archive.Reader, archive.Size, version)
 }

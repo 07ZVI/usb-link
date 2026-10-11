@@ -4,17 +4,69 @@ package connectioninstall
 
 import (
 	"fmt"
+	"golang.org/x/sys/windows"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"suhang/usbnet/internal/dependencies"
 )
 
 func DependencyDirectory() (string, error) {
-	root, e := protectedRoot(true)
+	base, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
 	if e != nil {
 		return "", e
 	}
-	return protectedRootAt(filepath.Join(root, "dependencies"), true)
+	root, e := protectedRootAt(filepath.Join(base, "USB Link"), true)
+	if e != nil {
+		return "", e
+	}
+	return protectedRootAt(filepath.Join(root, "Dependencies"), true)
+}
+
+// Compatibility import for verified offline ZIPs supplied to an older version.
+// This never starts a receiver, grants access or executes a received file. Only
+// catalog-pinned .NET/Wintun archives can be selected; source data is preserved.
+func LegacyOfflineDependencyArchive(a dependencies.Asset) string {
+	if a.ID != "dotnet" && a.ID != "wintun" {
+		return ""
+	}
+	u, err := url.Parse(a.URL)
+	if err != nil || !strings.HasSuffix(u.Path, ".zip") {
+		return ""
+	}
+	base := filepath.Base(u.Path)
+	root, err := dataRoot("Received Files")
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(root, "Received Files")
+	if noReparse(dir) != nil {
+		return ""
+	}
+	sd, err := windows.SecurityDescriptorFromString(installACL)
+	if err != nil {
+		return ""
+	}
+	actual, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil || !sameACL(actual, sd) {
+		return ""
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) > 4096 {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), "-"+base) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if noReparse(path) != nil {
+			continue
+		}
+		return path
+	}
+	return ""
 }
 func VerifyDependencyPath(path string) error {
 	root, e := DependencyDirectory()

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"suhang/usbnet/internal/buildinfo"
 	"sync"
 )
 
@@ -26,7 +27,12 @@ var runtimeName = runtimeDirectoryName(expectedBridgeSHA)
 // cross-process lock; another writer still causes the existing checks to fail.
 var runtimeUnpackMu sync.Mutex
 
-func runtimeDirectoryName(hash string) string { return "mac-runtime-" + hash }
+func runtimeDirectoryName(hash string) string {
+	if hash == expectedBridgeSHA && regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(buildinfo.Version) {
+		return "mac-runtime-" + buildinfo.Version
+	}
+	return "mac-runtime-" + hash
+}
 
 // RuntimeArchive keeps embedded read-only bytes outside the Go heap.
 type RuntimeArchive struct {
@@ -129,7 +135,7 @@ func recoveryRuntimeNames(parent string) ([]string, error) {
 	if e != nil {
 		return nil, e
 	}
-	pattern := regexp.MustCompile(`^mac-runtime-[a-f0-9]{64}$`)
+	pattern := regexp.MustCompile(`^mac-runtime-([a-f0-9]{64}|[0-9]+\.[0-9]+\.[0-9]+)$`)
 	for _, entry := range entries {
 		if pattern.MatchString(entry.Name()) {
 			names = append(names, entry.Name())

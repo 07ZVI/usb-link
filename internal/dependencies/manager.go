@@ -73,12 +73,29 @@ type Platform interface {
 	Detect(Asset, string) (string, bool)
 }
 type Manager struct {
-	Platform Platform
-	Client   *http.Client
-	work     sync.Mutex
-	mu       sync.Mutex
-	states   map[string]Status
-	Progress func(Status)
+	Platform       Platform
+	Client         *http.Client
+	work           sync.Mutex
+	mu             sync.Mutex
+	states         map[string]Status
+	Progress       func(Status)
+	localSource    func(Asset) string
+	offlineArchive func(Asset) string
+}
+
+// The owning installer selects a protected local archive directory. Catalog
+// hashes/signatures still apply; this does not accept UI or remote paths.
+func (m *Manager) SetOfflineArchiveSource(source func(Asset) string) {
+	m.mu.Lock()
+	m.offlineArchive = source
+	m.mu.Unlock()
+}
+
+// SetLocalSource is an owner-supplied migration boundary, never a UI path.
+func (m *Manager) SetLocalSource(source func(Asset) string) {
+	m.mu.Lock()
+	m.localSource = source
+	m.mu.Unlock()
 }
 
 func (m *Manager) update(a Asset, state string, n, total int64, err error) {
@@ -183,6 +200,25 @@ func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err er
 		m.update(a, "ready", 0, 0, nil)
 		return p, nil
 	}
+	m.mu.Lock()
+	source := m.localSource
+	m.mu.Unlock()
+	if source != nil && a.ID == "wintun" {
+		if local := source(a); local != "" {
+			if reuse, ok := m.Platform.(interface {
+				ReuseWintun(context.Context, Asset, string, string) error
+			}); ok {
+				if err := reuse.ReuseWintun(ctx, a, local, root); err != nil {
+					return "", err
+				}
+				if p, ready := m.Platform.Detect(a, root); ready {
+					m.update(a, "ready", 0, 0, nil)
+					return p, nil
+				}
+				return "", errors.New("DEPENDENCY_REUSE_READBACK_FAILED")
+			}
+		}
+	}
 	u, e := url.Parse(a.URL)
 	if e != nil || u.Scheme != "https" || u.User != nil || !allowedHost(u.Hostname()) {
 		return "", errors.New("DEPENDENCY_SOURCE_REJECTED")
@@ -192,6 +228,18 @@ func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err er
 		if _, stat := os.Lstat(archive); stat == nil {
 			return "", errors.New("DEPENDENCY_CACHE_CORRUPTED")
 		}
+		m.mu.Lock()
+		offline := m.offlineArchive
+		m.mu.Unlock()
+		if offline != nil {
+			if source := offline(a); source != "" {
+				if err := copyPinnedArchive(ctx, a, source, archive); err != nil {
+					return "", err
+				}
+			}
+		}
+	}
+	if e = check(a, archive); e != nil {
 		temp, e := os.CreateTemp(root, "download-")
 		if e != nil {
 			return "", e

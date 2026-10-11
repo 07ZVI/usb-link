@@ -3,6 +3,7 @@
 package connectioninstall
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -52,4 +53,28 @@ func TestCancelledCleanupCanBeJoined(t *testing.T) {
 	cancel()
 	finish := StartInstallationCleanup(ctx, "0.8.46", "desktop-012345678901234567890123", nil)
 	finish()
+}
+
+func TestReadableDesktopReleaseRejectsChangedAndUnknownFiles(t *testing.T) {
+	root := t.TempDir()
+	payload := desktopTestZip(t, "USBLink.Desktop.exe", "runtime.dll")
+	reader := bytes.NewReader(payload)
+	target, err := prepareDesktopAt(reader, int64(len(payload)), root, "0.9.3")
+	if err != nil || target != filepath.Join(root, "0.9.3", "USBLink.Desktop.exe") {
+		t.Fatal(target, err)
+	}
+	if _, err = prepareDesktopAt(reader, int64(len(payload)), root, "0.9.3"); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "0.9.3", "extra.dll"), []byte("unknown"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepareDesktopAt(reader, int64(len(payload)), root, "0.9.3"); err == nil {
+		t.Fatal("unknown DLL admitted")
+	}
+	os.Remove(filepath.Join(root, "0.9.3", "extra.dll"))
+	os.WriteFile(filepath.Join(root, "0.9.3", "runtime.dll"), []byte("changed"), 0600)
+	if _, err = prepareDesktopAt(reader, int64(len(payload)), root, "0.9.3"); err == nil {
+		t.Fatal("changed runtime admitted")
+	}
 }

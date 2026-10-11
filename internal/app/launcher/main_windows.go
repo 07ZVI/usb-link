@@ -464,6 +464,7 @@ func installationFailure(r *Result, stage, message string) {
 }
 func Main() {
 	dependencies.Configure(connectioninstall.DependencyDirectory, connectioninstall.VerifyDependencyPath)
+	dependencies.Default.SetOfflineArchiveSource(connectioninstall.LegacyOfflineDependencyArchive)
 	if dispatchWintunLifecycleProbe() {
 		return
 	}
@@ -797,6 +798,12 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	}
 	var pruned []string
 	defer ipadncm.StartStartupTimingEvidence(ctx, recoveryDir, version)()
+	dependencies.Default.SetLocalSource(func(a dependencies.Asset) string {
+		if a.ID == "wintun" {
+			return macconnection.PinnedLegacyWintun(recoveryDir)
+		}
+		return ""
+	})
 	// Optional task reconciliation shares the settings mutation lock but never
 	// blocks network preparation. Join before releasing the protected owner, so
 	// an old process cannot replace a newer version's task after its handoff.

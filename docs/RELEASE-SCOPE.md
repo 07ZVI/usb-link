@@ -9,8 +9,11 @@ WebDAV and upgrade-discovery routes do not serve files or credentials.
 Developer remote maintenance is not a supported release option. The normal TCP
 upgrade listener, raw-USB upgrade API, invitation generator, remote staging and
 apply implementations have been removed. Public entry methods return an error;
-old enabled/auto-upgrade settings are cleared when the protected local journal
-manager starts. There is no UI/IPC switch to enable them. The developer publisher
+old enabled/auto-upgrade settings are cleared by the protected local journal
+manager. During an exact signed upgrade from an existing legacy core, clearing
+is deferred until the old worker confirms that candidate; failed startup leaves
+the old version's rollback settings intact. These settings never enable a public
+network API. There is no UI/IPC switch to enable them. The developer publisher
 and its command have been deleted and are not built or packaged. The public
 launcher no longer accepts the remote-install or remote update-worker commands.
 

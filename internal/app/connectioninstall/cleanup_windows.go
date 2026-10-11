@@ -104,6 +104,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 		files       map[string]string
 	}
 	var versions, desktops []candidate
+	rollbackVersion := ""
 	knownHashes := map[string]bool{}
 	for _, base := range roots {
 		entries, err := os.ReadDir(base.path)
@@ -125,6 +126,9 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 					continue
 				}
 				knownHashes[receipt.SHA] = true
+				if installcleanup.OlderVersion(entry.Name(), current) && (rollbackVersion == "" || installcleanup.OlderVersion(rollbackVersion, entry.Name())) {
+					rollbackVersion = entry.Name()
+				}
 				if installcleanup.OlderVersion(entry.Name(), current) {
 					if reason := startupDependencyRetentionReason(taskTargets, filepath.Join(dir, base.binary), taskDependencyError); reason != "" {
 						held(entry.Name(), reason)
@@ -132,7 +136,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 					}
 					versions = append(versions, candidate{dir, "ownership.json", inv})
 				}
-			} else if desktopNamePattern.MatchString(entry.Name()) && !(base.path == root && entry.Name() == desktop) {
+			} else if desktopNamePattern.MatchString(entry.Name()) {
 				files, err := desktopInventory(dir)
 				if err != nil {
 					held(entry.Name(), err.Error())
@@ -141,6 +145,37 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 				desktops = append(desktops, candidate{dir, "desktop-ownership.json", files})
 			}
 		}
+	}
+	if job.Manifest.Version == current && job.Status == "complete" && job.Old != "" && Verify(job.Old) == nil {
+		rollbackVersion = filepath.Base(filepath.Dir(job.Old))
+	}
+	// The readable desktop tree shares release versions with the core. Keep the
+	// previous verified release alongside the current one for local rollback.
+	desktopRoot := filepath.Join(root, "Desktop")
+	if _, err := os.Lstat(desktopRoot); err == nil {
+		if _, err = protectedRootAt(desktopRoot, false); err != nil {
+			held("Desktop", "ownership unavailable")
+		} else {
+			entries, err := os.ReadDir(desktopRoot)
+			if err != nil {
+				held("Desktop", "enumeration failed")
+			} else {
+				for _, entry := range entries {
+					if !entry.IsDir() || !versionPattern.MatchString(entry.Name()) || !installcleanup.OlderVersion(entry.Name(), current) || entry.Name() == rollbackVersion {
+						continue
+					}
+					dir := filepath.Join(desktopRoot, entry.Name())
+					files, err := desktopInventory(dir)
+					if err != nil {
+						held("Desktop/"+entry.Name(), err.Error())
+						continue
+					}
+					desktops = append(desktops, candidate{dir, "desktop-ownership.json", files})
+				}
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		held("Desktop", "enumeration failed")
 	}
 	remove := func(c candidate) {
 		files, err := installcleanup.Files(c.dir, c.marker, c.files, 256<<20, cleanupSafePath)
@@ -191,6 +226,9 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 		remove(c)
 	}
 	for _, c := range versions {
+		if filepath.Base(c.dir) == rollbackVersion {
+			continue
+		}
 		// A foreign scheduler writer is not covered by our mutex. Re-observe the
 		// exact tasks immediately before each executable deletion; any read
 		// failure retains this and every remaining prior version.

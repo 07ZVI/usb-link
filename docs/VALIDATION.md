@@ -1,4 +1,4 @@
-# Validation record: 0.9.2 candidate
+# Validation record: 0.9.3 candidate
 
 Baseline: 0.8.140. Public history starts with modular source, then dependency acquisition/rebuilding, then Internet sharing. The source-only refactor checkpoint preserves original runtime compatibility identities; distribution preparation is completed by the subsequent dependency commit. Validate the final HEAD for a public build.
 
@@ -85,3 +85,39 @@ Windows vet and the release-surface symbol check passed.
 Windows runtime, Safari on the connected Mac, local installation and physical USB
 throughput acceptance remain pending. The hosted Windows failures above are not
 resolved by this change.
+
+## 0.9.3 migration and installation layout
+
+The first hardware upgrade from 0.8.139 to 0.9.2 timed out during startup
+health checking and rolled back to 0.8.139. USB connectivity returned. The
+protected job reported HEALTH_TIMEOUT without a candidate failure receipt;
+no exact missing-component diagnosis was available. This is a failed installation,
+not successful hardware acceptance of the public candidate.
+
+0.9.3 imports only the exact pinned official AMD64 Wintun DLL from verified
+legacy recovery folders. Official .NET/Wintun ZIPs already placed in the old
+protected received-files directory can be verified into the new cache before
+attempting a download. No Mac runtime, script or new receiving endpoint is added.
+Old update consent is retired after signed candidate acceptance, so an unsuccessful
+migration retains the previous worker's rollback settings.
+
+New desktop files use Program Files/USB Link/Desktop/<release>, not hashed
+folders. New private components and downloads use ProgramData/USB Link/Dependencies.
+Bridge folders use readable release names; legacy recovery paths remain discoverable.
+A verified previous executable/desktop release is retained during cleanup.
+User data and protected legacy journals are preserved; migration of those live
+journals is not part of this layout change.
+
+The other completed UI work is included: reuse the dashboard on tray reopen,
+background SMB reads, parallel security observations and initial process lists
+before file/signature checks. Actual Windows UI latency is still pending.
+
+Migration regression fixtures passed with the race detector: pinned reuse, changed
+DLL/ZIP and symlink rejection, preservation of unknown trees and source files,
+cancel/readback behavior, and offline import without HTTP. The full Go race suite,
+native and Windows vet, architecture/source checks passed. The combined Avalonia
+renderer passed connection/tray/credential-lifecycle and process-window smoke
+checks. Windows-specific directory mutation fixtures are cross-checked by vet;
+execution on Windows is still pending. Initial native preview attempts inside the
+restricted sandbox could not start the Mac render timer; the permitted native
+window run succeeded.

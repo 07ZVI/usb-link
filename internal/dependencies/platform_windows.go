@@ -83,11 +83,6 @@ func (p *WindowsPlatform) Verify(a Asset, path string) error {
 	return nil
 }
 
-type treeReceipt struct {
-	Digest string            `json:"digest"`
-	Files  map[string]string `json:"files"`
-}
-
 func (p *WindowsPlatform) tree(a Asset, root string) string {
 	return filepath.Join(root, a.ID+"-"+a.Version)
 }
@@ -298,7 +293,7 @@ func (p *WindowsPlatform) Install(ctx context.Context, a Asset, archive, root st
 	if e != nil {
 		return "", e
 	}
-	if a.ID == "wintun" && m.Files["wintun.dll"] != "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce" {
+	if a.ID == "wintun" && m.Files["wintun.dll"] != WintunAMD64SHA256 {
 		return "", errors.New("DEPENDENCY_WINTUN_HASH_MISMATCH")
 	}
 	data, _ := json.Marshal(m)
@@ -309,6 +304,10 @@ func (p *WindowsPlatform) Install(ctx context.Context, a Asset, archive, root st
 		return "", e
 	}
 	return dir, nil
+}
+
+func (p *WindowsPlatform) ReuseWintun(ctx context.Context, a Asset, source, root string) error {
+	return importPinnedWintun(ctx, a, source, root, WintunAMD64SHA256, p.Safe)
 }
 
 // Serialize downloads across the UI, service and updater processes.

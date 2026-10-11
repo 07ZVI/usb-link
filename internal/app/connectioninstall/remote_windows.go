@@ -18,6 +18,7 @@ import (
 	"suhang/usbnet/internal/security/usbgateway"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 )
 
@@ -165,8 +166,16 @@ func newRemoteManager(version, installed string, stop context.CancelFunc, usbGUI
 	// Retain the protected local transaction journal for rollback compatibility,
 	// but never honor old network or automatic-install consent.
 	m.config = remoteConfig{}
-	if e = writeRemote(filepath.Join(root, "config.json"), m.config); e != nil {
-		return nil, e
+	pendingID := startupAckJobID()
+	deferConsentClear := false
+	if pendingID != "" && ValidateRemoteLaunch(pendingID, version) == nil {
+		// The old worker still owns rollback. Do not erase its original consent
+		// until this exact candidate is accepted; public APIs remain unavailable.
+		deferConsentClear = true
+	} else {
+		if e = writeRemote(filepath.Join(root, "config.json"), m.config); e != nil {
+			return nil, e
+		}
 	}
 	activeUpgradeManager.Store(m)
 	if upgradeGuardInherited() {
@@ -191,7 +200,42 @@ func newRemoteManager(version, installed string, stop context.CancelFunc, usbGUI
 			_ = persistUpdateJob(root, previous)
 		}
 	}
+	if deferConsentClear {
+		go m.retireLegacyConsentAfterCommit(pendingID)
+	}
 	return m, nil
+}
+
+func (m *RemoteManager) retireLegacyConsentAfterCommit(id string) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.done:
+			return
+		case <-ticker.C:
+			m.candidateStatusMu.Lock()
+			if m.closing.Load() {
+				m.candidateStatusMu.Unlock()
+				return
+			}
+			var job UpdateJob
+			accepted := readRemote(filepath.Join(m.root, "job.json"), &job) == nil && job.ID == id && job.Status == "complete" && job.Manifest.Version == m.version
+			if accepted {
+				hash, err := fileHash(m.installed)
+				accepted = err == nil && hash == job.Manifest.SHA256 && Verify(m.installed) == nil
+			}
+			if accepted {
+				err := writeRemote(filepath.Join(m.root, "config.json"), remoteConfig{})
+				m.candidateStatusMu.Unlock()
+				if err == nil {
+					return
+				}
+				continue
+			}
+			m.candidateStatusMu.Unlock()
+		}
+	}
 }
 
 // RecoveryAPI cannot expose the former raw-USB remote maintenance service.

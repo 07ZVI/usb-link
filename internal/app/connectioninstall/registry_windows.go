@@ -97,6 +97,35 @@ func removeInstalledFiles(path string) (bool, error) {
 	}
 	// Validate every version before deleting anything. Unknown files are retained.
 	var files, dirs []string
+	modernDesktop := filepath.Join(root, "Desktop")
+	if _, err := os.Lstat(modernDesktop); err == nil {
+		if _, err = protectedRootAt(modernDesktop, false); err != nil {
+			return false, err
+		}
+		children, err := os.ReadDir(modernDesktop)
+		if err != nil {
+			return false, err
+		}
+		for _, child := range children {
+			if child.Name() == "product-id.txt" {
+				continue
+			}
+			if !child.IsDir() || !versionPattern.MatchString(child.Name()) {
+				return false, fmt.Errorf("unknown desktop contents preserved")
+			}
+			dir := filepath.Join(modernDesktop, child.Name())
+			owned, err := desktopRemovalFiles(dir)
+			if err != nil {
+				return false, err
+			}
+			files = append(files, owned...)
+			dirs = append(dirs, dir)
+		}
+		files = append(files, filepath.Join(modernDesktop, "product-id.txt"))
+		dirs = append(dirs, modernDesktop)
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), "desktop-") && len(entry.Name()) == len("desktop-")+24 {
 			dir := filepath.Join(root, entry.Name())

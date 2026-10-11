@@ -13,7 +13,7 @@ import (
 )
 
 // PrepareDesktop materializes only files from the embedded release payload in
-// an administrator-owned, content-addressed directory. Every launch checks all
+// an administrator-owned directory. Every launch checks all
 // files, including runtime DLLs, against the embedded bytes. Extra files fail.
 func PrepareDesktop(payload []byte) (string, error) {
 	return PrepareDesktopArchive(bytes.NewReader(payload), int64(len(payload)))
@@ -26,10 +26,31 @@ func PrepareDesktopArchive(reader io.ReaderAt, size int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Historical callers retain their verified archive identity. The launcher
+	// uses the explicit readable release layout below.
 	name, err := DesktopDirectoryNameArchive(reader, size)
 	if err != nil {
 		return "", err
 	}
+	return prepareDesktopAt(reader, size, root, name)
+}
+
+func PrepareDesktopVersion(reader io.ReaderAt, size int64, version string) (string, error) {
+	if !versionPattern.MatchString(version) {
+		return "", fmt.Errorf("invalid desktop version")
+	}
+	root, err := protectedRoot(false)
+	if err != nil {
+		return "", err
+	}
+	root, err = protectedRootAt(filepath.Join(root, "Desktop"), true)
+	if err != nil {
+		return "", err
+	}
+	return prepareDesktopAt(reader, size, root, version)
+}
+
+func prepareDesktopAt(reader io.ReaderAt, size int64, root, name string) (string, error) {
 	z, err := zip.NewReader(reader, size)
 	if err != nil {
 		return "", err

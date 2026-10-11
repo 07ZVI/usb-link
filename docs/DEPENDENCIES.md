@@ -79,3 +79,18 @@ Uninstall first restores owned network changes and stops the verified core. It t
 The Apple redistribution exclusion follows [Apple's Windows software license](https://www.apple.com/legal/sla/docs/iTunesWindows.pdf). The GPL linking exception follows [GNU's additional-permission guidance](https://www.gnu.org/licenses/gpl-faq.en.html#GPLIncompatibleLibs). The original [Wintun prebuilt binary terms](https://git.zx2c4.com/wintun/tree/prebuilt-binaries-license.txt) are retained. This exception does not authorize redistribution of Apple packages or other proprietary software.
 
 Library versions, source repositories and license paths are in [libraries.json](../licenses/libraries.json). Imported compatibility SMB has a separate commit/file provenance record and complete MIT notice. These permissions are preserved alongside GPL terms, not replaced by them.
+
+## 0.9.3 installation layout
+
+New desktop files are grouped under `Program Files/USB Link/Desktop/<version>`;
+new private runtimes and verified downloads are under
+`ProgramData/USB Link/Dependencies`. A previous verified release is retained for
+rollback. Existing settings, shares and recovery journals remain at their owned
+legacy locations until their transactions are finished. They are never removed
+solely because their folder names look old.
+
+Migration can reuse the exact official Wintun DLL from a protected older install,
+or a catalog-pinned official runtime ZIP already received by that older version.
+Every imported byte is checked and copied into the new owned dependency tree;
+changed files cannot authorize reuse. This does not restore file upload or remote
+maintenance in the public build.
