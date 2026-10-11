@@ -18,7 +18,7 @@ Baseline: 0.8.140. Public history starts with modular source, then dependency ac
 | Recursive package checks | Passed for generated nested ZIPs including embedded launcher assets; external drivers/tools/runtimes absent |
 | Git whitespace | `git diff --check` passed |
 | Clean clone rebuild | Passed: independent clone ran all tests, Windows/macOS builds and recursive package audit; only normal locked module/tool caches were reused |
-| Hosted GitHub CI | Workflow provided; not executed or published in this task |
+| Hosted GitHub CI | Baseline run on commit `448126c`: macOS passed, Windows failed; see below |
 
 Software checks do not establish real WinNAT/WFP/Defender behavior, driver installation, visible official-installer UX, macOS DHCP application, local signed installation acceptance, or on-device throughput.
 
@@ -48,3 +48,14 @@ Software checks do not establish real WinNAT/WFP/Defender behavior, driver insta
 ## 0.9.1 release scope change
 
 File upload, WebDAV, developer publisher and remote-maintenance network entry points are removed. The table above remains the 0.9.0 baseline. New 0.9.1 checks on macOS: full Go race suite, native and Windows vet, Windows launcher/desktop and both Mac builds passed. The release symbol check confirmed the removed remote HTTP server, update worker, raw USB recovery transport, upload receiver and WebDAV handler are not linked into the launcher. Source/history audits and publication regression tests passed. The actual Avalonia renderer passed the connection smoke test, including repeated diagnostic-window open/close, and generated the README screenshot with synthetic data. Windows-specific runtime tests and physical device acceptance are not established by these checks. Hardware acceptance remains pending. See [release scope](RELEASE-SCOPE.md).
+
+
+## Hosted Windows checks still failing
+
+The [baseline CI run](https://github.com/07ZVI/usb-link/actions/runs/38111725162)
+passed on macOS but failed on Windows before this scope change. Failures include
+native log rotation, non-elevated account fixtures, startup-task provider fixtures,
+and SMB/catalog handle and directory-metadata cases. They have not been diagnosed
+or resolved by the README/feature-removal work. The current push triggers a new
+run; no successful Windows runtime acceptance is claimed. These failures block a
+stable end-user release, even though local cross-build and package audits pass.
