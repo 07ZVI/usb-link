@@ -1,6 +1,6 @@
 # Deleted-install operator recovery
 
-This private Windows x64 helper responds to an operator deleting all of `Program Files/USB Link`. It is not linked into the public installer and never restores a missing binding by adopting an existing service. `build.py` uses a Go overlay to reuse the production native service, source, ACL, mutex and dependency checks without changing public installer behavior.
+This private Windows x64 helper responds to an operator deleting all of `Program Files/USB Link`. From 0.10.4 the normal installer performs the same narrowly verified cleanup after selected components are ready. The private kit delegates inspection/removal to that production verifier and uses a Go overlay only for its separate reinstall observation. Neither route restores a missing binding by adopting an existing service. The ordinary installer does not include this kit's pinned external-launch or observation entry points.
 
 The reviewed state is a missing program root, a stopped/PID-zero `USBLinkCore` pointing to `0.9.3/USB-Link.exe --core-service`, and the product's exact 0.8.139 uninstall registration. Either old object may be absent after an interrupted repair. Other paths, versions, commands, ownership, service policies or running USB Link processes stop the tool. It does not stop services, change their configuration, or modify accounts, shares, drivers, firewall/network settings or protected recovery journals.
 

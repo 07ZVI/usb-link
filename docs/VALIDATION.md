@@ -144,3 +144,11 @@ A read-only report returned from the affected Windows machine confirms the progr
 The separate [operator recovery tool](../scripts/windows-deleted-install-repair/README.md) cross-builds and passes Windows native vet. It is behind an explicit private build tag and overlay, so ordinary public builds do not include a missing-binding adoption path. Native execution, exact residual removal, fresh 0.9.5 service startup and device acceptance are still pending. The kit preserves existing USB journals, accounts, shares and system settings and distinguishes a verified running core from USB/SMB acceptance.
 
 0.10.0 supersedes the versioned program/desktop layout above with one active `Program Files/USB Link/App` and transaction-only previous content. See [installation lifecycle](INSTALLATION-LIFECYCLE.zh-CN.md). Windows lifecycle and device acceptance remain pending.
+
+## 0.10.4 deleted legacy install and welcome page
+
+The returned installation report confirms missing Program Files content and both binding locations, 0.8.139 uninstall registration pointing to missing content, and a stopped/PID-zero service pointing to missing 0.9.3 content. This identifies the registration gate in 0.10.3; it does not explain the original startup failure.
+
+Normal setup now verifies the exact legacy objects locally, prepares every selected component, then performs the protected-backup/recheck/removal sequence. It retains fixed-layout recovery and pending-reboot gates. Fault tests cover preparation failure/cancellation preserving residuals, failed backup or recheck preventing deletion, partial removal failure stopping installation, and cancellation during the bounded removal finishing cleanup. Native Windows service, ACL and registry validation is cross-compiled; actual residual removal/reinstall remains pending Windows acceptance.
+
+The welcome page no longer starts or displays inspection. Diagnosis is an explicit view with a return action; reports after failure include the installer error and release. No additional recovery executable is required by ordinary setup.

@@ -15,8 +15,8 @@ import (
 )
 
 // Fixed-layout repair restores only the exact accepted publisher bytes. Missing
-// legacy receipts remain operator recovery; an arbitrary service name or a
-// caller-supplied path cannot authorize adoption or a SYSTEM command change.
+// legacy residual cleanup uses its separate exact-profile backup verifier; an
+// arbitrary name/path cannot authorize adoption or a SYSTEM command change.
 func inspectMissingAcceptedInstallation(version string) (InstallationTransaction, bool, error) {
 	t, ok, e := readInstallationTransaction()
 	if e != nil || !ok {

@@ -4,6 +4,7 @@ package setupwizard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
@@ -68,8 +69,12 @@ type wizard struct {
 	descriptions                                                             [4]uintptr
 	inspected                                                                chan inspectionResult
 	inspecting                                                               bool
+	inspectionRun                                                            uint64
 	report                                                                   []byte
 	inspectionText                                                           string
+	diagnostics                                                              bool
+	installError                                                             string
+	failedCancelled                                                          bool
 	heading, body, agree, core, network, ipad, mac, launch, bar              uintptr
 	back, next, stop                                                         uintptr
 	closed, running, cancelling, succeeded                                   bool
@@ -81,6 +86,7 @@ type wizard struct {
 }
 
 type inspectionResult struct {
+	run    uint64
 	text   string
 	report []byte
 }
@@ -129,17 +135,34 @@ func windowProc(hwnd uintptr, msg uint32, w, l uintptr) uintptr {
 			} // Button clicks only.
 			switch int(w & 0xffff) {
 			case idInspect:
+				if p.running {
+					break
+				}
+				if !p.diagnostics {
+					p.diagnostics = true
+					p.render()
+				}
 				p.startInspection()
 			case idExport:
 				p.exportReport()
 			case idCancel:
 				p.close()
 			case idBack:
+				if p.diagnostics {
+					p.diagnostics = false
+					p.render()
+					break
+				}
 				p.capture()
 				if p.model.Back() {
 					p.render()
 				}
 			case 1, idNext:
+				if p.diagnostics {
+					p.diagnostics = false
+					p.render()
+					break
+				}
 				p.capture()
 				if p.model.Page == Finished {
 					p.open = p.succeeded && p.checked(p.launch)
@@ -236,7 +259,6 @@ func Run(parent context.Context, config Config) (string, bool, error) {
 		return "", false, errors.New("SETUP_TIMER_UNAVAILABLE")
 	}
 	p.render()
-	p.startInspection()
 	user.NewProc("ShowWindow").Call(p.hwnd, 1)
 	user.NewProc("SetForegroundWindow").Call(p.hwnd)
 	var m message
@@ -321,8 +343,8 @@ func (p *wizard) createControls() bool {
 	p.check(p.launch, true)
 	p.enable(p.core, false)
 	p.enable(p.network, false)
-	p.inspect = p.control("BUTTON", "重新检查", 0x10000, 236, 490, 120, 32, idInspect, p.font)
-	p.export = p.control("BUTTON", "保存检查报告…", 0x10000, 368, 490, 162, 32, idExport, p.font)
+	p.inspect = p.control("BUTTON", "安装诊断…", 0x10000, 236, 490, 144, 32, idInspect, p.font)
+	p.export = p.control("BUTTON", "保存检查报告…", 0x10000, 392, 490, 162, 32, idExport, p.font)
 	p.footer = p.control("STATIC", "", 0, 236, 559, 264, 24, 0, p.smallFont)
 	p.back = p.control("BUTTON", "上一步", 0x10000, 504, 548, 100, 36, idBack, p.font)
 	p.next = p.control("BUTTON", "下一步", 0x10000|1, 616, 548, 100, 36, idNext, p.font)
@@ -397,9 +419,13 @@ func (p *wizard) render() {
 	p.enable(p.back, p.model.Page > Welcome && p.model.Page < Installing)
 	p.enable(p.next, p.model.Page != Installing)
 	p.enable(p.stop, p.model.Page != Finished)
+	p.show(p.next, true)
+	p.set(p.back, "上一步")
+	p.set(p.inspect, "安装诊断…")
+	p.enable(p.inspect, !p.running)
 	p.set(p.next, "下一步")
 	p.set(p.footer, fmt.Sprintf("步骤 %d / 5", min(int(p.model.Page)+1, 5)))
-	names := []string{"欢迎与检查", "许可条款", "安装组件", "确认安装", "安装与完成"}
+	names := []string{"欢迎", "许可条款", "安装组件", "确认安装", "安装与完成"}
 	for i, h := range p.steps {
 		mark := fmt.Sprintf("%d", i+1)
 		if i < min(int(p.model.Page), 4) {
@@ -411,23 +437,12 @@ func (p *wizard) render() {
 	switch p.model.Page {
 	case Welcome:
 		p.set(p.heading, "欢迎安装 USB Link")
-		p.set(p.subtitle, "通过 USB 连接 Mac 与 iPad，管理共享文件和设备。")
-		p.set(p.intro, "安装位置："+p.config.Directory+"\r\n已有兼容组件会复用；升级完成后会清理旧程序文件。")
+		p.set(p.subtitle, "让 Mac 和 iPad 通过 USB 连接 Windows。")
+		p.set(p.intro, "这个向导将帮助你安装或更新 USB Link。\r\n\r\n点击「下一步」开始。")
+		user.NewProc("MoveWindow").Call(p.intro, p.scale(252), p.scale(180), p.scale(556), p.scale(200), 1)
 		p.show(p.intro, true)
-		user.NewProc("MoveWindow").Call(p.body, p.scale(252), p.scale(222), p.scale(556), p.scale(248), 1)
-		text := p.inspectionText
-		if text == "" {
-			if p.config.Inspect == nil {
-				text = "此向导将安装或更新 USB Link。"
-			} else {
-				text = "正在读取现有安装状态…"
-			}
-		}
-		p.set(p.body, text)
+		p.show(p.body, false)
 		p.show(p.inspect, p.config.Inspect != nil)
-		p.show(p.export, p.config.Inspect != nil)
-		p.enable(p.inspect, !p.inspecting)
-		p.enable(p.export, len(p.report) > 0 && !p.inspecting)
 	case License:
 		p.set(p.heading, "许可条款")
 		p.set(p.subtitle, "请阅读以下条款。接受后才能继续安装。")
@@ -450,7 +465,7 @@ func (p *wizard) render() {
 	case Ready:
 		p.set(p.heading, "准备安装")
 		p.set(p.subtitle, "确认位置和组件后，点击「安装」开始。")
-		p.set(p.body, p.model.Options.Summary(p.config.Version, p.config.Directory))
+		p.set(p.body, p.model.Options.Summary(p.config.Version, p.config.Directory)+"\r\n\r\n已删除程序的旧安装记录会在核验并备份后清理。")
 		p.set(p.next, "安装")
 	case Installing:
 		p.set(p.heading, "正在安装 USB Link")
@@ -472,17 +487,51 @@ func (p *wizard) render() {
 			p.set(p.body, "版本："+p.config.Version+"\r\n\r\n安装位置："+p.config.Directory+"\r\n\r\n可选设备驱动会在连接时核验并确认。\r\n可在 Windows「已安装的应用」中卸载 USB Link。")
 			p.show(p.launch, true)
 		} else {
+			p.set(p.heading, "安装未完成")
+			if p.failedCancelled {
+				p.set(p.heading, "安装已取消")
+			}
 			p.set(p.subtitle, "请查看详细原因。需要恢复的文件与记录已保留。")
+			p.set(p.body, "安装没有完成，已保留需要恢复的文件与记录。\r\n已有共享运行库和 Apple 组件会保留。\r\n\r\n"+p.installError+"\r\n\r\n处理上述问题后，可以再次运行同一安装包。")
+			p.show(p.inspect, p.config.Inspect != nil)
 		}
 	}
+	if p.diagnostics {
+		p.set(p.heading, "安装诊断")
+		p.set(p.subtitle, "查看安装记录和服务状态，也可以保存报告。")
+		p.show(p.intro, false)
+		p.show(p.launch, false)
+		p.show(p.body, true)
+		text := p.inspectionText
+		if text == "" {
+			text = "点击「重新检查」读取安装状态。"
+		}
+		p.set(p.body, text)
+		p.show(p.inspect, true)
+		p.set(p.inspect, "重新检查")
+		p.show(p.export, true)
+		p.enable(p.inspect, !p.inspecting)
+		p.enable(p.export, len(p.report) > 0 && !p.inspecting)
+		p.set(p.back, "返回安装")
+		p.enable(p.back, true)
+		p.show(p.next, false)
+		p.set(p.footer, "只读检查")
+	}
 	user.NewProc("InvalidateRect").Call(p.hwnd, 0, 1)
-	if p.model.Page == License && !p.model.Accepted {
+	if p.diagnostics {
+		user.NewProc("SetFocus").Call(p.back)
+	} else if p.model.Page == License && !p.model.Accepted {
 		user.NewProc("SetFocus").Call(p.agree)
 	} else if p.model.Page != Installing {
 		user.NewProc("SetFocus").Call(p.next)
 	}
 }
 func (p *wizard) start() {
+	p.inspectionRun++ // Ignore a read that began before this installation.
+	p.inspecting = false
+	p.installError = ""
+	p.report = nil
+	p.inspectionText = ""
 	p.running = true
 	go func() {
 		path, err := p.config.Work(p.ctx, p.model.Options, func(s string) { p.progressMu.Lock(); p.progress = s; p.progressMu.Unlock() })
@@ -502,13 +551,18 @@ func (p *wizard) close() {
 func (p *wizard) tick() {
 	select {
 	case result := <-p.inspected:
-		p.inspecting = false
-		p.report = result.report
-		p.inspectionText = result.text
-		if p.model.Page == Welcome {
-			p.set(p.body, result.text)
-			p.enable(p.inspect, true)
-			p.enable(p.export, len(p.report) > 0)
+		if result.run == p.inspectionRun {
+			p.inspecting = false
+			p.report = withInstallationFailure(result.report, p.config.Version, p.installError)
+			p.inspectionText = result.text
+			if p.installError != "" {
+				p.inspectionText += "\r\n\r\n本次安装失败：\r\n" + p.installError
+			}
+			if p.diagnostics {
+				p.set(p.body, p.inspectionText)
+				p.enable(p.inspect, true)
+				p.enable(p.export, len(p.report) > 0)
+			}
 		}
 	default:
 	}
@@ -524,18 +578,14 @@ func (p *wizard) tick() {
 		p.running = false
 		p.model.Page = Finished
 		p.succeeded = result.err == nil
+		p.failedCancelled = errors.Is(result.err, context.Canceled)
+		if result.err != nil {
+			p.installError = result.err.Error()
+		}
 		if p.succeeded {
 			p.installed = result.path
 		}
 		p.render()
-		if result.err != nil {
-			if errors.Is(result.err, context.Canceled) {
-				p.set(p.heading, "安装已取消")
-			} else {
-				p.set(p.heading, "安装未完成")
-			}
-			p.set(p.body, "安装没有完成，已保留需要恢复的文件与记录。\r\n已有共享运行库和 Apple 组件会保留。\r\n\r\n"+result.err.Error()+"\r\n\r\n处理上述问题后，可以再次运行同一安装包。")
-		}
 	default:
 		if !p.cancelling {
 			p.progressMu.Lock()
@@ -553,14 +603,16 @@ func (p *wizard) startInspection() {
 		return
 	}
 	p.inspecting = true
+	p.inspectionRun++
+	run := p.inspectionRun
 	p.report = nil
 	p.inspectionText = "正在读取现有安装状态…"
-	if p.model.Page == Welcome {
+	if p.diagnostics {
 		p.set(p.body, p.inspectionText)
 		p.enable(p.inspect, false)
 		p.enable(p.export, false)
 	}
-	go func() { text, report := p.config.Inspect(); p.inspected <- inspectionResult{text, report} }()
+	go func() { text, report := p.config.Inspect(); p.inspected <- inspectionResult{run, text, report} }()
 }
 
 // These are the amd64 SDK layouts for PAINTSTRUCT, HIGHCONTRASTW and
@@ -733,4 +785,22 @@ func (p *wizard) changeDPI(w, l uintptr) {
 		p.set(p.body, "正在取消并等待安装安全结束…")
 	}
 	user.NewProc("RedrawWindow").Call(p.hwnd, 0, 0, 0x185)
+}
+
+// Reports from the native inspector contain only installation metadata. Retain
+// the actual installer failure too, so a post-failure report explains the gate.
+func withInstallationFailure(report []byte, version, problem string) []byte {
+	var fields map[string]any
+	if json.Unmarshal(report, &fields) != nil || fields == nil {
+		return report
+	}
+	fields["installerVersion"] = version
+	if problem != "" {
+		fields["installationError"] = problem
+	}
+	out, e := json.MarshalIndent(fields, "", "  ")
+	if e != nil {
+		return report
+	}
+	return append(out, '\n')
 }

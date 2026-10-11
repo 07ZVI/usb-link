@@ -39,10 +39,6 @@ func runSetupWizard(ctx context.Context) {
 		Directory: filepath.Join(root, connectioninstall.CurrentApplicationDirectory),
 		License:   "USB Link 使用 GPL-3.0-only 与官方 Wintun DLL 链接例外。\r\nWintun 使用随包附带的官方预编译二进制许可。\r\nApple 等外部组件须在各自官方安装向导中单独同意条款。\r\n\r\n" + string(terms),
 		Work: func(work context.Context, options setupwizard.Options, progress func(string)) (string, error) {
-			progress("正在检查现有安装…")
-			if err := connectioninstall.PreflightLocalInstallationForSetup(version); err != nil {
-				return "", err
-			}
 			var preparing atomic.Bool
 			preparing.Store(true)
 			unsubscribe := dependencies.Default.ObserveProgress(func(s dependencies.Status) {
@@ -58,35 +54,41 @@ func runSetupWizard(ctx context.Context) {
 				progress(text)
 			})
 			defer unsubscribe()
-			for _, id := range options.Dependencies() {
-				if err := work.Err(); err != nil {
-					return "", err
-				}
-				if _, err := dependencies.Ensure(work, id); err != nil {
-					return "", err
-				}
-			}
-			preparing.Store(false)
-			progress("正在安装 USB Link…")
-			phaseCtx, stopPhases := context.WithCancel(work)
-			phasesDone := make(chan struct{})
-			go func() {
-				defer close(phasesDone)
-				timer := time.NewTicker(250 * time.Millisecond)
-				defer timer.Stop()
-				for {
-					select {
-					case <-phaseCtx.Done():
-						return
-					case <-timer.C:
-						progress(connectioninstall.InstallationProgressText())
+			return setupwizard.Install(work, options, setupwizard.InstallationActions{
+				Check:   func() (bool, error) { return connectioninstall.PlanLocalInstallationForSetup(version) },
+				Prepare: func(ctx context.Context, id string) error { _, e := dependencies.Ensure(ctx, id); return e },
+				Cleanup: func(ctx context.Context) error {
+					preparing.Store(false)
+					backup, e := connectioninstall.RepairDeletedInstallation(ctx)
+					if e != nil && backup != "" {
+						return fmt.Errorf("%w\n残留记录备份：%s", e, backup)
 					}
-				}
-			}()
-			installed, err := installBundledRelease(work)
-			stopPhases()
-			<-phasesDone
-			return installed, err
+					return e
+				},
+				Progress: progress,
+				Install: func(work context.Context) (string, error) {
+					preparing.Store(false)
+					phaseCtx, stopPhases := context.WithCancel(work)
+					phasesDone := make(chan struct{})
+					go func() {
+						defer close(phasesDone)
+						timer := time.NewTicker(250 * time.Millisecond)
+						defer timer.Stop()
+						for {
+							select {
+							case <-phaseCtx.Done():
+								return
+							case <-timer.C:
+								progress(connectioninstall.InstallationProgressText())
+							}
+						}
+					}()
+					installed, err := installBundledRelease(work)
+					stopPhases()
+					<-phasesDone
+					return installed, err
+				},
+			})
 		},
 	})
 	if err != nil {
