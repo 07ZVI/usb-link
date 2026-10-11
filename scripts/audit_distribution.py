@@ -16,7 +16,10 @@ def entry(name,data,source=False,depth=0):
  if source and pathlib.Path(name).suffix.lower() in BINARY and not (depth==0 and name.endswith('-source.zip') and data.startswith(b'PK\x03\x04')):errors.append(name+' binary in public source')
  if depth>4:errors.append(name+' nested archive limit');return
  if len(data)>256<<20:errors.append(name+' file limit');return
- # Inspect every embedded ZIP end, including ZIPs inside the native launcher PE.
+ # A regular ZIP's compressed bytes may contain an inner EOCD but not its
+ # original local-header offsets. Inspect its logical entries once; raw EOCD
+ # scanning is reserved for embedded resources in non-ZIP files such as PE.
+ normal_zip=data.startswith(b'PK\x03\x04');normal_zip_found=False
  pos=0
  while True:
   pos=data.find(b'PK\x05\x06',pos)
@@ -24,8 +27,12 @@ def entry(name,data,source=False,depth=0):
   if pos+22>len(data):break
   end=pos+22+int.from_bytes(data[pos+20:pos+22],'little');pos+=4
   if end>len(data):continue
+  if normal_zip and end!=len(data):continue
   try:z=zipfile.ZipFile(io.BytesIO(data[:end]))
   except(zipfile.BadZipFile,ValueError):continue
+  if normal_zip:
+   normal_zip_found=True
+   if z.infolist() and min(f.header_offset for f in z.infolist())!=0:errors.append(name+' unexpected prefixed archive');z.close();continue
   archives+=1
   if len(z.infolist())>5000 or sum(f.file_size for f in z.infolist())>512<<20:errors.append(name+' unbounded archive');continue
   for f in z.infolist():
@@ -34,6 +41,7 @@ def entry(name,data,source=False,depth=0):
    try:entry(name+'!/'+f.filename,z.read(f),source,depth+1)
    except(Exception) as e:errors.append(name+' corrupt archive '+str(e))
   z.close()
+ if normal_zip and not normal_zip_found:errors.append(name+' corrupt ZIP footer')
 def source():
  # Git, rather than a recursive walk, defines the publication boundary. This
  # never traverses ignored private directories, but catches force-added files.

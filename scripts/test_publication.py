@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise publication boundaries in disposable repositories with synthetic data."""
 import json
+import io
 import os
 from pathlib import Path
 import shutil
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 AUDIT = Path(__file__).with_name('audit_distribution.py')
 
@@ -73,6 +75,30 @@ class PublicationTests(unittest.TestCase):
         self.git('commit', '-qm', 'Remove from current tree')
         self.assertEqual(self.audit('--source')[0], 0)
         self.assertEqual(self.audit('--history')[0], 1)
+
+    def test_normal_zip_entries_are_inspected_once(self):
+        package = self.root / 'package'
+        package.mkdir()
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, 'w') as z:
+            z.writestr('note.txt', 'Original synthetic fixture')
+        with zipfile.ZipFile(package / 'bundle.zip', 'w', zipfile.ZIP_STORED) as z:
+            z.writestr('inner.zip', inner.getvalue())
+        code, result = self.audit('--package', str(package))
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['archives_inspected'], 2)
+
+    def test_forbidden_nested_binary_remains_rejected(self):
+        package = self.root / 'package'
+        package.mkdir()
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, 'w') as z:
+            z.writestr('wintun.dll', 'Synthetic forbidden binary')
+        with zipfile.ZipFile(package / 'bundle.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('inner.zip', inner.getvalue())
+        code, result = self.audit('--package', str(package))
+        self.assertEqual(code, 1)
+        self.assertTrue(any('external component' in e for e in result['errors']))
 
 
 if __name__ == '__main__':
