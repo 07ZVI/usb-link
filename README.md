@@ -16,9 +16,13 @@ Apple packages, Wintun, Zadig/libwdi, and the .NET runtime are **not included** 
 
 ## Build
 
+This checkout is also the daily development repository. Keep private materials
+under the Git-ignored `.local/` directory. See [workspace and synchronization](docs/WORKSPACE.md).
+
 Install Go 1.26, .NET SDK 10.0.100 and Python 3.9 or newer. On a clean checkout:
 
 ```sh
+python3 scripts/project.py setup
 python3 scripts/project.py check
 python3 scripts/project.py package
 ```

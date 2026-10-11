@@ -7,3 +7,14 @@
 .DS_Store
 __pycache__/
 *.pyc
+# Private workspace material; never part of the shared source repository.
+/.local/
+/.env
+/.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+*.pcap
+*.pcapng
+*.log

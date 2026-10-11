@@ -7,3 +7,8 @@ Run `python3 scripts/project.py check` and `python3 scripts/project.py package` 
 Keep native SMB and compatibility SMB tests/acceptance separate. Preserve protected journal ownership and independent readback. A retained log or successful cross-build is not hardware proof. Report Windows/Mac/iPad validation separately and leave untested cases pending.
 
 This source repository intentionally has a new public history. The original development history, package archives, untracked local documents and device evidence stay in their local source workspace.
+
+Develop directly in this checkout; do not maintain a second publication copy.
+Run `python3 scripts/project.py setup` once per clone to enable the Git checks.
+Private material belongs in the ignored `.local/` directory. See
+[workspace and synchronization](docs/WORKSPACE.md).

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Fail closed on external components, archives, private materials and local state."""
-import argparse,io,json,pathlib,re,sys,zipfile
+import argparse,io,json,pathlib,re,subprocess,sys,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 FORBIDDEN=re.compile(r'(?i)(^|/)(wintun\.dll|zadig[^/]*\.exe|itunes[^/]*\.exe|apple[^/]*\.(msi|dll|sys|cat)|usbaapl[^/]*|dotnet\.exe|hostfxr\.dll|coreclr\.dll|.*\.(pfx|p12|pem|key|msi|cab))$')
 BINARY={'.exe','.dll','.sys','.zip','.tar','.gz','.7z','.dmg','.pkg','.app','.pfx','.p12','.cab','.msi'}
 SECRET=re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,}|/Users/[A-Za-z0-9][A-Za-z0-9._-]*/')
 errors=[];archives=0;entries=0
-IGNORED={'.git','out','bin','obj','assets','__pycache__','.avalonia-build-tasks'}
+PRIVATE={'.local','.env','.git','evidence','archive','tooling','reference','deliverables'}
 def entry(name,data,source=False,depth=0):
  global entries,archives
  entries+=1
+ if source and any(p in PRIVATE or p.startswith('.env.') for p in pathlib.PurePosixPath(name).parts):errors.append(name+' local-only path in public source')
  if FORBIDDEN.search(name):errors.append(name+' external component/private material')
  if SECRET.search(data):errors.append(name+' private identity/credential')
  if source and pathlib.Path(name).suffix.lower() in BINARY and not (depth==0 and name.endswith('-source.zip') and data.startswith(b'PK\x03\x04')):errors.append(name+' binary in public source')
@@ -34,11 +35,38 @@ def entry(name,data,source=False,depth=0):
    except(Exception) as e:errors.append(name+' corrupt archive '+str(e))
   z.close()
 def source():
- for f in ROOT.rglob('*'):
-  rel=f.relative_to(ROOT)
-  if any(x in IGNORED for x in rel.parts) or not f.is_file():continue
-  if f.is_symlink():errors.append(str(rel)+' symlink');continue
-  entry(rel.as_posix(),f.read_bytes(),True)
+ # Git, rather than a recursive walk, defines the publication boundary. This
+ # never traverses ignored private directories, but catches force-added files.
+ names=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z'],cwd=ROOT).split(b'\0')
+ for raw in sorted(set(names)-{b''}):
+  name=raw.decode('utf-8');f=ROOT/name
+  if f.is_symlink():errors.append(name+' symlink');continue
+  if not f.exists():continue  # locally deleted, not yet staged
+  if not f.is_file():errors.append(name+' nested repository/non-file');continue
+  entry(name,f.read_bytes(),True)
+def staged():
+ # Inspect the index, not the working copy: unstaged edits cannot conceal a
+ # staged credential from a commit check.
+ rows=subprocess.check_output(['git','ls-files','--stage','-z'],cwd=ROOT).split(b'\0')
+ objects=[]
+ for row in rows:
+  if not row:continue
+  meta,name=row.split(b'\t',1);mode,oid,stage=meta.split()
+  if stage!=b'0' or mode not in (b'100644',b'100755'):errors.append(name.decode()+' unsupported index entry');continue
+  objects.append((oid,name.decode()))
+ scan_objects(objects)
+def history():
+ rows=subprocess.check_output(['git','rev-list','--objects','--all'],cwd=ROOT).splitlines()
+ objects=[(row.split(b' ',1)[0],row.split(b' ',1)[1].decode()) for row in rows if b' ' in row]
+ scan_objects(objects)
+def scan_objects(objects):
+ data=subprocess.check_output(['git','cat-file','--batch'],input=b''.join(oid+b'\n' for oid,_ in objects),cwd=ROOT)
+ stream=io.BytesIO(data)
+ for oid,name in objects:
+  header=stream.readline().split()
+  if len(header)!=3:raise RuntimeError('Cannot read Git object '+oid.decode())
+  size=int(header[2]);body=stream.read(size);stream.read(1)
+  if header[1]==b'blob':entry(name,body,True)
 def package(path):
  path=pathlib.Path(path)
  for f in path.iterdir():
@@ -47,8 +75,10 @@ def package(path):
  assets=ROOT/'internal/app/launcher/assets'
  if assets.exists():
   for f in assets.glob('*.zip'):entry(f.name,f.read_bytes())
-parser=argparse.ArgumentParser();parser.add_argument('--source',action='store_true');parser.add_argument('--package');a=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--source',action='store_true');parser.add_argument('--staged',action='store_true');parser.add_argument('--history',action='store_true');parser.add_argument('--package');a=parser.parse_args()
 if a.source:source()
+if a.staged:staged()
+if a.history:history()
 if a.package:package(a.package)
 result={'status':'failed' if errors else 'passed','files_and_entries':entries,'archives_inspected':archives,'errors':errors}
 print(json.dumps(result,ensure_ascii=False,indent=2));sys.exit(bool(errors))

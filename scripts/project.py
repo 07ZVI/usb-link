@@ -42,11 +42,16 @@ def prepare():
  zipped(ASSETS/'desktop.zip',files);notices()
  return bridge
 def check():
+ run([sys.executable,'scripts/test_publication.py'])
  if os.name=='nt':prepare()
  run([GO,'test']+(['-race'] if os.name!='nt' else [])+['./...'])
  run([GO,'vet','./...'])
  run([sys.executable,'scripts/check_architecture.py'])
- run([sys.executable,'scripts/audit_distribution.py','--source'])
+ run([sys.executable,'scripts/audit_distribution.py','--source','--history'])
+def setup():
+ run(['git','config','--local','core.hooksPath','.githooks'])
+ run(['git','config','--local','pull.ff','only'])
+ print('Commit/push checks enabled; pulls require a fast-forward.')
 def build():
  bridge=prepare()
  go_build('./cmd/ipad-usb-easy',OUT/f'USB-Link-{VERSION}-windows-x64.exe',True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge)
@@ -73,5 +78,5 @@ def verify():
  files=sorted(f for f in OUT.iterdir() if f.is_file() and f.suffix in ['.zip','.exe'])
  (OUT/'SHA256SUMS').write_text(''.join(f'{sha(f)}  {f.name}\n' for f in files))
 if __name__=='__main__':
- a=argparse.ArgumentParser();a.add_argument('command',choices=['check','build','package','verify']);args=a.parse_args()
+ a=argparse.ArgumentParser();a.add_argument('command',choices=['setup','check','build','package','verify']);args=a.parse_args()
  globals()[args.command]()
