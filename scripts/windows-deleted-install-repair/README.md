@@ -1,0 +1,13 @@
+# Deleted-install operator recovery
+
+This private Windows x64 helper responds to an operator deleting all of `Program Files/USB Link`. It is not linked into the public installer and never restores a missing binding by adopting an existing service. `build.py` uses a Go overlay to reuse the production native service, source, ACL, mutex and dependency checks without changing public installer behavior.
+
+The reviewed state is a missing program root, a stopped/PID-zero `USBLinkCore` pointing to `0.9.3/USB-Link.exe --core-service`, and the product's exact 0.8.139 uninstall registration. Either old object may be absent after an interrupted repair. Other paths, versions, commands, ownership, service policies or running USB Link processes stop the tool. It does not stop services, change their configuration, or modify accounts, shares, drivers, firewall/network settings or protected recovery journals.
+
+Before removal, it saves and flushes a protected native configuration/security backup in `ProgramData/USB Link/DeletedInstallRecovery/<time>/before.json`, checks the backup, and rechecks both residuals. It holds the normal core lifecycle mutex. Partial failures retain the backup and can be retried only if remaining objects still match. A deleted service must actually disappear before installation starts.
+
+The new installer is build-pinned by SHA-256 and held open denying write/delete throughout launch. Local .NET and Wintun must pass the existing pinned dependency checks before residual removal. The supplied offline kit prepares any missing components first. UAC must run in an interactive administrator session.
+
+The tool waits for 0.9.5 registration, verified source/binding and a running core over five consecutive observations. This proves installation and service startup only. It does not claim USB connectivity, SMB access or browser throughput acceptance. Reports contain only installation state and bounded startup stage/error fields; full diagnostics and original recovery journals stay on Windows.
+
+Build with `python3 scripts/windows-deleted-install-repair/build.py`. Windows native vet/cross-build can run on macOS; execution and device acceptance require the affected Windows machine. Do not distribute this operator recovery kit as a public USB Link release.
