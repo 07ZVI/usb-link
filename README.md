@@ -18,6 +18,21 @@ USB Link turns the USB connection into a usable network. Once connected, devices
 
 Current application UI preview. Devices, traffic and speeds use example data; this is not a hardware benchmark.
 
+## Components to prepare
+
+These components are for the **Windows x64 host**. Prepare only those required by the devices you use. Let USB Link check existing components first; a full reinstall is unnecessary.
+
+| Component | Purpose and when needed | Reusing an existing installation | Official download |
+| --- | --- | --- | --- |
+| .NET 10 Runtime (x64) | Desktop interface; end users do not need the SDK | Reuses a system installation containing `Microsoft.NETCore.App 10.x`; .NET 8/9 alone or an x86 installation does not satisfy this check | [Microsoft downloads](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) |
+| Apple Mobile Device Support / Service | Windows-to-iPad communication; unnecessary for Mac-only connections | Checks the existing Apple communication service first; do not uninstall iTunes or other Apple software preemptively | [Apple iTunes for Windows](https://www.apple.com/itunes/) |
+| Apple USB driver | Windows recognition and connection of iPad | Skips installation when the target device already has the required driver binding; otherwise checks and prepares it | [Microsoft Update Catalog](https://www.catalog.update.microsoft.com/Search.aspx?q=Apple%20Mobile%20Device) |
+| Wintun 0.14.1 (AMD64) | Windows virtual network adapter for Mac connections and the iPad shared-host path | Reuses USB Link's verified private copy; DLLs installed by other VPN applications are not automatically reused | [Wintun](https://www.wintun.net/) |
+| Zadig 2.9 | Preparing WinUSB bindings for Mac USB interfaces when needed | Unnecessary when those interfaces already use WinUSB; downloading the tool alone does not bind a driver | [Zadig](https://zadig.akeo.ie/) |
+| Windows WinUSB, SMB and other OS components | USB device access, file sharing and network management | Provided by Windows, with no separate download; SMB still needs accounts, folders and permissions configured | Included with Windows |
+
+The [component preparation guide](docs/DEPENDENCIES.md) provides direct official downloads for pinned versions, existing-installation checks and preparation before going offline. SMB access on Mac/iPad uses Finder/Files without an additional SMB client.
+
 ## Getting started
 
 1. Connect your Mac or iPad to Windows with a USB Type-C cable that supports data transfer.
