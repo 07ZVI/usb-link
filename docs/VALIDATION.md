@@ -1,4 +1,4 @@
-# Validation record: 0.9.1 candidate
+# Validation record: 0.9.2 candidate
 
 Baseline: 0.8.140. Public history starts with modular source, then dependency acquisition/rebuilding, then Internet sharing. The source-only refactor checkpoint preserves original runtime compatibility identities; distribution preparation is completed by the subsequent dependency commit. Validate the final HEAD for a public build.
 
@@ -59,3 +59,29 @@ and SMB/catalog handle and directory-metadata cases. They have not been diagnose
 or resolved by the README/feature-removal work. The current push triggers a new
 run; no successful Windows runtime acceptance is claimed. These failures block a
 stable end-user release, even though local cross-build and package audits pass.
+
+## 0.9.2 browser throughput
+
+Mac throughput measurements now use the browser page on the existing USB-only
+Windows listener. No Mac throughput executable or installed script is required.
+The desktop shows a selectable URL, browser instructions, progress/results and
+cancellation. iPad measurements retain their separate session and URL.
+
+The complete macOS Go race suite, native vet, architecture checks and source/history
+audits passed. Focused fixtures also passed for peer/Host/origin/token enforcement,
+Mac/iPad labeling, unavailable native routes, browser heartbeat freshness and
+inactive-session URL suppression. The actual browser completed both throughput
+directions on a loopback fixture, then restarted and cancelled a second test.
+Loopback numbers are not USB performance measurements. See
+[browser measurement boundaries](BROWSER-SPEED-TEST.md).
+
+The 30-second browser WebSocket test also completed with 3000/3000 echoes on the
+loopback fixture. The Avalonia macOS renderer passed the connection smoke test,
+including the selectable Mac URL, browser button, unavailable-link state,
+cancellation button and existing diagnostic-window lifecycle checks. The Windows
+x64 desktop/launcher and both Mac network agents cross-built successfully;
+Windows vet and the release-surface symbol check passed.
+
+Windows runtime, Safari on the connected Mac, local installation and physical USB
+throughput acceptance remain pending. The hosted Windows failures above are not
+resolved by this change.

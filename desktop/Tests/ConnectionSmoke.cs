@@ -23,8 +23,10 @@ public sealed partial class Dashboard
             var reconnects = this.GetVisualDescendants().OfType<Button>().Where(b => AutomationProperties.GetName(b)?.StartsWith("重新連線 ") == true).ToArray();
             if (reconnects.Length != 2 || !reconnects.Any(b => AutomationProperties.GetName(b) == "重新連線 Mac") || !reconnects.Any(b => AutomationProperties.GetName(b) == "重新連線 iPad") || reconnects.Any(b => b.Content is TextBlock))
                 throw new InvalidOperationException("device reconnect icons");
+            var macSpeed = this.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "瀏覽器測速 Mac");
+            if(!macSpeed.IsEnabled || ToolTip.GetTip(macSpeed) is not string macTip || !macTip.Contains("http://10.6.9.1:10690/speed/") || !labels.Contains("http://10.6.9.1:10690/speed/"))throw new InvalidOperationException("Mac browser measurement URL must be visible and enabled without a native peer");
             var speedLink = this.GetVisualDescendants().OfType<Button>().Single(b => b.Content is TextBlock t && t.Text == "測速網址");
-            if (ToolTip.GetTip(speedLink) is not string tip || !tip.Contains("http://10.6.9.1:58723/")) throw new InvalidOperationException("benchmark tooltip URL");
+            if (ToolTip.GetTip(speedLink) is not string tip || !tip.Contains("http://10.6.9.1:58723/speed/")) throw new InvalidOperationException("benchmark tooltip URL");
             if (!ExtendClientAreaToDecorationsHint || ExtendClientAreaChromeHints != Avalonia.Platform.ExtendClientAreaChromeHints.NoChrome || root.Margin.Top != 8 || captionMinimize == null || captionMaximize == null || captionClose == null)
                 throw new InvalidOperationException("custom titlebar configuration and controls");
             ToggleWindowMaximized();
@@ -41,6 +43,10 @@ public sealed partial class Dashboard
                 throw new InvalidOperationException("retry availability must be independent per device");
             using(var legacy=JsonDocument.Parse("""{"device":"Mac","connected":true}"""))Update(legacy.RootElement);
             if(chipText.Text!="已連線 · 1 台裝置")throw new InvalidOperationException("legacy core connection summary");
+            using(var noBrowser=JsonDocument.Parse("""{"devices":[{"device":"Mac","connected":true,"benchmark_available":true}]}"""))Update(noBrowser.RootElement);
+            if(macSpeed.IsEnabled)throw new InvalidOperationException("USB connection alone must not enable browser measurement without a URL");
+            using(var browserBusy=JsonDocument.Parse("""{"devices":[{"device":"Mac","connected":true,"benchmark_url":"http://10.6.9.1:10690/speed/","measurement_busy":true,"measurement_progress":50}]}"""))Update(browserBusy.RootElement);
+            if(!macSpeed.IsEnabled || AutomationProperties.GetName(macSpeed)!="取消測速 Mac")throw new InvalidOperationException("running browser measurement needs cancellation");
             SeedPreview();
             UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
             CaptureConnectionPreview(this, "dashboard");

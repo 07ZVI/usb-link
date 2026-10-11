@@ -21,6 +21,7 @@ public sealed partial class Dashboard
             peak = Label("", 11, key: "Subtle"),
             speed = Label("USB 協商速率尚未取得", 11, key: "Muted"), latency = Label("延遲 · 未測得", 11, key: "Muted"),
             summary = Label("", 11, key: "Muted");
+        readonly SelectableTextBlock benchmarkAddress = new() { FontSize = 11, TextWrapping = TextWrapping.Wrap };
         readonly Sparkline chart = new() { MinHeight = 40 };
         readonly ProgressBar progress = new() { Minimum = 0, Maximum = 100, Height = 3, IsVisible = false };
         readonly Button benchmark, reconnect;
@@ -41,8 +42,8 @@ public sealed partial class Dashboard
             health = Icons.Make(Icons.Info, 14, "Muted");
             benchmark = owner.Action("", () =>
             {
-                if (kind == "Mac") owner.Send(busy ? "benchmark-cancel" : "benchmark-start");
-                else if (url != "") owner.Copy(url, "iPad 測速網址");
+                if (kind == "Mac" && busy) owner.Send("benchmark-cancel");
+                else if (url != "") owner.Copy(url, kind + " 測速網址（請在 " + kind + " 瀏覽器開啟）");
             });
             benchmark.Content = benchmarkLabel; benchmark.Padding = new Thickness(8, 2); benchmark.MinHeight = 24;
             reconnect = owner.IconButton(Icons.Retry, "重新連線 " + kind, () => owner.Send(kind == "Mac" ? "retry-mac" : "retry-ipad"));
@@ -67,7 +68,8 @@ public sealed partial class Dashboard
                 Column(2, Row(7, Label(kind, 16, FontWeight.SemiBold), health), peerAddress));
             var head = Columns("*,Auto", identity, WithMargin(Row(6, benchmark, reconnect), new Thickness(8, 0, 0, 0)));
             var notes = Columns("*,Auto", speed, latency);
-            View = Card(Rows("Auto,6,Auto,6,Auto,4,*,4,Auto,4,Auto", head, Gap(), title, Gap(), Columns("*,Auto", traffic, peak), Gap(), chart, Gap(), notes, Gap(), Column(3, progress, summary)), new Thickness(14, 12));
+            View = Card(Rows("Auto,6,Auto,6,Auto,4,*,4,Auto,4,Auto", head, Gap(), title, Gap(), Columns("*,Auto", traffic, peak), Gap(), chart, Gap(), notes, Gap(), Column(3, progress, summary, benchmarkAddress)), new Thickness(14, 12));
+            benchmarkAddress.Res(TextBlock.ForegroundProperty,"Muted");
             Update(default);
         }
 
@@ -105,13 +107,15 @@ public sealed partial class Dashboard
             latency.Text = S("latency") is { Length: > 0 } lt ? lt : "延遲 · 未測得";
             ToolTip.SetTip(latency, "往返延遲包含協定與應用處理時間，不等於 Moonlight 畫面延遲。\n" + latency.Text);
             busy = B("measurement_busy"); url = S("benchmark_url");
-            benchmarkLabel.Text = kind == "Mac" ? busy ? "取消測速" : "開始測速" : "測速網址";
+            benchmarkLabel.Text = kind == "Mac" ? busy ? "取消測速" : "瀏覽器測速" : "測速網址";
             Avalonia.Automation.AutomationProperties.SetName(benchmark, benchmarkLabel.Text + " " + kind);
-            benchmark.IsEnabled = kind == "Mac" ? busy || B("benchmark_available") : url != "";
+            benchmark.IsEnabled = kind == "Mac" ? busy || url != "" : url != "";
             benchmark.IsVisible = kind == "Mac" || url != "";
-            ToolTip.SetTip(benchmark, kind == "Mac" ? "需 Mac 測試程式配合；不影響 USB 連線或串流。" : url + "\n點擊複製，在 iPad Safari 開啟測速。");
+            ToolTip.SetTip(benchmark, kind == "Mac" && busy ? "取消本次 Mac 瀏覽器測速。" : url + "\n點擊複製，在 " + kind + " 瀏覽器開啟；無需安裝測試程式。");
             progress.IsVisible = busy && kind == "Mac"; progress.Value = N("measurement_progress");
-            summary.Text = kind == "iPad" ? url != "" ? "在 iPad Safari 開啟測速網址。" : "連接後可在 iPad Safari 測速。" : S("benchmark_summary");
+            summary.Text = S("benchmark_summary");
+            benchmarkAddress.Text = url; benchmarkAddress.IsVisible = url != "";
+            Avalonia.Automation.AutomationProperties.SetName(benchmarkAddress,kind+" 瀏覽器測速網址");
             ToolTip.SetTip(summary, summary.Text);
         }
 

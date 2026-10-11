@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -11,14 +12,25 @@ import (
 //go:embed browser.html
 var browserPage string
 
-// NewBrowser is used only by the iPad USB application session. Mac sessions
-// continue to use New and never expose the browser page or browser start API.
+// NewBrowser retains the iPad entry; both devices can measure in their existing
+// browser without installing or running a native test responder.
 func NewBrowser(ctx context.Context, peer, host string, guard func() bool, changed func(Report)) (*Server, error) {
+	return NewBrowserForDevice(ctx, "iPad", peer, host, guard, changed)
+}
+
+func NewBrowserForDevice(ctx context.Context, device, peer, host string, guard func() bool, changed func(Report)) (*Server, error) {
+	if device != "Mac" && device != "iPad" {
+		return nil, fmt.Errorf("unsupported browser measurement device")
+	}
+	if host == "" {
+		return nil, fmt.Errorf("browser measurement host required")
+	}
 	s, e := New(ctx, peer, guard, changed)
 	if e != nil {
 		return nil, e
 	}
 	s.browserHost = host
+	s.browserDevice = device
 	return s, nil
 }
 func (s *Server) browserCommand() NativeCommand {
@@ -30,6 +42,7 @@ func (s *Server) browserPage(w http.ResponseWriter) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+s.token+"'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	page := strings.ReplaceAll(browserPage, "__NONCE__", s.token)
+	page = strings.ReplaceAll(page, "__DEVICE__", s.browserDevice)
 	page = strings.Replace(page, "__CONFIG__", string(config), 1)
 	w.Write([]byte(page))
 }

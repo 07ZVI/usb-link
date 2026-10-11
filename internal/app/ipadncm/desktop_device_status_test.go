@@ -1,6 +1,9 @@
 package ipadncm
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDesktopPeerAddressDoesNotPresentPlannedOrStaleAddressAsAssigned(t *testing.T) {
 	for _, tc := range []struct {
@@ -61,7 +64,7 @@ func TestDesktopDisplaysBothSessionsWithoutSelection(t *testing.T) {
 		t.Fatal("both slots required in stable order", r)
 	}
 	m, i := desktopDeviceStatus(r[0], false), desktopDeviceStatus(r[1], false)
-	if m["tx"] != float64(800) || i["tx"] != float64(160) || m["benchmark_available"] != true || i["benchmark_available"] != false || i["benchmark_url"] != "http://10.6.9.1:1234/" {
+	if m["tx"] != float64(800) || i["tx"] != float64(160) || m["benchmark_available"] != true || i["benchmark_available"] != true || i["benchmark_url"] != "http://10.6.9.1:1234/" || m["benchmark_url"] != "http://10.6.9.1:10690/speed/" || m["benchmark_ready"] != false {
 		t.Fatal("device-specific traffic or benchmark state crossed sessions", m, i)
 	}
 	ipad.update(func(r *ApplicationResult) { r.Status = "MONITOR_WAITING"; r.ObservedTransmitMbps = 0 })
@@ -96,6 +99,23 @@ func TestDesktopConnectionColorsFollowPeerEvidenceAndRecovery(t *testing.T) {
 	} {
 		if got := desktopDeviceStatus(tc.r, tc.stopping)["connection_state"]; got != tc.want {
 			t.Fatalf("%s stopping=%v got=%s want=%s", tc.r.Status, tc.stopping, got, tc.want)
+		}
+	}
+}
+
+func TestMacBrowserLinkRequiresActiveServicesAndNeverDependsOnNativePolling(t *testing.T) {
+	for _, tc := range []struct {
+		status                   string
+		services, stopping, want bool
+	}{
+		{"MAC_RUNNING", true, false, true}, {"MAC_RUNNING", false, false, false}, {"MONITOR_WAITING", true, false, false}, {"MAC_RUNNING", true, true, false},
+	} {
+		v := desktopDeviceStatus(ApplicationResult{DeviceKind: "Mac", Status: tc.status, ServicesReady: tc.services, BenchmarkURL: "stale"}, tc.stopping)
+		if (v["benchmark_url"] != "") != tc.want || v["benchmark_available"] != tc.want {
+			t.Fatal("incorrect browser link availability", v)
+		}
+		if strings.Contains(v["benchmark_summary"].(string), "測試程式尚未啟動") {
+			t.Fatal("native dependency in browser flow")
 		}
 	}
 }

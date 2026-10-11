@@ -36,13 +36,19 @@ func (s *Server) nativePoll(w http.ResponseWriter) {
 	s.mu.Unlock()
 	writeJSON(w, v)
 }
-func (s *Server) NativeState() (ready, busy bool, progress int) {
+
+// MeasurementState reports either native polling or a browser's recent latency
+// readback. Opening a URL alone does not prove that the page is still responding.
+func (s *Server) MeasurementState() (ready, busy bool, progress int) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ready = !s.closed && s.ctx.Err() == nil && time.Since(s.nativeSeen) < 3*time.Second
+	if s.browserHost != "" {
+		ready = !s.closed && s.ctx.Err() == nil && !s.latencyAt.IsZero() && time.Since(s.latencyAt) < 8*time.Second
+	}
 	if s.run == nil {
 		return
 	}
@@ -53,6 +59,13 @@ func (s *Server) NativeState() (ready, busy bool, progress int) {
 		progress = min(99, int(elapsed/22*100))
 	} else if r.report.Status == "complete" {
 		progress = 100
+	}
+	return
+}
+func (s *Server) NativeState() (ready, busy bool, progress int) {
+	ready, busy, progress = s.MeasurementState()
+	if s != nil && s.browserHost != "" {
+		ready = false
 	}
 	return
 }

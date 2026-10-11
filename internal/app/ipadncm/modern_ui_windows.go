@@ -322,11 +322,7 @@ func (u *modernUI) action(a string) {
 		}
 
 	case "benchmark-start":
-		if e := throughput.DeviceCurrent("Mac").StartNative(); e != nil {
-			u.setNotice(e.Error())
-		} else {
-			u.setNotice("已開始主動雙向測速。")
-		}
+		u.setNotice("請在 Mac 瀏覽器開啟 http://10.6.9.1:10690/speed/，並在網頁開始測速；無需安裝測試程式。")
 	case "benchmark-cancel":
 		throughput.DeviceCurrent("Mac").CancelNative()
 	case "stop":

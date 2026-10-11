@@ -44,6 +44,8 @@ The [component preparation guide](docs/DEPENDENCIES.md) provides direct official
 
 SMB and other applications still need their services, accounts and firewall permissions configured. A direct USB network does not automatically share Internet access; Windows → Mac Internet sharing is a separate, optional feature and starts off.
 
+For throughput measurement, select **瀏覽器測速** in the Windows Mac card and open the displayed URL in the Mac browser. Start the test on that page; no Mac measurement program or script is required. Results include browser overhead.
+
 ## Status
 
 See [VERSION](VERSION). This is a preview: **Windows/Mac/iPad hardware acceptance is still pending**. Successful builds and automated tests do not establish support for every device. See [validation](docs/VALIDATION.md).

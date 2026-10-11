@@ -1,0 +1,9 @@
+# Browser USB throughput measurement
+
+Mac measurements use the existing browser and need no native measurement program or installed script. Connect USB, select **瀏覽器測速** in the Windows Mac card to copy the URL, then open the displayed `http://10.6.9.1:10690/speed/` address in the Mac browser. Start or cancel from that page; Windows also shows progress/results and can cancel a running measurement. The iPad page uses its own session URL and labels. Keep the page in the foreground; throughput tests cancel when it leaves the foreground.
+
+The service measures Windows-to-device and device-to-Windows HTTP/TCP payload throughput, with bounded byte/time/concurrency budgets. Receiver-side byte counts are validated, and upload timing comes from the Windows receiver. Browser and TCP scheduling affect the result; this is not USB PHY speed or a UDP-loss measurement. A separate browser WebSocket RTT test remains available. No results/data are sent to an external service and no test payload is stored as files.
+
+Each browser service is bound to its USB peer and exact HTTP Host. Existing origin/fetch-site checks, per-session token, active connection guard, no-store headers and Content Security Policy apply. Mac and iPad sessions cannot access or cancel each other's measurements. Native polling/start routes are unavailable in these browser sessions; `cmd/usb-throughput` remains a development diagnostic only.
+
+Go fixtures cover Mac/iPad labeling, peer and origin rejection, missing token, native-route rejection, heartbeat freshness, overlap, byte accounting, cancellation and expiration. Desktop fixtures cover the visible URL, copied-link entry, disabled entry without an active URL and running-test cancellation. Browser and cross-build tests do not establish Windows/Mac USB hardware throughput; that requires installing the new Windows build and testing with the actual connected Mac.

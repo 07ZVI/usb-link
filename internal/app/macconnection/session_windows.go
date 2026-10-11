@@ -872,7 +872,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					}
 					serviceGuard := func() bool { return ctx.Err() == nil && CurrentRoot() == root }
 					service := &usbservice.Handler{PeerIP: "10.6.9.2", Guard: serviceGuard}
-					test, er := throughput.New(ctx, "10.6.9.2", serviceGuard, func(v throughput.Report) { update(func(r *Result) { r.Benchmark = v }) })
+					test, er := throughput.NewBrowserForDevice(ctx, "Mac", "10.6.9.2", "10.6.9.1:10690", serviceGuard, func(v throughput.Report) { update(func(r *Result) { r.Benchmark = v }) })
 					if er != nil {
 						return fmt.Errorf("FILE_SPEED_PREPARATION_FAILED: %w", er)
 					}
@@ -901,6 +901,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					throughput.SetDeviceCurrent("Mac", test)
 					update(func(r *Result) {
 						r.ServicesReady = true
+						r.BenchmarkURL = "http://10.6.9.1:10690/speed/"
 						r.ShareReady = share != nil
 						r.ServicesError = ""
 						if share != nil {

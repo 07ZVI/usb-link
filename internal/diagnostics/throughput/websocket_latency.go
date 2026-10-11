@@ -10,11 +10,11 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-// Browser WebSocket timing includes Safari/TCP scheduling; it must never be
+// Browser WebSocket timing includes browser/TCP scheduling; it must never be
 // reported as UDP loss, one-way video latency or the physical USB latency.
 func (s *Server) browserLatency(w http.ResponseWriter, q *http.Request) {
 	if s.browserHost == "" || q.Header.Get("Origin") != "http://"+s.browserHost || q.URL.RawQuery != "" {
-		http.Error(w, "same-origin iPad session required", 403)
+		http.Error(w, "same-origin USB browser session required", 403)
 		return
 	}
 	s.mu.Lock()

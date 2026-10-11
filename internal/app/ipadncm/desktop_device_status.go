@@ -8,19 +8,25 @@ import (
 // Each slot derives its metrics and measurement state from its own USB session.
 func desktopDeviceStatus(r ApplicationResult, stopping bool) map[string]any {
 	speedServer := throughput.DeviceCurrent(r.DeviceKind)
-	nativeReady, nativeBusy, nativeProgress := speedServer.NativeState()
-	nativeReport := speedServer.NativeReport()
-	measurement := nativeReport.Summary()
-	if r.DeviceKind == "iPad" {
-		measurement = "在 iPad 瀏覽器開啟測速網址。"
-	} else if nativeReport.Status == "" {
-		if nativeReady {
-			measurement = "Mac 測速端已就緒，按「開始測速」測試雙向吞吐。"
+	measurementReady, measurementBusy, measurementProgress := speedServer.MeasurementState()
+	measurementReport := speedServer.NativeReport()
+	measurement := measurementReport.Summary()
+	benchmarkURL := ""
+	if !stopping && r.DeviceKind == "Mac" && r.ServicesReady && r.Status == "MAC_RUNNING" {
+		benchmarkURL = "http://10.6.9.1:10690/speed/"
+	} else if !stopping && r.DeviceKind == "iPad" && sessionRunning(r) {
+		benchmarkURL = r.BenchmarkURL
+	}
+	if measurementReport.Status == "" {
+		if benchmarkURL == "" {
+			measurement = "連接後可在 " + r.DeviceKind + " 瀏覽器測速。"
+		} else if measurementReady {
+			measurement = r.DeviceKind + " 瀏覽器已連接，請在網頁按「開始測速」。"
 		} else {
-			measurement = "Mac 測試程式尚未啟動，暫時無法測速；不影響 USB 連線或串流。"
+			measurement = "在 " + r.DeviceKind + " 瀏覽器開啟下方網址測速，無需安裝程式。"
 		}
 	}
-	measuring, progress := nativeBusy, nativeProgress
+	measuring, progress := measurementBusy, measurementProgress
 	latencyText := "延遲 · 未測得"
 	if ms, ok := speedServer.LiveLatency(); ok {
 		latencyText = fmt.Sprintf("HTTP 往返 · %.1f ms", ms)
@@ -51,9 +57,9 @@ func desktopDeviceStatus(r ApplicationResult, stopping bool) map[string]any {
 		"detail": detail, "windows_ipv4": r.WindowsIPv4, "connected": sessionRunning(r),
 		"peer_ipv4": peer, "peer_address_state": addressState, "retry_available": !stopping && desktopRetryAvailable(r),
 		"tx": r.ObservedTransmitMbps, "rx": r.ObservedReceiveMbps, "speed": speed, "health": health,
-		"latency": latencyText, "benchmark_url": r.BenchmarkURL, "benchmark_summary": measurement,
-		"benchmark_ready":     nativeReady,
-		"benchmark_available": r.DeviceKind == "Mac" && r.ServicesReady && r.Status == "MAC_RUNNING",
+		"latency": latencyText, "benchmark_url": benchmarkURL, "benchmark_summary": measurement,
+		"benchmark_ready":     measurementReady,
+		"benchmark_available": benchmarkURL != "",
 		"measurement_busy":    measuring, "measurement_progress": progress,
 		"benchmark_visible": r.DeviceKind != "iPad",
 	}

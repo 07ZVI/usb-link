@@ -70,6 +70,7 @@ type Server struct {
 	latencyMS       float64
 	latencyAt       time.Time
 	browserHost     string
+	browserDevice   string
 	nativeSeen      time.Time
 	nativeClaimed   bool
 	peer            string
