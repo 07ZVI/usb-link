@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc/mgr"
 	"suhang/usbnet/internal/app/remoteupdate"
+	"suhang/usbnet/internal/transport/ipadsession"
 )
 
 const installationReadyName = "installation-ready.json"
@@ -375,40 +376,43 @@ func (o *nativeInstallation) BindPrevious(t InstallationTransaction) error {
 			return e
 		}
 	}
-	if e := migrateInstallationState(o.state); e != nil {
-		return e
+	if t.Previous == nil || filepath.Base(filepath.Dir(t.Previous.Executable)) != CurrentApplicationDirectory {
+		if e := migrateInstallationState(o.state); e != nil {
+			return e
+		}
 	}
 	return migrateInstallationSecurity(o.state)
 }
 func migrateInstallationState(state string) error {
-	old, e := coreStateDirectory()
+	root, e := protectedRoot(false)
 	if e != nil {
 		return e
 	}
-	if strings.EqualFold(old, state) {
+	// Repeat each item independently: a crash after copying the binding must
+	// not make the remaining preferences disappear on the next attempt.
+	binding, present, e := readCoreBinding()
+	if e != nil {
+		return e
+	}
+	if present {
+		if e = writeInstallationJSON(filepath.Join(state, coreBindingFile), binding); e != nil {
+			return e
+		}
+	}
+	source := filepath.Join(root, "connection-preferences.json")
+	b, e := coreProtectedReadBounded(source, false, true, 32768)
+	if os.IsNotExist(e) || e == windows.ERROR_FILE_NOT_FOUND {
 		return nil
 	}
-	for _, name := range []string{coreBindingFile, "connection-preferences.json"} {
-		path := filepath.Join(old, name)
-		b, e := coreProtectedReadBounded(path, false, true, 32768)
-		if os.IsNotExist(e) || e == windows.ERROR_FILE_NOT_FOUND {
-			continue
-		}
-		if e != nil {
-			return e
-		}
-		dest := filepath.Join(state, name)
-		if _, e = os.Lstat(dest); e == nil {
-			return fmt.Errorf("INSTALL_STATE_CONFLICT")
-		} else if !os.IsNotExist(e) {
-			return e
-		}
-		if e = writeInstallationJSON(dest, json.RawMessage(b)); e != nil {
-			return e
-		}
+	if e != nil {
+		return e
 	}
-	return nil
+	if _, e = ipadsession.ParsePreferences(b); e != nil {
+		return e
+	}
+	return writeInstallationJSON(filepath.Join(state, "connection-preferences.json"), json.RawMessage(b))
 }
+
 func (o *nativeInstallation) Publish(t InstallationTransaction) error {
 	if e := cleanInstallationPartials(o.candidate, o.app, t.NextFiles); e != nil {
 		return e
