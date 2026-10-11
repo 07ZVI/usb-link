@@ -1,0 +1,9 @@
+/out/
+/internal/app/launcher/assets/
+/desktop/bin/
+/desktop/obj/
+/desktop/.avalonia-build-tasks/
+*.user
+.DS_Store
+__pycache__/
+*.pyc

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>USB Link · 測速</title>
+<style>
+:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f5f8;color:#192331}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:32px 20px}.card{width:100%;max-width:640px;background:#fff;border:1px solid #e4e8ee;border-radius:28px;padding:36px;box-shadow:0 16px 64px #13294309}.brand{font-size:14px;font-weight:650;color:#54657b;letter-spacing:.04em;display:flex;align-items:center;gap:9px}.dot{width:8px;height:8px;background:#17a27e;border-radius:50%}h1{font-size:32px;letter-spacing:-.04em;margin:24px 0 8px}p{line-height:1.6}.sub{color:#687789;margin:0;font-size:14px}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:28px 0 22px}.metric{background:#f5f7fa;padding:22px;border-radius:18px}.label{font-size:13px;color:#657488}.value{font-size:42px;font-weight:650;letter-spacing:-.05em;font-variant-numeric:tabular-nums;margin:12px 0 4px;line-height:1.1}.unit{font-size:12px;color:#687789}.bar{height:5px;border-radius:9px;background:#e8edf4;overflow:hidden}.fill{height:100%;width:0;background:#3569e8;transition:width .15s linear}#status{min-height:24px;font-size:14px;margin:12px 0 20px;color:#53647b}button{font:inherit;font-weight:600;border:0;border-radius:13px;background:#3569e8;color:white;width:100%;padding:15px;cursor:pointer;touch-action:manipulation}button:disabled{opacity:.55;cursor:wait}button:focus-visible{outline:3px solid #92b4ff;outline-offset:3px}.meta{display:flex;justify-content:space-between;gap:12px;font-size:13px;border-top:1px solid #e6ebf1;padding-top:18px;margin:24px 0 0;color:#687789}#latency{color:#253b56;font-variant-numeric:tabular-nums}.fine{font-size:12px;line-height:1.7;color:#7b8797;margin:18px 0 0}.error{color:#ba4249!important}@media(max-width:480px){.card{padding:26px 20px;border-radius:22px}.metric{padding:18px 14px}.value{font-size:34px}h1{font-size:28px}}@media(prefers-color-scheme:dark){:root{background:#10141b;color:#edf2fa}.card{background:#191f29;border-color:#293240}.metric{background:#222b38}.sub,.label,.unit,#status,.meta{color:#a8b5c7}.brand,.fine{color:#97a7bc}.bar{background:#303c4e}.meta{border-color:#303c4e}#latency{color:#dee8fa}}
+</style></head><body><main class="card"><div class="brand"><span class="dot"></span>USB Link <span style="margin-left:auto;font-weight:400">iPad 測速</span></div><h1>測試這條 USB 連線</h1><p class="sub">約 25 秒，測量雙向傳輸速度。建議先暫停串流。</p><section class="metrics"><div class="metric"><div class="label">Windows → iPad</div><div class="value" id="down">—</div><div class="unit">MB/s · 下載</div></div><div class="metric"><div class="label">iPad → Windows</div><div class="value" id="up">—</div><div class="unit">MB/s · 上傳</div></div></section><div class="bar" role="progressbar" aria-label="測速進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress"><div class="fill" id="fill"></div></div><p id="status" role="status" aria-live="polite">準備就緒</p><button id="start">開始測速</button><div class="meta"><span>HTTP 往返延遲</span><span id="latency">—</span></div><button id="ws-start" style="margin-top:16px">測試延遲（30 秒）</button><p id="ws-status" role="status" class="sub" style="margin-top:12px">WebSocket 往返 · 含瀏覽器和 TCP 排程</p><button id="ws-export" hidden style="margin-top:12px">儲存延遲結果</button><p class="fine">資料只在這條 USB 連線傳送，不會存成檔案。結果包含瀏覽器開銷，不等於 USB 協商速率，也不代表 UDP 丟包率。請保持本頁在前景。</p></main>
+<script nonce="__NONCE__">
+'use strict';
+const cfg=__CONFIG__, el=id=>document.getElementById(id), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let busy=false, controller=null, run='', cancelled=false;
+let wsBusy=false, wsStop=null, wsReport=null;
+function progress(n){el('fill').style.width=n+'%';el('progress').setAttribute('aria-valuenow',Math.round(n));}
+async function request(path,method='GET',body=null,signal=controller?.signal){
+ const r=await fetch('/speed/'+path,{method,body,signal,cache:'no-store',credentials:'omit',headers:{'X-Suhang-Test':cfg.token,'X-Suhang-Run':run}});
+ if(!r.ok){const e=new Error(r.status===403?'USB 連線驗證失敗，請重新連接後重新整理。':r.status===409?'測試狀態已變更，請重試。':'傳輸未完成，請確認 USB 連線。');e.status=r.status;throw e;}return r;
+}
+async function ping(signal=controller?.signal){const start=performance.now();await (await request('ping','GET',null,signal)).text();return performance.now()-start;}
+async function phase(direction,idle){
+ const upload=direction==='upload', start=performance.now(), end=start+cfg.Seconds*1000;
+ let bytes=0,reserved=0, stopPing=false, pingError=null;const samples=[];
+ el('status').textContent=upload?'正在測試 iPad → Windows…':'正在測試 Windows → iPad…';
+ const ticker=setInterval(()=>progress((upload?50:0)+Math.min(49,(performance.now()-start)/cfg.Seconds/20)),100);
+ const latency=(async()=>{while(!stopPing&&!controller.signal.aborted){try{samples.push(await ping());}catch(e){if(!controller.signal.aborted){pingError=e;controller.abort();}}await sleep(180);}})();
+ const payload=new Uint8Array(cfg.Chunk);
+ const workers=Array.from({length:cfg.Streams},async()=>{
+  while(performance.now()<end&&!controller.signal.aborted&&reserved+cfg.Chunk<=cfg.MaxBytes){
+   reserved+=cfg.Chunk;
+   const r=await request(upload?'up':'down',upload?'POST':'GET',upload?payload:null);
+   const n=upload?(await r.json()).bytes:(await r.arrayBuffer()).byteLength;
+   if(n!==cfg.Chunk)throw new Error('資料不完整，本次結果未採用。');bytes+=n;
+   el(upload?'up':'down').textContent=(bytes/((performance.now()-start)/1000)/1e6).toFixed(1);
+  }
+ });
+ let seconds;
+ try{await Promise.all(workers);seconds=(performance.now()-start)/1000;}catch(e){controller.abort();await Promise.allSettled(workers);throw e;}finally{clearInterval(ticker);stopPing=true;await latency;if(pingError)throw pingError;}
+ if(controller.signal.aborted)throw new Error('測試已取消');
+ const body=JSON.stringify({direction,bytes,seconds,rtt:samples,idle});let report;
+ for(let i=0;i<15;i++){try{report=await (await request('finish','POST',body)).json();break;}catch(e){if(e.status!==409||i===14)throw e;await sleep(100);}}
+ el(upload?'up':'down').textContent=((upload?report.device_to_windows:report.windows_to_device).mbps/8).toFixed(1);
+ return report;
+}
+async function start(){
+ busy=true;cancelled=false;controller=new AbortController();run='';el('start').textContent='取消測速';el('status').classList.remove('error');el('down').textContent=el('up').textContent=el('latency').textContent='—';progress(0);
+ try{
+  const v=await (await request('start','POST',null,AbortSignal.timeout(8000))).json();run=v.id;if(controller.signal.aborted)throw new Error("測試已取消");
+  el('status').textContent='正在測量延遲…';const idle=[];for(let i=0;i<10;i++){idle.push(await ping());await sleep(50);}
+  const sorted=[...idle].sort((a,b)=>a-b);el('latency').textContent=sorted[Math.floor((sorted.length-1)/2)].toFixed(1)+' ms';
+  await phase('download',idle);await phase('upload',[]);progress(100);el('status').textContent='測試完成';
+ }catch(e){controller.abort();if(run){try{await request('cancel','POST',null,AbortSignal.timeout(2000));}catch(_){} }
+  el('status').textContent=cancelled?'測試已取消':(e.name==='AbortError'?'測試中斷，請重新測試。':e.message);el('status').classList.toggle('error',!cancelled);
+ }finally{busy=false;el('start').textContent='重新測速';el('start').disabled=false;}
+}
+el('start').addEventListener('click',()=>{if(busy){cancelled=true;controller.abort();el('start').disabled=true;el('status').textContent='正在取消…';}else start();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&busy){cancelled=true;controller.abort();}});
+async function idleLatency(){
+ if(busy||wsBusy||document.hidden)return;
+ try{const ms=await ping(AbortSignal.timeout(2500));if(busy)return;
+ await request('latency','POST',JSON.stringify({ms}),AbortSignal.timeout(2500));
+ el('latency').textContent=ms.toFixed(1)+' ms';}catch(_){}
+}
+
+function wsLatency(){
+ if(wsBusy){wsStop?.('使用者取消');return;}if(document.hidden)return;
+ wsBusy=true;wsReport=null;el('ws-export').hidden=true;el('ws-start').textContent='取消延遲測試';
+ const ws=new WebSocket('ws://'+location.host+'/speed/ws-latency');ws.binaryType='arraybuffer';
+ const sent=new Map(), seen=new Set(), samples=[];let begun=0,ticker=null,endTimer=null,closed=false,finished=false,skippedBuffer=0,duplicates=0;
+ const startedUTC=new Date().toISOString();
+ const setupTimer=setTimeout(()=>finish('連線或驗證逾時'),4000);
+ function finish(error=''){
+  if(finished)return;finished=true;clearTimeout(setupTimer);clearTimeout(endTimer);clearInterval(ticker);closed=true;ws.close();wsBusy=false;wsStop=null;el('ws-start').textContent='重新測試延遲（30 秒）';
+  const a=[...samples].sort((x,y)=>x-y),q=p=>a.length?a[Math.ceil(a.length*p)-1]:null;
+  const elapsed=begun?(performance.now()-begun)/1000:0;
+  wsReport={method:'Safari WebSocket64 RTT includes browser and TCP scheduling; missing echoes are not UDP loss',started_utc:startedUTC,requested_seconds:30,elapsed_seconds:elapsed,requested_hz:100,expected_schedule_slots:3000,sent:sent.size,received:seen.size,uncompleted_echoes:sent.size-seen.size,duplicate_echoes:duplicates,skipped_schedule_slots:3000-sent.size,skipped_for_browser_send_queue:skippedBuffer,p50_ms:q(.5),p99_ms:q(.99),max_ms:q(1),rtt_ms:samples,interrupted_or_error:error||null,throughput_test_active_at_end:busy};
+  el('ws-status').textContent=error?'測試未完成：'+error:(a.length?'WebSocket 往返：p50 '+q(.5).toFixed(2)+' ms · p99 '+q(.99).toFixed(2)+' ms · 未完成回顯 '+(sent.size-seen.size)+' · 送出 '+sent.size+'/3000':'沒有收到回顯，延遲未測得');el('ws-export').hidden=false;
+ }
+ wsStop=finish;
+ function sendPacket(){
+  const now=performance.now(),seq=Math.floor((now-begun)/10);if(seq>=3000||closed||sent.has(seq))return;
+  if(ws.bufferedAmount>2048){skippedBuffer++;return;}
+  const b=new Uint8Array(64);new DataView(b.buffer).setUint32(0,seq);b.set(new TextEncoder().encode('USBLWS01'),4);sent.set(seq,now);ws.send(b.buffer);
+ }
+ ws.onopen=()=>ws.send('authorize:'+cfg.token);
+ ws.onmessage=e=>{
+  if(!begun){if(e.data!=='ready'){finish('驗證未完成');return;}clearTimeout(setupTimer);begun=performance.now();el('ws-status').textContent='正在測量 30 秒；請保持本頁在前景。';sendPacket();ticker=setInterval(sendPacket,10);endTimer=setTimeout(()=>{clearInterval(ticker);endTimer=setTimeout(()=>finish(),500);},30000);return;}
+  const now=performance.now();if(!(e.data instanceof ArrayBuffer)||e.data.byteLength!==64){finish('回顯格式錯誤');return;}
+  const b=new Uint8Array(e.data),seq=new DataView(e.data).getUint32(0);if(new TextDecoder().decode(b.slice(4,12))!=='USBLWS01'||!sent.has(seq)){finish('回顯不屬於本次測試');return;}
+  if(seen.has(seq)){duplicates++;return;}seen.add(seq);samples.push(now-sent.get(seq));
+ };
+ ws.onerror=()=>finish('USB 連線中斷或延遲服務未就緒');ws.onclose=()=>{if(!closed)finish('連線在測試結束前關閉');};
+}
+el('ws-start').addEventListener('click',wsLatency);
+el('ws-export').addEventListener('click',()=>{if(!wsReport)return;const u=URL.createObjectURL(new Blob([JSON.stringify(wsReport,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download='usb-link-ipad-websocket-latency.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&wsBusy)wsStop?.('測試頁離開前景');});
+
+setInterval(idleLatency,3000);idleLatency();
+</script></body></html>

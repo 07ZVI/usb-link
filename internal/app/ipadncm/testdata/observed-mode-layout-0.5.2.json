@@ -1,0 +1,633 @@
+{
+  "source_diagnostic_sha256": "e6e0eccab08adcfe8a91e2d9ca6bb9b485dc50b49769b02fe8a3cd3a6922c78d",
+  "before": {
+    "current": 3,
+    "configurations": [
+      {
+        "index": 0,
+        "value": 1,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 1,
+        "value": 2,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 1,
+            "subclass": 1,
+            "protocol": 0,
+            "endpoints": null
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 1,
+            "subclass": 2,
+            "protocol": 0,
+            "endpoints": null
+          },
+          {
+            "number": 1,
+            "alternate": 1,
+            "class": 1,
+            "subclass": 2,
+            "protocol": 0,
+            "endpoints": [
+              {
+                "address": 129,
+                "type": 1,
+                "max_packet": 192
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 0,
+            "class": 3,
+            "subclass": 0,
+            "protocol": 0,
+            "endpoints": [
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 2,
+        "value": 3,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 254,
+            "protocol": 2,
+            "endpoints": [
+              {
+                "address": 2,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 131,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 3,
+        "value": 4,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 254,
+            "protocol": 2,
+            "endpoints": [
+              {
+                "address": 2,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 131,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 253,
+            "protocol": 1,
+            "endpoints": null
+          },
+          {
+            "number": 2,
+            "alternate": 1,
+            "class": 255,
+            "subclass": 253,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 132,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 3,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 2,
+            "class": 255,
+            "subclass": 253,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 132,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 3,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      }
+    ]
+  },
+  "after": {
+    "current": 5,
+    "configurations": [
+      {
+        "index": 0,
+        "value": 1,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 1,
+        "value": 2,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 1,
+            "subclass": 1,
+            "protocol": 0,
+            "endpoints": null
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 1,
+            "subclass": 2,
+            "protocol": 0,
+            "endpoints": null
+          },
+          {
+            "number": 1,
+            "alternate": 1,
+            "class": 1,
+            "subclass": 2,
+            "protocol": 0,
+            "endpoints": [
+              {
+                "address": 129,
+                "type": 1,
+                "max_packet": 192
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 0,
+            "class": 3,
+            "subclass": 0,
+            "protocol": 0,
+            "endpoints": [
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 2,
+        "value": 3,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 254,
+            "protocol": 2,
+            "endpoints": [
+              {
+                "address": 2,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 131,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 3,
+        "value": 4,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 254,
+            "protocol": 2,
+            "endpoints": [
+              {
+                "address": 2,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 131,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 253,
+            "protocol": 1,
+            "endpoints": null
+          },
+          {
+            "number": 2,
+            "alternate": 1,
+            "class": 255,
+            "subclass": 253,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 132,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 3,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 2,
+            "class": 255,
+            "subclass": 253,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 132,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 3,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 0
+      },
+      {
+        "index": 4,
+        "value": 5,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternate": 0,
+            "class": 6,
+            "subclass": 1,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 1,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 129,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 130,
+                "type": 3,
+                "max_packet": 64
+              }
+            ]
+          },
+          {
+            "number": 1,
+            "alternate": 0,
+            "class": 255,
+            "subclass": 254,
+            "protocol": 2,
+            "endpoints": [
+              {
+                "address": 2,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 131,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "alternate": 0,
+            "class": 2,
+            "subclass": 13,
+            "protocol": 0,
+            "endpoints": [
+              {
+                "address": 132,
+                "type": 3,
+                "max_packet": 16
+              }
+            ],
+            "union_slaves": "Aw==",
+            "functional_descriptors": [
+              {
+                "subtype": 0,
+                "length": 5,
+                "version": 272
+              },
+              {
+                "subtype": 15,
+                "length": 13,
+                "max_segment_size": 16014
+              },
+              {
+                "subtype": 26,
+                "length": 6,
+                "version": 256,
+                "capabilities": 187
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "alternate": 0,
+            "class": 10,
+            "subclass": 0,
+            "protocol": 1,
+            "endpoints": null
+          },
+          {
+            "number": 3,
+            "alternate": 1,
+            "class": 10,
+            "subclass": 0,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 133,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 3,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          },
+          {
+            "number": 4,
+            "alternate": 0,
+            "class": 2,
+            "subclass": 13,
+            "protocol": 0,
+            "endpoints": null,
+            "union_slaves": "BQ==",
+            "functional_descriptors": [
+              {
+                "subtype": 0,
+                "length": 5,
+                "version": 272
+              },
+              {
+                "subtype": 15,
+                "length": 13,
+                "max_segment_size": 16014
+              },
+              {
+                "subtype": 26,
+                "length": 6,
+                "version": 256,
+                "capabilities": 187
+              }
+            ]
+          },
+          {
+            "number": 5,
+            "alternate": 0,
+            "class": 10,
+            "subclass": 0,
+            "protocol": 1,
+            "endpoints": null
+          },
+          {
+            "number": 5,
+            "alternate": 1,
+            "class": 10,
+            "subclass": 0,
+            "protocol": 1,
+            "endpoints": [
+              {
+                "address": 134,
+                "type": 2,
+                "max_packet": 1024
+              },
+              {
+                "address": 4,
+                "type": 2,
+                "max_packet": 1024
+              }
+            ]
+          }
+        ],
+        "ncm_controls": 2
+      }
+    ]
+  }
+}
