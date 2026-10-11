@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Single public build entry: python3 scripts/project.py check|build|package|verify."""
-import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfile
+import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfile,urllib.request
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 VERSION=(ROOT/'VERSION').read_text().strip()
 OUT=ROOT/'out'
@@ -38,11 +38,34 @@ def notices():
  for f in sorted((ROOT/'licenses').rglob('*')):
   if f.is_file() and f.suffix.lower()=='.txt':parts+=['\n--- '+f.relative_to(ROOT).as_posix()+' ---\n',f.read_text()]
  (ASSETS/'notices.txt').write_text(''.join(parts))
+ wizard_terms=[(ROOT/'LICENSE').read_text(),(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(),(ROOT/'licenses/Wintun-Binary-LICENSE.txt').read_text(),(ROOT/'licenses/libwdi-LGPL-LICENSE.txt').read_text(),'Zadig 2.9 / libwdi 1.5.1: GPL-3.0-or-later / LGPL-3.0-or-later. Unmodified official binary. Source: https://github.com/pbatard/libwdi/archive/refs/tags/v1.5.1.zip\nComplete third-party notices can be exported with --licenses.\n']
+ (ASSETS/'setup-license.txt').write_text('\n\n'.join(wizard_terms))
  (ASSETS/'sources.json').write_text(json.dumps({'version':VERSION,'external_dependencies':json.loads((ROOT/'internal/dependencies/catalog.json').read_text()),'go_module':'go.mod','go_lock':'go.sum','desktop_lock':'desktop/packages.lock.json'},indent=2)+'\n')
  shutil.copyfile(ROOT/'licenses/provenance/SMB-LICENSES-0.8.36.txt',ASSETS/'smb-licenses.txt')
  shutil.copyfile(ROOT/'licenses/provenance/SMB-SOURCES-0.8.36.json',ASSETS/'smb-sources.json')
+def prepare_bundled_dependencies():
+ # Official redistributable driver/tool bytes; no proprietary Apple package.
+ for asset in json.loads((ROOT/'internal/dependencies/catalog.json').read_text())['assets']:
+  if asset['id'] not in ('wintun','zadig'):continue
+  name=asset['url'].rsplit('/',1)[1]
+  target=ASSETS/name
+  sources=[ROOT/'offline-components'/name,target]
+  data=None
+  for path in sources:
+   if path.is_file() and not path.is_symlink():
+    candidate=path.read_bytes()
+    if len(candidate)<=asset['max_bytes'] and hashlib.sha256(candidate).hexdigest()==asset['digest']:
+     data=candidate;break
+  if data is None:
+   with urllib.request.urlopen(asset['url'],timeout=60) as response:
+    data=response.read(asset['max_bytes']+1)
+  if len(data)>asset['max_bytes'] or hashlib.sha256(data).hexdigest()!=asset['digest']:
+   raise ValueError('Official component hash mismatch: '+asset['id'])
+  target.write_bytes(data)
+  print('Verified redistributable official '+asset['id']+' package included.',flush=True)
 def prepare():
  ASSETS.mkdir(parents=True,exist_ok=True);OUT.mkdir(exist_ok=True)
+ prepare_bundled_dependencies()
  go_build('./cmd/suhang-usbnet',OUT/'suhang-usbnet.exe')
  go_build('./cmd/usb-resource',ASSETS/'usb-resource.exe')
  zipped(ASSETS/'mac-payload.zip',{'suhang-usbnet.exe':OUT/'suhang-usbnet.exe'})
@@ -86,7 +109,27 @@ def package():
  run(['git','archive','--format=zip','--prefix=usb-link/','--output',OUT/f'USB-Link-{VERSION}-source.zip','HEAD'])
  verify()
  retain_installers()
+ deliver_installer()
  write_checksums()
+def deliver_installer():
+ # Publish only after verification; preserve the selected accepted rollback.
+ source=OUT/f'USB-Link-{VERSION}-windows-x64.exe'
+ target=ROOT/f'USB-Link-Setup-{VERSION}.exe'
+ temporary=ROOT/f'.USB-Link-Setup-{VERSION}.exe.tmp'
+ if target.is_symlink() or temporary.exists():raise ValueError('Redirected/occupied installer delivery path')
+ shutil.copyfile(source,temporary)
+ if sha(temporary)!=sha(source):raise ValueError('Installer delivery hash mismatch')
+ temporary.replace(target)
+ retention=json.loads((OUT/'installer-retention.json').read_text())
+ removed=[]
+ for item in retention['removed']:
+  match=re.fullmatch(r'USB-Link-(\d+\.\d+\.\d+)-windows-x64\.exe',item['path'])
+  if not match:continue
+  old=ROOT/f'USB-Link-Setup-{match[1]}.exe'
+  if old.is_file() and not old.is_symlink() and sha(old)==item['sha256']:
+   removed.append({'name':old.name,'sha256':item['sha256']});old.unlink()
+ (OUT/'installer-delivery.json').write_text(json.dumps({'version':VERSION,'name':target.name,'bytes':target.stat().st_size,'sha256':sha(target),'removed':removed},indent=2)+'\n')
+ print('Installer delivered at repository root: '+target.name,flush=True)
 def retain_installers():
  # Run only after the complete package passes inspection. An explicitly chosen
  # rollback may be kept separately from public build output.

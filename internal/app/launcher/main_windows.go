@@ -465,6 +465,7 @@ func installationFailure(r *Result, stage, message string) {
 func Main() {
 	dependencies.Configure(connectioninstall.DependencyDirectory, connectioninstall.VerifyDependencyPath)
 	dependencies.Default.SetOfflineArchiveSource(connectioninstall.LocalDependencyArchive)
+	dependencies.Default.SetBundledArchiveSource(bundledDependencyArchive)
 	if dispatchWintunLifecycleProbe() {
 		return
 	}
@@ -538,6 +539,14 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		return
 	}
+	// Setup is a native wizard before any dependency download or installation.
+	// An owned installed image keeps its ordinary application/service path.
+	if !service && !resident && !uninstall && !preparedInstall && remoteInstallID == "" {
+		if exe, e := os.Executable(); e != nil || connectioninstall.Verify(exe) != nil {
+			runSetupWizard(ctx)
+			return
+		}
+	}
 	if !service && !uninstall {
 		if remoteInstallID == "" {
 			if err := connectioninstall.PreflightLocalInstallationForSetup(version); err != nil {
@@ -591,18 +600,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 	}
 	if !service && !resident && !uninstall && !preparedInstall && remoteInstallID == "" {
-		var installed string
-		err := dependencies.WithTextProgress(ctx, "USB Link · 安裝與更新", connectioninstall.InstallationProgressText, func(work context.Context) error { var e error; installed, e = installBundledRelease(work); return e })
-		if err != nil {
-			dialog("安裝／更新未完成，已保留可恢復的檔案與記錄。\n"+err.Error(), 0x10)
-			return
-		}
-		child := exec.Command(installed)
-		if err = child.Start(); err != nil {
-			dialog("程式已安裝，無法開啟介面。\n"+err.Error(), 0x10)
-		} else {
-			_ = child.Process.Release()
-		}
+		runSetupWizard(ctx)
 		return
 	}
 

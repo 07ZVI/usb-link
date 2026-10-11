@@ -270,3 +270,34 @@ func TestOfficialCatalogAndRedirectBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestBundledWintunNeedsNoNetworkAndStillVerifiesBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		bad        bool
+	}{{"valid", "verified", false}, {"tampered", "changed", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, p, a := fixture(t, "verified")
+			a.ID = "wintun"
+			m.Client.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
+				t.Fatal("bundled component requested network")
+				return nil, errors.New("network")
+			})
+			m.SetBundledArchiveSource(func(Asset) []byte { return []byte(tc.body) })
+			_, err := m.ensureAsset(context.Background(), a)
+			if tc.bad {
+				if err == nil || p.installs != 0 {
+					t.Fatal("tampered archive installed", err)
+				}
+				return
+			}
+			if err != nil || p.installs != 1 {
+				t.Fatal(err, p.installs)
+			}
+			m.SetBundledArchiveSource(func(Asset) []byte { t.Fatal("already installed component read bundled archive"); return nil })
+			if _, err := m.ensureAsset(context.Background(), a); err != nil || p.installs != 1 {
+				t.Fatal(err, p.installs)
+			}
+		})
+	}
+}

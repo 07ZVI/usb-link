@@ -93,6 +93,13 @@ func copyPinnedArchive(ctx context.Context, a Asset, source, target string) erro
 		return err
 	}
 	defer in.Close()
+	return copyPinnedArchiveReader(ctx, a, in, target)
+}
+
+func copyPinnedArchiveReader(ctx context.Context, a Asset, in io.Reader, target string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	out, err := os.CreateTemp(filepath.Dir(target), "offline-")
 	if err != nil {
 		return err

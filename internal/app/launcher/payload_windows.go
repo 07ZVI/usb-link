@@ -17,8 +17,23 @@ import (
 	"time"
 )
 
-//go:embed assets/desktop.zip assets/mac-payload.zip assets/mac-sources.json assets/notices.txt assets/sources.json assets/smb-licenses.txt assets/smb-sources.json
+//go:embed assets/desktop.zip assets/mac-payload.zip assets/mac-sources.json assets/notices.txt assets/setup-license.txt assets/sources.json assets/smb-licenses.txt assets/smb-sources.json assets/wintun-0.14.1.zip assets/zadig-2.9.exe
 var payload embed.FS
+
+func bundledDependencyArchive(a dependencies.Asset) []byte {
+	name := ""
+	if a.ID == "wintun" && a.Version == "0.14.1" {
+		name = "assets/wintun-0.14.1.zip"
+	}
+	if a.ID == "zadig" && a.Version == "2.9" {
+		name = "assets/zadig-2.9.exe"
+	}
+	if name == "" {
+		return nil
+	}
+	b, _ := payload.ReadFile(name)
+	return b
+}
 
 // Read only fixed known entries. Existing installer validation then checks each
 // exact file digest and native signature before any registration/installation.

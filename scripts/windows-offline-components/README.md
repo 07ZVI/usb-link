@@ -7,3 +7,5 @@ Wintun is a DLL ZIP, Zadig is a portable device driver tool, and the Apple CAB i
 Build with `python3 scripts/windows-offline-components/build.py` after supplying the original packages described in `packages.json`. The builder validates official hashes and the six-file ZIP, then replaces the old generated folder/archive. Build records stay outside the visible folder. Windows native installation and hardware acceptance remain pending.
 
 References: [Microsoft .NET installer options](https://learn.microsoft.com/en-us/dotnet/core/install/windows), [Wintun's ZIP/DLL distribution](https://www.wintun.net/), [Zadig's device driver role](https://zadig.akeo.ie/), and [TechPowerUp's single-BAT runtime bundle](https://www.techpowerup.com/download/visual-c-redistributable-runtime-package-all-in-one/).
+
+Starting with 0.10.2, the main installer embeds the official Wintun archive and Zadig tool, so their copies in this flat compatibility folder are optional for current USB Link. Apple CAB stays external because an explicit redistribution grant was not found. The BAT remains a simple sequence for .NET/Apple installers.

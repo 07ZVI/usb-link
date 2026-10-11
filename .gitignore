@@ -18,3 +18,8 @@ __pycache__/
 *.pcap
 *.pcapng
 *.log
+
+# User-facing installers and local offline packages.
+/USB-Link-Setup-*.exe
+/offline-components/
+/USB-Link-offline-components-windows-x64.zip

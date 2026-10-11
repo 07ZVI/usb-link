@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """Fail closed on external components, archives, private materials and local state."""
-import argparse,io,json,pathlib,re,subprocess,sys,zipfile
+import argparse,hashlib,io,json,pathlib,re,subprocess,sys,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 FORBIDDEN=re.compile(r'(?i)(^|/)(suhang-update\.exe|usb-send(?:\.exe)?|webdav-check(?:\.exe)?|wintun\.dll|zadig[^/]*\.exe|itunes[^/]*\.exe|apple[^/]*\.(msi|dll|sys|cat)|usbaapl[^/]*|dotnet\.exe|hostfxr\.dll|coreclr\.dll|.*\.(pfx|p12|pem|key|msi|cab))$')
 BINARY={'.exe','.dll','.sys','.zip','.tar','.gz','.7z','.dmg','.pkg','.app','.pfx','.p12','.cab','.msi'}
 SECRET=re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,}|/Users/[A-Za-z0-9][A-Za-z0-9._-]*/')
+WINTUN_PINS=json.loads((ROOT/'licenses/Wintun-distribution.json').read_text())['files']
+ZADIG_PIN='4ecaa95df3da3621486a043aef8b3050b8bafe7c901402871e816229ef82039b'
 errors=[];archives=0;entries=0
 PRIVATE={'.local','.env','.git','evidence','archive','tooling','reference','deliverables'}
 def entry(name,data,source=False,depth=0):
  global entries,archives
  entries+=1
  if source and any(p in PRIVATE or p.startswith('.env.') for p in pathlib.PurePosixPath(name).parts):errors.append(name+' local-only path in public source')
- if FORBIDDEN.search(name):errors.append(name+' external component/private material')
+ logical=name.rsplit('!/',1)[-1]
+ permitted_wintun=not source and logical in WINTUN_PINS and hashlib.sha256(data).hexdigest()==WINTUN_PINS[logical]
+ permitted_zadig=not source and logical=='zadig-2.9.exe' and hashlib.sha256(data).hexdigest()==ZADIG_PIN
+ if FORBIDDEN.search(name) and not (permitted_wintun or permitted_zadig):errors.append(name+' external component/private material')
  if SECRET.search(data):errors.append(name+' private identity/credential')
  if source and pathlib.Path(name).suffix.lower() in BINARY and not (depth==0 and name.endswith('-source.zip') and data.startswith(b'PK\x03\x04')):errors.append(name+' binary in public source')
  if depth>4:errors.append(name+' nested archive limit');return
@@ -64,7 +69,12 @@ def staged():
   objects.append((oid,name.decode()))
  scan_objects(objects)
 def history():
- rows=subprocess.check_output(['git','rev-list','--objects','--all'],cwd=ROOT).splitlines()
+ # Codex turn-diff trees are local UI snapshots, including untracked builds.
+ # They are not source history. Keep auditing every other ref, including any
+ # branch/tag that explicitly publishes the same tree.
+ refs=subprocess.check_output(['git','for-each-ref','--format=%(refname)'],cwd=ROOT,text=True).splitlines()
+ roots=['HEAD']+[r for r in refs if not r.startswith('refs/codex/turn-diffs/')]
+ rows=subprocess.check_output(['git','rev-list','--objects',*roots],cwd=ROOT).splitlines()
  objects=[(row.split(b' ',1)[0],row.split(b' ',1)[1].decode()) for row in rows if b' ' in row]
  scan_objects(objects)
 def scan_objects(objects):
@@ -83,6 +93,7 @@ def package(path):
  assets=ROOT/'internal/app/launcher/assets'
  if assets.exists():
   for f in assets.glob('*.zip'):entry(f.name,f.read_bytes())
+  for f in assets.glob('zadig-*.exe'):entry(f.name,f.read_bytes())
 parser=argparse.ArgumentParser();parser.add_argument('--source',action='store_true');parser.add_argument('--staged',action='store_true');parser.add_argument('--history',action='store_true');parser.add_argument('--package');a=parser.parse_args()
 if a.source:source()
 if a.staged:staged()

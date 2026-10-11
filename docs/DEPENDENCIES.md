@@ -64,8 +64,8 @@ The fixed [catalog](../internal/dependencies/catalog.json) is the sole runtime s
 | --- | --- | --- |
 | Apple communication service | Reuse a signed installed Apple service; otherwise download the original official iTunes Windows installer, display its official license/install UI, and retain its reboot prompt. The original installer may offer/install iTunes. | Not in source/package/release attachments |
 | Apple USB driver | Existing matching drivers first; when missing, obtain the pinned Microsoft Update CAB, retain INF/SYS/CAT and use existing Windows catalog/native installation validation. | External |
-| Wintun 0.14.1 AMD64 | Official fixed ZIP, archive SHA-256 and exact DLL digest; installed privately under the protected product dependency directory. | External; narrow GPL linking permission only for official DLL |
-| Zadig 2.9 / libwdi 1.5.1 | Official executable only when Mac WinUSB preparation needs it; native signature and hash verified; license and matching source URL retained. | External |
+| Wintun 0.14.1 AMD64 | Unmodified official archive embedded in the installer; archive SHA-256, exact DLL digest and original terms retained. Existing compatible DLLs are reused. | Included under the official prebuilt-binary terms and narrow GPL linking permission |
+| Zadig 2.9 / libwdi 1.5.1 | Unmodified official executable embedded; selected Mac preparation copies/validates it without starting driver binding. Native signature, hash, GPL/LGPL notices and matching source URL retained. | Included; source: [libwdi v1.5.1](https://github.com/pbatard/libwdi/archive/refs/tags/v1.5.1.zip) |
 | .NET 10 runtime | Existing compatible system runtime first; otherwise verified Microsoft Windows x64 runtime ZIP extracted to product-private directory. No shared runtime is removed or downgraded. | External |
 | Windows WinUSB/USB NCM/WFP/SMB/WinNAT | Native OS APIs/services and Windows driver installation. | No OS DLL/driver copies |
 | Go and NuGet libraries | Version locks and normal compilation/publish with original notices and source references. | Linked libraries included |
@@ -76,7 +76,7 @@ Native Go progress is available before .NET. Closing it cancels downloads and ex
 
 Uninstall first restores owned network changes and stops the verified core. It then removes only the marked, non-reparse product-private cache/components. A pending gateway recovery journal blocks removal. Existing Apple software, system driver-store packages and shared .NET installations remain installed. Unknown unrelated recovery files remain preserved according to the old ownership contract.
 
-The Apple redistribution exclusion follows [Apple's Windows software license](https://www.apple.com/legal/sla/docs/iTunesWindows.pdf). The GPL linking exception follows [GNU's additional-permission guidance](https://www.gnu.org/licenses/gpl-faq.en.html#GPLIncompatibleLibs). The original [Wintun prebuilt binary terms](https://git.zx2c4.com/wintun/tree/prebuilt-binaries-license.txt) are retained. This exception does not authorize redistribution of Apple packages or other proprietary software.
+The Apple CAB contains INF/SYS/CAT/DLL files but no explicit redistribution grant. Microsoft Update Catalog states that downloaded updates remain governed by their accompanying terms; Microsoft signing is not a redistribution grant. Therefore Apple packages stay external, including for the interactive wizard. The Apple redistribution exclusion follows [Apple's Windows software license](https://www.apple.com/legal/sla/docs/iTunesWindows.pdf). The GPL linking exception follows [GNU's additional-permission guidance](https://www.gnu.org/licenses/gpl-faq.en.html#GPLIncompatibleLibs). The original [Wintun prebuilt binary terms](https://git.zx2c4.com/wintun/tree/prebuilt-binaries-license.txt) are retained. This exception does not authorize redistribution of Apple packages or other proprietary software.
 
 Library versions, source repositories and license paths are in [libraries.json](../licenses/libraries.json). Imported compatibility SMB has a separate commit/file provenance record and complete MIT notice. These permissions are preserved alongside GPL terms, not replaced by them.
 
@@ -96,3 +96,11 @@ changed files cannot authorize reuse. This does not restore file upload or remot
 maintenance in the public build.
 
 0.10.0 supersedes the versioned program/desktop layout above with one active `Program Files/USB Link/App` and transaction-only previous content. See [installation lifecycle](INSTALLATION-LIFECYCLE.zh-CN.md). Windows lifecycle and device acceptance remain pending.
+
+## 0.10.2 interactive Windows installer
+
+Running an external Windows EXE opens a native wizard before any download or installation: Welcome → License → Components → Ready → Installing → Finished. The license checkbox starts unchecked and gates both navigation and installation. USB Link/desktop/.NET and embedded Wintun are required; iPad communication/driver preparation and the embedded Mac driver tool are optional and default unchecked. Optional selection prepares packages only; device binding still requires the existing device-specific checks and consent. Apple installs retain their official license UI. Existing compatible components are reused.
+
+The wizard requires no .NET to display. Cancel before installation performs no dependency preparation. Cancel during work waits for safe component completion and the existing installation transaction/rollback. Completion permits opening the installed program. Running a verified installed image retains normal application/service behavior. Remote upgrades retain their existing authorized transaction path. Program Files and ProgramData layouts, source verification, rollback and uninstall ownership are unchanged.
+
+Wintun/Zadig originals are pinned from official sources during builds and kept out of Git/source archives. Package auditing permits only exact official Wintun DLL paths/hashes and the exact Zadig executable hash; Apple CABs, arbitrary replacement DLLs and third-party installers remain rejected. Binary-source locations and original licenses are included in notices. Build/regression checks do not establish Windows UI, reboot or hardware acceptance.

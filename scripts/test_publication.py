@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise publication boundaries in disposable repositories with synthetic data."""
 import json
+import hashlib
 import io
 import os
 from pathlib import Path
@@ -26,6 +27,8 @@ class PublicationTests(unittest.TestCase):
         self.git('config', 'core.hooksPath', '.no-hooks')
         (self.root / 'scripts').mkdir()
         shutil.copyfile(AUDIT, self.root / 'scripts/audit_distribution.py')
+        (self.root / 'licenses').mkdir()
+        shutil.copyfile(AUDIT.parent.parent / 'licenses/Wintun-distribution.json', self.root / 'licenses/Wintun-distribution.json')
         (self.root / '.gitignore').write_text('/.local/\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'Initial synthetic source')
@@ -76,6 +79,16 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.audit('--source')[0], 0)
         self.assertEqual(self.audit('--history')[0], 1)
 
+    def test_private_app_snapshot_is_not_published_history(self):
+        self.private_file()
+        self.git('add', '-f', '.local/notes.txt')
+        tree = self.git('write-tree').decode().strip()
+        self.git('reset', '-q', 'HEAD')
+        self.git('update-ref', 'refs/codex/turn-diffs/captures/fixture/base', tree)
+        self.assertEqual(self.audit('--history')[0], 0)
+        self.git('tag', 'published-snapshot', tree)
+        self.assertEqual(self.audit('--history')[0], 1)
+
     def test_normal_zip_entries_are_inspected_once(self):
         package = self.root / 'package'
         package.mkdir()
@@ -99,6 +112,30 @@ class PublicationTests(unittest.TestCase):
         code, result = self.audit('--package', str(package))
         self.assertEqual(code, 1)
         self.assertTrue(any('external component' in e for e in result['errors']))
+
+    def test_only_pinned_wintun_binary_is_allowed_in_installer(self):
+        package = self.root / 'package'
+        package.mkdir()
+        payload = b'Synthetic signed fixture'
+        pins = {'files': {'wintun/bin/amd64/wintun.dll': hashlib.sha256(payload).hexdigest()}}
+        (self.root / 'licenses/Wintun-distribution.json').write_text(json.dumps(pins))
+        archive = package / 'bundle.zip'
+        for data, expected in ((payload, 0), (b'Modified binary', 1)):
+            with zipfile.ZipFile(archive, 'w') as z:
+                z.writestr('wintun/bin/amd64/wintun.dll', data)
+            self.assertEqual(self.audit('--package', str(package))[0], expected)
+        # Even a correct binary remains excluded from source distribution.
+        target = self.root / 'wintun/bin/amd64'
+        target.mkdir(parents=True)
+        (target / 'wintun.dll').write_bytes(payload)
+        self.assertEqual(self.audit('--source')[0], 1)
+
+    def test_apple_driver_cab_still_excluded(self):
+        package = self.root / 'package'
+        package.mkdir()
+        with zipfile.ZipFile(package / 'bundle.zip', 'w') as z:
+            z.writestr('AppleUSB/package.cab', 'Unlicensed synthetic fixture')
+        self.assertEqual(self.audit('--package', str(package))[0], 1)
 
 
 if __name__ == '__main__':

@@ -5,8 +5,8 @@ Wintun DLL distributed by the WireGuard project under its prebuilt binaries
 license, and distributing the resulting combination subject to all other GPLv3
 requirements and the Wintun DLL's own terms. This permission applies only to the
 official Wintun DLL; it does not cover Apple components, other proprietary
-libraries, or modified Wintun binaries. This project fetches Wintun separately
-and does not distribute that DLL in its source or installation packages.
+libraries, or modified Wintun binaries. The Windows installation package includes the unmodified official signed
+Wintun archive and its original license; source packages contain no driver binaries.
 
 This permission applies to code owned by the USB Link copyright holders.
 Third-party source and libraries retain their own copyright notices and licenses.

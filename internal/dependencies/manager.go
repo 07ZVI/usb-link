@@ -2,6 +2,7 @@
 package dependencies
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -82,8 +83,17 @@ type Manager struct {
 	Progress       func(Status)
 	localSource    func(Asset) string
 	offlineArchive func(Asset) string
+	bundledArchive func(Asset) []byte
 	observers      map[uint64]func(Status)
 	nextObserver   uint64
+}
+
+// Only redistributable official Wintun/Zadig packages may be supplied by the
+// product image. Catalog digest, native signatures and readiness still apply.
+func (m *Manager) SetBundledArchiveSource(source func(Asset) []byte) {
+	m.mu.Lock()
+	m.bundledArchive = source
+	m.mu.Unlock()
 }
 
 // Progress windows subscribe independently. Restoring a global callback when
@@ -258,6 +268,18 @@ func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err er
 		if _, stat := os.Lstat(archive); stat == nil {
 			return "", errors.New("DEPENDENCY_CACHE_CORRUPTED")
 		}
+		m.mu.Lock()
+		bundled := m.bundledArchive
+		m.mu.Unlock()
+		if bundled != nil && (a.ID == "wintun" || a.ID == "zadig") {
+			if data := bundled(a); len(data) != 0 {
+				if err := copyPinnedArchiveReader(ctx, a, bytes.NewReader(data), archive); err != nil {
+					return "", err
+				}
+			}
+		}
+	}
+	if e = check(a, archive); e != nil {
 		m.mu.Lock()
 		offline := m.offlineArchive
 		m.mu.Unlock()

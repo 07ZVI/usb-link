@@ -27,8 +27,8 @@ USB Link 负责把 USB 连接变成可用的网络。连接建立后，设备之
 | .NET 10 Runtime（x64） | 显示程序界面；普通用户不需要 SDK | 检测系统安装的 `Microsoft.NETCore.App 10.x` 并复用；仅有 .NET 8/9 或 x86 版本不满足此检测 | [Microsoft 下载页](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) |
 | Apple Mobile Device Support／Service | Windows 与 iPad 通信；只连接 Mac 时不需要 | 优先复用现有 Apple 通信服务；是否可用以实际检测为准，不必先卸载 iTunes 或其他 Apple 软件 | [Apple iTunes Windows 下载页](https://www.apple.com/itunes/) |
 | Apple USB 驱动 | Windows 识别和连接 iPad | 目标设备已绑定所需驱动时跳过安装；未绑定时由程序检查并准备 | [Microsoft Update Catalog](https://www.catalog.update.microsoft.com/Search.aspx?q=Apple%20Mobile%20Device) |
-| Wintun 0.14.1（AMD64） | USB 网络的 Windows 虚拟网卡，供 Mac 连接及 iPad 共享主机路径使用 | 复用 USB Link 自己校验过的副本；其他 VPN 软件附带的 DLL 不会自动被复用 | [Wintun 官网](https://www.wintun.net/) |
-| Zadig 2.9 | Mac USB 接口需要绑定 WinUSB 时使用 | 接口已正确绑定 WinUSB 时不需要重新运行；下载工具本身不等于完成驱动绑定 | [Zadig 官网](https://zadig.akeo.ie/) |
+| Wintun 0.14.1（AMD64） | USB 网络的 Windows 虚拟网卡，供 Mac 连接及 iPad 共享主机路径使用 | 已内置官方签名包；复用实际校验通过的兼容 DLL，无需自行下载 | [Wintun 官网](https://www.wintun.net/) |
+| Zadig 2.9 | Mac USB 接口需要绑定 WinUSB 时使用 | 接口已正确绑定 WinUSB 时不需要重新运行；官方工具已内置；准备工具不等于完成驱动绑定 | [Zadig 官网](https://zadig.akeo.ie/) |
 | Windows 自带的 WinUSB、SMB 等系统组件 | USB 设备访问、文件共享及网络管理 | 由 Windows 提供，无需单独下载；SMB 文件共享需要配置账户、目录和权限 | 随 Windows 提供 |
 
 [组件准备指南](docs/DEPENDENCIES.zh-CN.md)列出了固定版本的官方下载直链、已有组件检查方法，以及断网前的准备步骤。Mac／iPad 的 SMB 访问使用系统自带 Finder／“文件”App，无需另装 SMB 客户端。
@@ -36,7 +36,7 @@ USB Link 负责把 USB 连接变成可用的网络。连接建立后，设备之
 ## 如何使用
 
 1. 准备支持数据传输的 USB Type-C 线，将 Mac 或 iPad 连接到 Windows。
-2. 在 Windows 上以管理员权限运行 USB Link，按提示准备所需组件并授权设备。
+2. 在 Windows 运行安装 EXE，按“下一步”阅读并同意条款、选择组件并安装；安装后再授权连接设备。
 3. 等待界面显示设备已连接及其网络地址。不同设备和 USB 接口的支持情况以实际检测结果为准。
 4. 如需共享文件，在“SMB 共享”中添加文件夹并设置账户、权限，然后使用界面提供的连接地址：
    - **Mac**：Finder → 前往 → 连接服务器（⌘K）。
