@@ -706,6 +706,7 @@ func (p *wizard) changeDPI(w, l uintptr) {
 	if dpi < 48 || dpi > 768 || l == 0 {
 		return
 	}
+	p.capture() // Preserve optional checkboxes when moving between monitors.
 	p.dpi = dpi
 	old := []uintptr{p.font, p.headingFont, p.smallFont, p.brandFont}
 	p.font = p.makeFont(16, 400)
