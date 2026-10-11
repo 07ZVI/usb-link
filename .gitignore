@@ -23,3 +23,6 @@ __pycache__/
 /USB-Link-Setup-*.exe
 /offline-components/
 /USB-Link-offline-components-windows-x64.zip
+
+# Reproducible launcher resource, generated and removed by the build.
+/cmd/ipad-usb-easy/zz_setup_windows_amd64.syso

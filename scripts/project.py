@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Single public build entry: python3 scripts/project.py check|build|package|verify."""
 import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfile,urllib.request
+from windows_resource import write_resource, verify_manifest
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 VERSION=(ROOT/'VERSION').read_text().strip()
 OUT=ROOT/'out'
@@ -78,6 +79,7 @@ def prepare():
  return bridge
 def check():
  run([sys.executable,'scripts/test_publication.py'])
+ run([sys.executable,'scripts/test_windows_resource.py'])
  if os.name=='nt':prepare()
  run([GO,'test']+(['-race'] if os.name!='nt' else [])+['./...'])
  run([GO,'vet','./...'])
@@ -89,8 +91,13 @@ def setup():
  print('Commit/push checks enabled; pulls require a fast-forward.')
 def build():
  bridge=prepare()
- verify_release_surface(bridge)
- go_build('./cmd/ipad-usb-easy',OUT/f'USB-Link-{VERSION}-windows-x64.exe',True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge)
+ resource=write_resource(ROOT)
+ try:
+  verify_release_surface(bridge)
+  go_build('./cmd/ipad-usb-easy',OUT/f'USB-Link-{VERSION}-windows-x64.exe',True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge)
+  verify_manifest(OUT/f'USB-Link-{VERSION}-windows-x64.exe',(ROOT/'cmd/ipad-usb-easy/setup.manifest').read_bytes())
+ finally:
+  resource.unlink(missing_ok=True)
  go_build('./cmd/mac-usbnet',OUT/'usb-link-mac-x64',False)
  env={**ENV,'GOOS':'darwin','GOARCH':'arm64','CGO_ENABLED':'0'}
  run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION}','-o',OUT/'usb-link-mac-arm64','./cmd/mac-usbnet'],env)

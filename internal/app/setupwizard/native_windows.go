@@ -7,15 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
+	"unicode/utf16"
 	"unsafe"
 )
 
 type Config struct {
 	Version, Directory, License string
 	Work                        func(context.Context, Options, func(string)) (string, error)
+	Inspect                     func() (string, []byte)
 }
 
 type windowClass struct {
@@ -43,22 +46,43 @@ type outcome struct {
 	err  error
 }
 
+type controlLayout struct {
+	handle              uintptr
+	x, y, width, height int
+	fontRole            int
+}
+
 type wizard struct {
-	config                                                      Config
-	model                                                       Model
-	ctx                                                         context.Context
-	cancel                                                      context.CancelFunc
-	hwnd, instance                                              uintptr
-	dpi                                                         int
-	font, headingFont                                           uintptr
-	heading, body, agree, core, network, ipad, mac, launch, bar uintptr
-	back, next, stop                                            uintptr
-	closed, running, cancelling, succeeded                      bool
-	open                                                        bool
-	installed                                                   string
-	done                                                        chan outcome
-	progressMu                                                  sync.Mutex
-	progress                                                    string
+	layouts                                                                  []controlLayout
+	config                                                                   Config
+	model                                                                    Model
+	ctx                                                                      context.Context
+	cancel                                                                   context.CancelFunc
+	hwnd, instance                                                           uintptr
+	dpi                                                                      int
+	font, headingFont, smallFont, brandFont                                  uintptr
+	whiteBrush, sidebarBrush, borderBrush                                    uintptr
+	highContrast                                                             bool
+	brand, brandNote, versionLabel, subtitle, intro, footer, inspect, export uintptr
+	steps                                                                    [5]uintptr
+	descriptions                                                             [4]uintptr
+	inspected                                                                chan inspectionResult
+	inspecting                                                               bool
+	report                                                                   []byte
+	inspectionText                                                           string
+	heading, body, agree, core, network, ipad, mac, launch, bar              uintptr
+	back, next, stop                                                         uintptr
+	closed, running, cancelling, succeeded                                   bool
+	open                                                                     bool
+	installed                                                                string
+	done                                                                     chan outcome
+	progressMu                                                               sync.Mutex
+	progress                                                                 string
+}
+
+type inspectionResult struct {
+	text   string
+	report []byte
 }
 
 var user = windows.NewLazySystemDLL("user32.dll")
@@ -69,19 +93,33 @@ var active *wizard // Only the window's locked UI thread reads or writes this.
 var callback = windows.NewCallback(windowProc)
 
 const (
-	idBack   = 101
-	idNext   = 102
-	idCancel = 2
-	idAgree  = 103
-	idIPad   = 104
-	idMac    = 105
-	idLaunch = 106
+	idBack    = 101
+	idNext    = 102
+	idCancel  = 2
+	idAgree   = 103
+	idIPad    = 104
+	idMac     = 105
+	idLaunch  = 106
+	idInspect = 107
+	idExport  = 108
 )
 
 func windowProc(hwnd uintptr, msg uint32, w, l uintptr) uintptr {
 	p := active
 	if p != nil && p.hwnd == hwnd {
 		switch msg {
+		case 0x2e0: // WM_DPICHANGED
+			p.changeDPI(w, l)
+			return 0
+		case 0x1a: // System colors/high contrast can change while the wizard is open.
+			p.initColors()
+			user.NewProc("RedrawWindow").Call(p.hwnd, 0, 0, 0x185)
+			return 0
+		case 0xf: // WM_PAINT
+			p.paint()
+			return 0
+		case 0x138, 0x133, 0x135: // Static and read-only edit controls.
+			return p.controlColor(w, l)
 		case 0x10: // WM_CLOSE
 			p.close()
 			return 0
@@ -90,6 +128,10 @@ func windowProc(hwnd uintptr, msg uint32, w, l uintptr) uintptr {
 				break
 			} // Button clicks only.
 			switch int(w & 0xffff) {
+			case idInspect:
+				p.startInspection()
+			case idExport:
+				p.exportReport()
 			case idCancel:
 				p.close()
 			case idBack:
@@ -137,7 +179,7 @@ func Run(parent context.Context, config Config) (string, bool, error) {
 	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	p := &wizard{config: config, ctx: ctx, cancel: cancel, dpi: 96, done: make(chan outcome, 1)}
+	p := &wizard{config: config, ctx: ctx, cancel: cancel, dpi: 96, done: make(chan outcome, 1), inspected: make(chan inspectionResult, 1)}
 	// DPI awareness is local to this UI thread and restored before returning.
 	if f := user.NewProc("SetThreadDpiAwarenessContext"); f.Find() == nil {
 		previous, _, _ := f.Call(^uintptr(3)) // PER_MONITOR_AWARE_V2 (-4)
@@ -163,11 +205,11 @@ func Run(parent context.Context, config Config) (string, bool, error) {
 	// A captioned, non-resizable wizard; account for the actual non-client area.
 	sw, _, _ := user.NewProc("GetSystemMetrics").Call(0)
 	sh, _, _ := user.NewProc("GetSystemMetrics").Call(1)
-	p.dpi = min(p.dpi, max(48, int(sw-32)*96/700), max(48, int(sh-64)*96/590))
-	bounds := rect{Right: int32(p.scale(660)), Bottom: int32(p.scale(530))}
+	p.dpi = min(p.dpi, max(48, int(sw-32)*96/900), max(48, int(sh-64)*96/660))
+	bounds := rect{Right: int32(p.scale(860)), Bottom: int32(p.scale(600))}
 	user.NewProc("AdjustWindowRectEx").Call(uintptr(unsafe.Pointer(&bounds)), 0xc80000, 0, 0x10000)
 	width, height := uintptr(bounds.Right-bounds.Left), uintptr(bounds.Bottom-bounds.Top)
-	p.hwnd, _, err = user.NewProc("CreateWindowExW").Call(0x10000, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("USB Link 安装向导"))), 0xc80000, (sw-min(sw, width))/2, (sh-min(sh, height))/2, width, height, 0, 0, p.instance, 0)
+	p.hwnd, _, err = user.NewProc("CreateWindowExW").Call(0x10000, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("USB Link 安装向导"))), 0xc80000|0x2000000, (sw-min(sw, width))/2, (sh-min(sh, height))/2, width, height, 0, 0, p.instance, 0)
 	if p.hwnd == 0 {
 		return "", false, fmt.Errorf("SETUP_WINDOW: %w", err)
 	}
@@ -176,15 +218,17 @@ func Run(parent context.Context, config Config) (string, bool, error) {
 		user.NewProc("KillTimer").Call(p.hwnd, 1)
 		user.NewProc("DestroyWindow").Call(p.hwnd)
 		active = nil
-		if p.font != 0 {
-			gdi.NewProc("DeleteObject").Call(p.font)
-		}
-		if p.headingFont != 0 {
-			gdi.NewProc("DeleteObject").Call(p.headingFont)
+		for _, h := range []uintptr{p.font, p.headingFont, p.smallFont, p.brandFont, p.whiteBrush, p.sidebarBrush, p.borderBrush} {
+			if h != 0 {
+				gdi.NewProc("DeleteObject").Call(h)
+			}
 		}
 	}()
 	p.font = p.makeFont(16, 400)
-	p.headingFont = p.makeFont(24, 600)
+	p.headingFont = p.makeFont(26, 600)
+	p.smallFont = p.makeFont(14, 400)
+	p.brandFont = p.makeFont(28, 600)
+	p.initColors()
 	if !p.createControls() {
 		return "", false, errors.New("SETUP_CONTROLS_UNAVAILABLE")
 	}
@@ -192,6 +236,7 @@ func Run(parent context.Context, config Config) (string, bool, error) {
 		return "", false, errors.New("SETUP_TIMER_UNAVAILABLE")
 	}
 	p.render()
+	p.startInspection()
 	user.NewProc("ShowWindow").Call(p.hwnd, 1)
 	user.NewProc("SetForegroundWindow").Call(p.hwnd)
 	var m message
@@ -228,35 +273,74 @@ func (p *wizard) control(kind, text string, style uintptr, x, y, width, height, 
 	h, _, _ := user.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(kind))), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(text))), 0x50000000|style, p.scale(x), p.scale(y), p.scale(width), p.scale(height), p.hwnd, uintptr(id), p.instance, 0)
 	if h != 0 {
 		user.NewProc("SendMessageW").Call(h, 0x30, font, 1)
+		role := 0
+		if font == p.headingFont {
+			role = 1
+		}
+		if font == p.smallFont {
+			role = 2
+		}
+		if font == p.brandFont {
+			role = 3
+		}
+		p.layouts = append(p.layouts, controlLayout{h, x, y, width, height, role})
 	}
 	return h
 }
 func (p *wizard) createControls() bool {
-	p.heading = p.control("STATIC", "", 0, 28, 24, 604, 44, 0, p.headingFont)
-	// Read-only, scrollable, selectable license/status text.
-	p.body = p.control("EDIT", "", 0x4|0x40|0x800|0x200000|0x10000, 28, 84, 604, 324, 0, p.font)
-	user.NewProc("SendMessageW").Call(p.body, 0xc5, 2<<20, 0) // Explicit bounded license text limit.
-	p.agree = p.control("BUTTON", "我已阅读并同意上述许可条款", 0x3|0x10000, 28, 420, 604, 30, idAgree, p.font)
-	p.core = p.control("BUTTON", "USB Link 程序与桌面界面（必需；已有运行库则复用）", 0x3|0x10000, 28, 252, 604, 30, 0, p.font)
-	p.network = p.control("BUTTON", "Wintun 网络驱动（必需，已内置）", 0x3|0x10000, 28, 292, 604, 30, 0, p.font)
-	p.ipad = p.control("BUTTON", "iPad 通信组件与 USB 驱动包（可选）", 0x3|0x10000, 28, 332, 604, 30, idIPad, p.font)
-	p.mac = p.control("BUTTON", "Mac USB 驱动准备工具（可选）", 0x3|0x10000, 28, 372, 604, 30, idMac, p.font)
-	p.launch = p.control("BUTTON", "完成后启动 USB Link", 0x3|0x10000, 28, 420, 604, 30, idLaunch, p.font)
+	p.brand = p.control("STATIC", "USB Link", 0, 24, 36, 160, 42, 0, p.brandFont)
+	p.brandNote = p.control("STATIC", "让设备通过 USB 连接", 0, 24, 86, 168, 36, 0, p.smallFont)
+	p.versionLabel = p.control("STATIC", "版本 "+p.config.Version, 0, 24, 510, 164, 24, 0, p.smallFont)
+	for i := range p.steps {
+		p.steps[i] = p.control("STATIC", "", 0, 24, 170+i*54, 164, 30, 0, p.font)
+	}
+	p.heading = p.control("STATIC", "", 0, 236, 34, 592, 42, 0, p.headingFont)
+	p.subtitle = p.control("STATIC", "", 0, 236, 85, 592, 44, 0, p.font)
+	p.intro = p.control("STATIC", "", 0, 252, 144, 556, 62, 0, p.font)
+	// Selectable text uses a native edit control, with an inset panel around it.
+	p.body = p.control("EDIT", "", 0x4|0x40|0x800|0x200000|0x10000, 252, 222, 556, 234, 0, p.font)
+	user.NewProc("SendMessageW").Call(p.body, 0xc5, 2<<20, 0)
+	p.agree = p.control("BUTTON", "我已阅读并同意许可条款", 0x3|0x10000, 236, 490, 592, 30, idAgree, p.font)
+	titles := []string{"USB Link 程序与桌面界面", "Wintun 网络驱动", "iPad 通信组件与 USB 驱动包", "Mac USB 驱动准备工具"}
+	details := []string{"必需 · 已有兼容 .NET 桌面运行库会直接复用", "必需 · 官方组件已内置安装包", "可选 · 使用本地离线包或官方下载，单独确认 Apple 条款", "可选 · 工具已内置，连接设备时再确认驱动操作"}
+	controls := []*uintptr{&p.core, &p.network, &p.ipad, &p.mac}
+	for i, h := range controls {
+		id := 0
+		if i == 2 {
+			id = idIPad
+		}
+		if i == 3 {
+			id = idMac
+		}
+		*h = p.control("BUTTON", titles[i], 0x3|0x10000, 252, 180+i*78, 556, 28, id, p.font)
+		p.descriptions[i] = p.control("STATIC", details[i], 0, 274, 212+i*78, 532, 32, 0, p.smallFont)
+	}
+	p.launch = p.control("BUTTON", "完成后启动 USB Link", 0x3|0x10000, 236, 490, 592, 30, idLaunch, p.font)
 	p.check(p.core, true)
 	p.check(p.network, true)
 	p.check(p.launch, true)
 	p.enable(p.core, false)
 	p.enable(p.network, false)
-	p.control("STATIC", "", 0x10, 0, 465, 660, 2, 0, p.font) // System separator.
-	p.back = p.control("BUTTON", "上一步", 0x10000, 292, 482, 104, 32, idBack, p.font)
-	p.next = p.control("BUTTON", "下一步", 0x10000|1, 406, 482, 104, 32, idNext, p.font)
-	p.stop = p.control("BUTTON", "取消", 0x10000, 524, 482, 108, 32, idCancel, p.font)
-	// Optional common-control animation. Text and transaction completion remain
-	// usable if the progress-bar class is not available on this Windows image.
+	p.inspect = p.control("BUTTON", "重新检查", 0x10000, 236, 490, 120, 32, idInspect, p.font)
+	p.export = p.control("BUTTON", "保存检查报告…", 0x10000, 368, 490, 162, 32, idExport, p.font)
+	p.footer = p.control("STATIC", "", 0, 236, 559, 264, 24, 0, p.smallFont)
+	p.back = p.control("BUTTON", "上一步", 0x10000, 504, 548, 100, 36, idBack, p.font)
+	p.next = p.control("BUTTON", "下一步", 0x10000|1, 616, 548, 100, 36, idNext, p.font)
+	p.stop = p.control("BUTTON", "取消", 0x10000, 728, 548, 100, 36, idCancel, p.font)
 	init := struct{ Size, Classes uint32 }{8, 0x20}
 	windows.NewLazySystemDLL("comctl32.dll").NewProc("InitCommonControlsEx").Call(uintptr(unsafe.Pointer(&init)))
-	p.bar = p.control("msctls_progress32", "", 0x8, 28, 422, 604, 20, 0, p.font)
-	for _, h := range []uintptr{p.heading, p.body, p.agree, p.core, p.network, p.ipad, p.mac, p.launch, p.back, p.next, p.stop} {
+	p.bar = p.control("msctls_progress32", "", 0x8, 252, 460, 556, 16, 0, p.font)
+	for _, h := range []uintptr{p.brand, p.brandNote, p.versionLabel, p.heading, p.subtitle, p.intro, p.body, p.agree, p.core, p.network, p.ipad, p.mac, p.launch, p.inspect, p.export, p.footer, p.back, p.next, p.stop} {
+		if h == 0 {
+			return false
+		}
+	}
+	for _, h := range p.steps {
+		if h == 0 {
+			return false
+		}
+	}
+	for _, h := range p.descriptions {
 		if h == 0 {
 			return false
 		}
@@ -303,40 +387,76 @@ func (p *wizard) capture() {
 	}
 }
 func (p *wizard) render() {
-	for _, h := range []uintptr{p.agree, p.core, p.network, p.ipad, p.mac, p.launch, p.bar} {
+	for _, h := range []uintptr{p.intro, p.agree, p.core, p.network, p.ipad, p.mac, p.launch, p.bar, p.inspect, p.export} {
 		p.show(h, false)
 	}
+	for _, h := range p.descriptions {
+		p.show(h, false)
+	}
+	p.show(p.body, true)
 	p.enable(p.back, p.model.Page > Welcome && p.model.Page < Installing)
 	p.enable(p.next, p.model.Page != Installing)
 	p.enable(p.stop, p.model.Page != Finished)
 	p.set(p.next, "下一步")
-	user.NewProc("MoveWindow").Call(p.body, p.scale(28), p.scale(84), p.scale(604), p.scale(324), 1)
+	p.set(p.footer, fmt.Sprintf("步骤 %d / 5", min(int(p.model.Page)+1, 5)))
+	names := []string{"欢迎与检查", "许可条款", "安装组件", "确认安装", "安装与完成"}
+	for i, h := range p.steps {
+		mark := fmt.Sprintf("%d", i+1)
+		if i < min(int(p.model.Page), 4) {
+			mark = "✓"
+		}
+		p.set(h, mark+"   "+names[i])
+	}
+	user.NewProc("MoveWindow").Call(p.body, p.scale(252), p.scale(154), p.scale(556), p.scale(316), 1)
 	switch p.model.Page {
 	case Welcome:
-		p.set(p.heading, "欢迎安装 USB Link "+p.config.Version)
-		p.set(p.body, "此向导将安装或更新 USB Link。\r\n\r\n你可以阅读许可条款、选择需要准备的组件，再确认安装。\r\n\r\n程序安装到：\r\n"+p.config.Directory+"\r\n\r\n设置与恢复记录保存在 Windows 的 ProgramData 中。升级完成后会清理旧程序文件。\r\n\r\n已有兼容组件会直接复用。缺少 .NET 运行库时需要本地准备或联网；Wintun 已随安装包提供。")
+		p.set(p.heading, "欢迎安装 USB Link")
+		p.set(p.subtitle, "通过 USB 连接 Mac 与 iPad，管理共享文件和设备。")
+		p.set(p.intro, "安装位置："+p.config.Directory+"\r\n已有兼容组件会复用；升级完成后会清理旧程序文件。")
+		p.show(p.intro, true)
+		user.NewProc("MoveWindow").Call(p.body, p.scale(252), p.scale(222), p.scale(556), p.scale(248), 1)
+		text := p.inspectionText
+		if text == "" {
+			if p.config.Inspect == nil {
+				text = "此向导将安装或更新 USB Link。"
+			} else {
+				text = "正在读取现有安装状态…"
+			}
+		}
+		p.set(p.body, text)
+		p.show(p.inspect, p.config.Inspect != nil)
+		p.show(p.export, p.config.Inspect != nil)
+		p.enable(p.inspect, !p.inspecting)
+		p.enable(p.export, len(p.report) > 0 && !p.inspecting)
 	case License:
 		p.set(p.heading, "许可条款")
+		p.set(p.subtitle, "请阅读以下条款。接受后才能继续安装。")
 		p.set(p.body, p.config.License)
 		p.check(p.agree, p.model.Accepted)
 		p.show(p.agree, true)
 		p.enable(p.next, p.model.Accepted)
 	case Components:
-		p.set(p.heading, "选择组件")
-		p.set(p.body, "勾选需要在安装期间准备的组件。\r\n\r\n可选组件缺失时，优先读取本地离线包，再从官方来源下载。Apple 安装向导会显示自己的许可条款。\r\n\r\n稍后也可在连接设备时准备可选组件。这里的勾选不会直接更改未确认设备的驱动。")
-		user.NewProc("MoveWindow").Call(p.body, p.scale(28), p.scale(84), p.scale(604), p.scale(152), 1)
+		p.set(p.heading, "选择安装组件")
+		p.set(p.subtitle, "必需组件已选定。勾选需要为你的设备准备的可选组件。")
+		p.show(p.body, false)
 		for _, h := range []uintptr{p.core, p.network, p.ipad, p.mac} {
+			p.show(h, true)
+		}
+		for _, h := range p.descriptions {
 			p.show(h, true)
 		}
 		p.check(p.ipad, p.model.Options.IPad)
 		p.check(p.mac, p.model.Options.MacTools)
 	case Ready:
 		p.set(p.heading, "准备安装")
+		p.set(p.subtitle, "确认位置和组件后，点击「安装」开始。")
 		p.set(p.body, p.model.Options.Summary(p.config.Version, p.config.Directory))
 		p.set(p.next, "安装")
 	case Installing:
-		p.set(p.heading, "正在安装")
+		p.set(p.heading, "正在安装 USB Link")
+		p.set(p.subtitle, "请保持窗口打开。安装状态会显示在下面。")
 		p.set(p.body, "正在检查现有安装…")
+		user.NewProc("MoveWindow").Call(p.body, p.scale(252), p.scale(174), p.scale(556), p.scale(266), 1)
 		p.show(p.bar, true)
 		if p.bar != 0 {
 			user.NewProc("SendMessageW").Call(p.bar, 0x40a, 1, 40)
@@ -347,11 +467,15 @@ func (p *wizard) render() {
 		}
 		p.set(p.next, "完成")
 		if p.succeeded {
-			p.set(p.heading, "安装完成")
-			p.set(p.body, "USB Link "+p.config.Version+" 已安装。\r\n\r\n安装位置："+p.config.Directory+"\r\n\r\n可选的设备驱动会在连接时核验并确认。你可以在 Windows「已安装的应用」中卸载 USB Link。")
+			p.set(p.heading, "USB Link 已安装")
+			p.set(p.subtitle, "安装完成，可以开始连接设备。")
+			p.set(p.body, "版本："+p.config.Version+"\r\n\r\n安装位置："+p.config.Directory+"\r\n\r\n可选设备驱动会在连接时核验并确认。\r\n可在 Windows「已安装的应用」中卸载 USB Link。")
 			p.show(p.launch, true)
-		} // Failure details are set by tick after rendering the controls.
+		} else {
+			p.set(p.subtitle, "请查看详细原因。需要恢复的文件与记录已保留。")
+		}
 	}
+	user.NewProc("InvalidateRect").Call(p.hwnd, 0, 1)
 	if p.model.Page == License && !p.model.Accepted {
 		user.NewProc("SetFocus").Call(p.agree)
 	} else if p.model.Page != Installing {
@@ -376,6 +500,19 @@ func (p *wizard) close() {
 	p.set(p.body, "正在取消并等待安装安全结束…\r\n\r\n如官方安装向导仍在运行，请在该向导中完成或取消。原版本的恢复与清理结束后才能关闭此窗口。")
 }
 func (p *wizard) tick() {
+	select {
+	case result := <-p.inspected:
+		p.inspecting = false
+		p.report = result.report
+		p.inspectionText = result.text
+		if p.model.Page == Welcome {
+			p.set(p.body, result.text)
+			p.enable(p.inspect, true)
+			p.enable(p.export, len(p.report) > 0)
+		}
+	default:
+	}
+
 	if p.ctx.Err() != nil && !p.cancelling {
 		p.close()
 	}
@@ -409,4 +546,190 @@ func (p *wizard) tick() {
 			}
 		}
 	}
+}
+
+func (p *wizard) startInspection() {
+	if p.config.Inspect == nil || p.inspecting || p.running {
+		return
+	}
+	p.inspecting = true
+	p.report = nil
+	p.inspectionText = "正在读取现有安装状态…"
+	if p.model.Page == Welcome {
+		p.set(p.body, p.inspectionText)
+		p.enable(p.inspect, false)
+		p.enable(p.export, false)
+	}
+	go func() { text, report := p.config.Inspect(); p.inspected <- inspectionResult{text, report} }()
+}
+
+// These are the amd64 SDK layouts for PAINTSTRUCT, HIGHCONTRASTW and
+// OPENFILENAMEW. Native controls keep keyboard and accessibility semantics.
+type paintStruct struct {
+	DC                 uintptr
+	Erase              int32
+	Paint              rect
+	Restore, IncUpdate int32
+	Reserved           [32]byte
+}
+type highContrast struct {
+	Size, Flags uint32
+	Scheme      *uint16
+}
+type openFileName struct {
+	Size                         uint32
+	Owner, Instance              uintptr
+	Filter, CustomFilter         *uint16
+	MaxCustomFilter, FilterIndex uint32
+	File                         *uint16
+	MaxFile                      uint32
+	FileTitle                    *uint16
+	MaxFileTitle                 uint32
+	InitialDir, Title            *uint16
+	Flags                        uint32
+	FileOffset, FileExtension    uint16
+	DefaultExtension             *uint16
+	CustomData, Hook             uintptr
+	Template                     *uint16
+	Reserved                     uintptr
+	Reserved2, FlagsEx           uint32
+}
+
+func (p *wizard) initColors() {
+	for _, h := range []uintptr{p.whiteBrush, p.sidebarBrush, p.borderBrush} {
+		if h != 0 {
+			gdi.NewProc("DeleteObject").Call(h)
+		}
+	}
+	hc := highContrast{Size: uint32(unsafe.Sizeof(highContrast{}))}
+	user.NewProc("SystemParametersInfoW").Call(0x42, uintptr(hc.Size), uintptr(unsafe.Pointer(&hc)), 0)
+	p.highContrast = hc.Flags&1 != 0
+	color := uintptr(0xffffff)
+	side := uintptr(0x3c271a)
+	border := uintptr(0xede7e2)
+	if p.highContrast {
+		color, _, _ = user.NewProc("GetSysColor").Call(5)
+		side = color
+		border, _, _ = user.NewProc("GetSysColor").Call(15)
+	}
+	p.whiteBrush, _, _ = gdi.NewProc("CreateSolidBrush").Call(color)
+	p.sidebarBrush, _, _ = gdi.NewProc("CreateSolidBrush").Call(side)
+	p.borderBrush, _, _ = gdi.NewProc("CreateSolidBrush").Call(border)
+}
+func (p *wizard) controlColor(dc, h uintptr) uintptr {
+	sidebar := h == p.brand || h == p.brandNote || h == p.versionLabel
+	current := false
+	for i, s := range p.steps {
+		if s == h {
+			sidebar = true
+			current = i == min(int(p.model.Page), 4)
+		}
+	}
+	bg, fg := uintptr(0xffffff), uintptr(0x37291e)
+	brush := p.whiteBrush
+	if sidebar {
+		bg = 0x3c271a
+		fg = 0xcebead
+		brush = p.sidebarBrush
+		if h == p.brand || current {
+			fg = 0xffffff
+		}
+	}
+	if h == p.subtitle || h == p.footer {
+		fg = 0x74675c
+	}
+	if p.highContrast {
+		bg, _, _ = user.NewProc("GetSysColor").Call(5)
+		fg, _, _ = user.NewProc("GetSysColor").Call(8)
+	}
+	gdi.NewProc("SetBkColor").Call(dc, bg)
+	gdi.NewProc("SetTextColor").Call(dc, fg)
+	return brush
+}
+func (p *wizard) paint() {
+	var ps paintStruct
+	dc, _, _ := user.NewProc("BeginPaint").Call(p.hwnd, uintptr(unsafe.Pointer(&ps)))
+	defer user.NewProc("EndPaint").Call(p.hwnd, uintptr(unsafe.Pointer(&ps)))
+	fill := func(x, y, w, h int, brush uintptr) {
+		r := rect{int32(p.scale(x)), int32(p.scale(y)), int32(p.scale(x + w)), int32(p.scale(y + h))}
+		user.NewProc("FillRect").Call(dc, uintptr(unsafe.Pointer(&r)), brush)
+	}
+	fill(0, 0, 860, 600, p.whiteBrush)
+	fill(0, 0, 204, 600, p.sidebarBrush)
+	fill(204, 532, 656, 1, p.borderBrush)
+	if p.model.Page == Components {
+		for i := 0; i < 4; i++ {
+			fill(236, 166+i*78, 592, 72, p.borderBrush)
+			fill(237, 167+i*78, 590, 70, p.whiteBrush)
+		}
+	} else {
+		fill(236, 136, 592, 348, p.borderBrush)
+		fill(237, 137, 590, 346, p.whiteBrush)
+	}
+	// A small accent rail marks the active step without replacing native text.
+	brush, _, _ := gdi.NewProc("CreateSolidBrush").Call(0xd8b364)
+	if p.highContrast {
+		gdi.NewProc("DeleteObject").Call(brush)
+		brush, _, _ = user.NewProc("GetSysColorBrush").Call(13)
+	} else {
+		defer gdi.NewProc("DeleteObject").Call(brush)
+	}
+	fill(8, 170+min(int(p.model.Page), 4)*54, 3, 28, brush)
+}
+func (p *wizard) exportReport() {
+	if len(p.report) == 0 || p.running {
+		return
+	}
+	filename := make([]uint16, 32768)
+	copy(filename, windows.StringToUTF16("USB-Link-install-state.json"))
+	filter := utf16.Encode([]rune("JSON 检查报告\x00*.json\x00\x00"))
+	ofn := openFileName{Size: uint32(unsafe.Sizeof(openFileName{})), Owner: p.hwnd, Filter: &filter[0], FilterIndex: 1, File: &filename[0], MaxFile: uint32(len(filename)), Title: windows.StringToUTF16Ptr("保存安装检查报告"), DefaultExtension: windows.StringToUTF16Ptr("json"), Flags: 0x800 | 0x2 | 0x8 | 0x80000 | 0x10000000}
+	ok, _, _ := windows.NewLazySystemDLL("comdlg32.dll").NewProc("GetSaveFileNameW").Call(uintptr(unsafe.Pointer(&ofn)))
+	if ok == 0 {
+		return
+	}
+	if err := os.WriteFile(windows.UTF16ToString(filename), p.report, 0600); err != nil {
+		user.NewProc("MessageBoxW").Call(p.hwnd, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("报告保存失败："+err.Error()))), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("USB Link"))), 0x10)
+		return
+	}
+	p.set(p.footer, "检查报告已保存")
+}
+
+// Fail cross-compilation if SDK structure layouts drift.
+var _ [152 - unsafe.Sizeof(openFileName{})]byte
+var _ [unsafe.Sizeof(openFileName{}) - 152]byte
+var _ [72 - unsafe.Sizeof(paintStruct{})]byte
+var _ [unsafe.Sizeof(paintStruct{}) - 72]byte
+
+func (p *wizard) changeDPI(w, l uintptr) {
+	dpi := int(w & 0xffff)
+	if dpi < 48 || dpi > 768 || l == 0 {
+		return
+	}
+	p.dpi = dpi
+	old := []uintptr{p.font, p.headingFont, p.smallFont, p.brandFont}
+	p.font = p.makeFont(16, 400)
+	p.headingFont = p.makeFont(26, 600)
+	p.smallFont = p.makeFont(14, 400)
+	p.brandFont = p.makeFont(28, 600)
+	fonts := []uintptr{p.font, p.headingFont, p.smallFont, p.brandFont}
+	for _, c := range p.layouts {
+		user.NewProc("MoveWindow").Call(c.handle, p.scale(c.x), p.scale(c.y), p.scale(c.width), p.scale(c.height), 0)
+		user.NewProc("SendMessageW").Call(c.handle, 0x30, fonts[c.fontRole], 0)
+	}
+	for _, h := range old {
+		if h != 0 {
+			gdi.NewProc("DeleteObject").Call(h)
+		}
+	}
+	var bounds rect
+	if err := windows.ReadProcessMemory(windows.CurrentProcess(), l, (*byte)(unsafe.Pointer(&bounds)), unsafe.Sizeof(bounds), nil); err != nil {
+		return
+	}
+	user.NewProc("SetWindowPos").Call(p.hwnd, 0, uintptr(bounds.Left), uintptr(bounds.Top), uintptr(bounds.Right-bounds.Left), uintptr(bounds.Bottom-bounds.Top), 0x14)
+	p.render()
+	if p.cancelling {
+		p.set(p.body, "正在取消并等待安装安全结束…")
+	}
+	user.NewProc("RedrawWindow").Call(p.hwnd, 0, 0, 0x185)
 }

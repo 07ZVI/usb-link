@@ -4,6 +4,7 @@ package launcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +27,15 @@ func runSetupWizard(ctx context.Context) {
 		return
 	}
 	installed, open, err := setupwizard.Run(ctx, setupwizard.Config{
-		Version:   version,
+		Version: version,
+		Inspect: func() (string, []byte) {
+			report := connectioninstall.InspectInstallation()
+			data, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return "检查报告无法生成：" + err.Error(), nil
+			}
+			return report.Summary(), append(data, '\n')
+		},
 		Directory: filepath.Join(root, connectioninstall.CurrentApplicationDirectory),
 		License:   "USB Link 使用 GPL-3.0-only 与官方 Wintun DLL 链接例外。\r\nWintun 使用随包附带的官方预编译二进制许可。\r\nApple 等外部组件须在各自官方安装向导中单独同意条款。\r\n\r\n" + string(terms),
 		Work: func(work context.Context, options setupwizard.Options, progress func(string)) (string, error) {
