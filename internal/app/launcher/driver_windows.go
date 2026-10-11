@@ -167,6 +167,10 @@ func prepareDriver(system string) (d DriverPreparation) {
 		d.CatalogVerified = true
 		// PnPUtil checks catalog membership and native policy. Do not force a
 		// downgrade or delete existing drivers. Do not kill it during installation.
+		if coreProcessMode && !applicationConsent() {
+			d.Error = "DRIVER_CURRENT_USB_AUTHORIZATION_LOST"
+			return
+		}
 		c := exec.Command(filepath.Join(system, "pnputil.exe"), "/add-driver", filepath.Join(dir, "AppleUsb.inf"), "/install")
 		d.Attempted = true
 		e = c.Run()

@@ -3,7 +3,9 @@ package bridge
 import (
 	"bytes"
 	"encoding/binary"
+	"net/netip"
 	"suhang/usbnet/internal/transport/ncm"
+	"suhang/usbnet/internal/transport/routing"
 	"testing"
 )
 
@@ -117,5 +119,37 @@ func TestICMPIsNotEmulated(t *testing.T) {
 	arp, got := p.FromMac(ncm.Frame(ncm.ProbeMAC, mac, 0x800, ip))
 	if arp != nil || !bytes.Equal(ip, got) || got[20] != 8 {
 		t.Fatal("ping bypassed OS")
+	}
+}
+
+func TestInternetLeaseKeepsPeerIdentityAndLocalCommunication(t *testing.T) {
+	enabled := true
+	p := Peer{MAC: mac, MTU: 1500, Internet: func(a netip.Addr) bool { return enabled && routing.Public(a, nil) }}
+	internet := [4]byte{1, 1, 1, 1}
+	frame := func(source [4]byte, destination [4]byte, identity [6]byte) []byte {
+		return ncm.Frame(ncm.ProbeMAC, identity, 0x800, packet(source, destination, true))
+	}
+	if _, ip := p.FromMac(frame(ncm.MacIP, internet, mac)); ip == nil {
+		t.Fatal("authorized public fragment blocked")
+	}
+	if _, e := p.FromWindows(packet(internet, ncm.MacIP, true)); e != nil {
+		t.Fatal(e)
+	}
+	impostor := mac
+	impostor[5]++
+	for _, f := range [][]byte{frame([4]byte{10, 6, 9, 3}, internet, mac), frame(ncm.MacIP, internet, impostor), frame(ncm.MacIP, [4]byte{192, 168, 1, 1}, mac), frame(ncm.MacIP, [4]byte{10, 6, 9, 3}, mac)} {
+		if _, ip := p.FromMac(f); ip != nil {
+			t.Fatal("identity or isolation bypass")
+		}
+	}
+	enabled = false
+	if _, ip := p.FromMac(frame(ncm.MacIP, internet, mac)); ip != nil {
+		t.Fatal("outbound survived lease close")
+	}
+	if _, e := p.FromWindows(packet(internet, ncm.MacIP, false)); e == nil {
+		t.Fatal("inbound survived lease close")
+	}
+	if _, ip := p.FromMac(frame(ncm.MacIP, ncm.WindowsIP, mac)); ip == nil {
+		t.Fatal("local communication lost on close")
 	}
 }

@@ -9,6 +9,8 @@ import "net"
 // interface condition. Applications never receive an IP-forwarding exception.
 type Specification struct {
 	Layer, InterfaceField, Application string
+	InternetForward                    bool
+	OtherLUID                          uint64
 	LUID                               uint64
 	Permit                             bool
 	HostServiceOnly                    bool

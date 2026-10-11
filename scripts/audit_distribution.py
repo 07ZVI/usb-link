@@ -12,7 +12,7 @@ def entry(name,data,source=False,depth=0):
  entries+=1
  if FORBIDDEN.search(name):errors.append(name+' external component/private material')
  if SECRET.search(data):errors.append(name+' private identity/credential')
- if source and pathlib.Path(name).suffix.lower() in BINARY:errors.append(name+' binary in public source')
+ if source and pathlib.Path(name).suffix.lower() in BINARY and not (depth==0 and name.endswith('-source.zip') and data.startswith(b'PK\x03\x04')):errors.append(name+' binary in public source')
  if depth>4:errors.append(name+' nested archive limit');return
  if len(data)>256<<20:errors.append(name+' file limit');return
  # Inspect every embedded ZIP end, including ZIPs inside the native launcher PE.

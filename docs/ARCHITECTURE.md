@@ -28,7 +28,7 @@ flowchart TD
 | `internal/platform/windows` | Native Windows APIs, network configuration, service/driver adaptation |
 | `internal/contracts` | Authenticated IPC v1 request/response contract |
 | `internal/diagnostics` | Bounded measurements and read-only evidence |
-| `desktop/App`, `Views`, `Controls`, `Theme`, `Services`, `Tests` | Application entry, UI composition, components, style, service client/native read-only helpers, synthetic smoke checks |
+| `desktop/App`, `Views`, `Models`, `Controls`, `Theme`, `Services`, `Tests` | Application entry, UI composition, typed snapshot state, components, style, service client/native read-only helpers, synthetic smoke checks |
 
 `architecture-map.json` records every original package path and its new owner. Package names remain stable; imports were updated together. Production commands for launcher, bridge worker, Mac agent and updater contain no business implementations. Their implementations now belong to application modules. The desktop's original single-file classes are separated without changing their controls; outbound intent goes through one synchronized `DesktopClient` writer.
 

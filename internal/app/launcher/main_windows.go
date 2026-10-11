@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
+	"suhang/usbnet/internal/app/coreprompt"
 	"suhang/usbnet/internal/app/ipadeasy"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/macconnection"
@@ -64,7 +65,7 @@ var nativeReadCompatibility atomic.Value
 var authorization *ipadncm.ConnectionAuthorization
 var attemptHistory attemptlog.History
 
-const msiSHA = "b4ce042947e9d72c0d7eb2d0d719408d45c932694ee0920680db0dc638d79adb"
+var appleComponent, _ = dependencies.Lookup("apple-support")
 
 type Result struct {
 	InstallationDetail        string                           `json:"installation_error_detail,omitempty"`
@@ -109,6 +110,13 @@ type Result struct {
 }
 
 func dialog(s string, f uintptr) uintptr {
+	if coreProcessMode && f&0xf == 4 {
+		yes, _ := ipadncm.NativePanel("USB Link", s, "同意並繼續", nil)
+		if yes {
+			return 6
+		}
+		return 7
+	}
 	if remoteInstallID != "" || coreProcessMode {
 		fmt.Fprintln(os.Stderr, s)
 		return 0
@@ -209,15 +217,41 @@ func prepare(r *Result, system string) {
 	r.AlreadyInstalled = servicePresent()
 	if !r.AlreadyInstalled {
 		r.Stage = "INSTALL_CONSENT"
-		r.InstallConsent = dialog("這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", 0x4|0x20|0x100) == 6
+		if coreProcessMode {
+			owner := liveCore.Load()
+			if owner == nil {
+				r.Error = "CORE_DEPENDENCY_UI_UNAVAILABLE"
+				return
+			}
+			answer, e := prompts.Ask(owner.ctx, coreprompt.Question{Dependency: "apple-support", Title: "iPad · Apple 通信元件", Body: "這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", Accept: "下載並開啟官方安裝程式"})
+			r.InstallConsent = e == nil && answer.Accepted
+		} else {
+			r.InstallConsent = dialog("這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", 0x4|0x20|0x100) == 6
+		}
+
 		if !r.InstallConsent {
 			r.Error = "INSTALL_DECLINED"
 			return
 		}
 		r.Stage = "COMPONENT_VALIDATION"
 		r.Stage = "OFFICIAL_APPLE_DOWNLOAD_AND_INSTALL"
-		if _, e := dependencies.Ensure(context.Background(), "apple-support"); e != nil {
-			r.Error = e.Error()
+		var installError error
+		if coreProcessMode {
+			a, _ := dependencies.Lookup("apple-support")
+			root, e := dependencies.Default.Platform.Root()
+			if e != nil {
+				installError = e
+			} else if _, ok := dependencies.Default.Platform.Detect(a, root); !ok {
+				installError = fmt.Errorf("DEPENDENCY_INTERACTIVE_INSTALL_READBACK_FAILED")
+			}
+		} else {
+			installError = dependencies.WithProgress(ctxForInstall(), func(c context.Context) error { _, e := dependencies.Ensure(c, "apple-support"); return e })
+		}
+		if coreProcessMode && installError == nil {
+			dependencies.Default.Refresh()
+		}
+		if installError != nil {
+			r.Error = installError.Error()
 			r.RebootRequired = strings.Contains(r.Error, "REBOOT_REQUIRED")
 			return
 		}
@@ -600,7 +634,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		dialog("無法找到系統工具。", 0x10)
 		return
 	}
-	r := Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "RECOVERY_CHECK", ComponentVersion: "20.0.0.35", ComponentHash: msiSHA}
+	r := Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "RECOVERY_CHECK", ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest}
 	var handoff *connectioninstall.UpgradeStop
 	if !resident {
 		handoff = connectioninstall.RequestPreviousStop()
@@ -987,6 +1021,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		return prepareSupervisedHost(attempt, recoveryDir, macPayload, macManifest)
 	})
 	defer stopHostSupervisor()
+	stopInternet := startInternet(ctx)
+	defer stopInternet()
 	stopHostTriggers := ipadncm.WatchSharedHostDeviceChanges(ctx)
 	defer stopHostTriggers()
 	memorydiag.RecordStage("parent_host_supervisor_started")
@@ -1162,7 +1198,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		softwareConsentContext.Store(&softwareConsentOwner{ctx: attemptCtx})
 		authorization.BeginSecurityAttempt(attemptCtx, stopAttempt)
 		ipadncm.SetConnectionContext(attemptCtx)
-		r = Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "PREPARE", UpgradeStop: handoff, LegacyServiceRetired: retired, LegacyCleanupWarning: legacyWarning, MacRecovery: macRecovery, InstallVersionCleanup: pruned, ComponentVersion: "20.0.0.35", ComponentHash: msiSHA, Authorization: authorization, DeviceKind: kind, AppleSessionsNotRequested: true}
+		r = Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "PREPARE", UpgradeStop: handoff, LegacyServiceRetired: retired, LegacyCleanupWarning: legacyWarning, MacRecovery: macRecovery, InstallVersionCleanup: pruned, ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest, Authorization: authorization, DeviceKind: kind, AppleSessionsNotRequested: true}
 		ipadncm.RecordConnectionAttemptFor(kind)
 		if remoteInstallID != "" {
 			_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "BEGIN_"+kind+"_SESSION", "")
@@ -1279,4 +1315,11 @@ func runIPadPending(ctx context.Context, dir, system string, safe bool) bool {
 		return true
 	}
 	return false
+}
+
+func ctxForInstall() context.Context {
+	if owner := softwareConsentContext.Load(); owner != nil {
+		return owner.ctx
+	}
+	return context.Background()
 }

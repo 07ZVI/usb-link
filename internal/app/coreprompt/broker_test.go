@@ -66,3 +66,32 @@ func TestReplyIsSingleUseAndSnapshotIsCopy(t *testing.T) {
 		t.Fatal("answer lost")
 	}
 }
+
+func TestOfficialDependencyRelayIsBoundedAndKeepsMetadata(t *testing.T) {
+	b := New()
+	if _, e := b.Ask(context.Background(), Question{Dependency: "untrusted-installer"}); e == nil {
+		t.Fatal("arbitrary dependency accepted")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, e := b.Ask(ctx, Question{Dependency: "apple-support", Title: "official license"})
+		done <- e
+	}()
+	var q *Question
+	deadline := time.Now().Add(time.Second)
+	for q == nil && time.Now().Before(deadline) {
+		q = b.Snapshot()
+		time.Sleep(time.Millisecond)
+	}
+	if q == nil || q.Dependency != "apple-support" {
+		t.Fatal("component metadata lost")
+	}
+	if e := b.Reply(Answer{ID: q.ID, Accepted: false}); e != nil {
+		t.Fatal(e)
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
+	}
+}

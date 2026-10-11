@@ -16,11 +16,12 @@ type Check struct {
 	Disabled bool   `json:"disabled"`
 }
 type Question struct {
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	Body   string  `json:"body"`
-	Accept string  `json:"accept"`
-	Checks []Check `json:"checks"`
+	Dependency string  `json:"dependency,omitempty"`
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	Body       string  `json:"body"`
+	Accept     string  `json:"accept"`
+	Checks     []Check `json:"checks"`
 }
 type Answer struct {
 	ID       string `json:"id"`
@@ -41,7 +42,10 @@ type Broker struct {
 
 func New() *Broker { return &Broker{slot: make(chan struct{}, 1)} }
 func (b *Broker) Ask(ctx context.Context, q Question) (Answer, error) {
-	size := len(q.Title) + len(q.Body) + len(q.Accept)
+	size := len(q.Title) + len(q.Body) + len(q.Accept) + len(q.Dependency)
+	if q.Dependency != "" && q.Dependency != "apple-support" {
+		return Answer{}, fmt.Errorf("CORE_PROMPT_DEPENDENCY_INVALID")
+	}
 	for _, check := range q.Checks {
 		size += len(check.Text)
 	}

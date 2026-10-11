@@ -465,6 +465,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 			cmd.Args = append(cmd.Args, "--resident-firewall=true")
 		}
 	}
+	cmd.Args = append(cmd.Args, "--internet-root", root)
 	cmd.Args = append(cmd.Args, "--wintun-module-hold="+strconv.FormatBool(wintun.ModuleLifetimeHoldEnabled()))
 	cmd.Args = append(cmd.Args, "--owned-dad-zero="+strconv.FormatBool(interfaceconfig.OwnedDADZeroEnabled()))
 	cmd.Args = append(cmd.Args, "--combined-legacy-network="+strconv.FormatBool(netconfig.CombinedLegacyNetworkEnabled()))

@@ -2,7 +2,7 @@
  <PropertyGroup>
   <OutputType>WinExe</OutputType><TargetFramework>net10.0</TargetFramework>
   <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
-  <AssemblyName>USBLink.Desktop</AssemblyName><Version Condition="'$(Version)' == ''">0.9.0</Version>
+  <AssemblyName>USBLink.Desktop</AssemblyName><Version>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../VERSION').Trim())</Version><IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   <ApplicationManifest>app.manifest</ApplicationManifest>
   <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   <NuGetAudit>true</NuGetAudit>

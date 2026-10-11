@@ -17,6 +17,7 @@ import (
 	"suhang/usbnet/internal/app/usbhost"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/security/internet"
 	"time"
 )
 
@@ -72,7 +73,14 @@ func recoverUninstallInterfaces(parent context.Context, dir, system string, lock
 			if err := verifyOwner(); err != nil {
 				return err
 			}
-
+			deps, err := connectioninstall.DependencyDirectory()
+			if err != nil {
+				return err
+			}
+			b := &internet.WindowsBackend{Directory: deps, Safe: connectioninstall.VerifyDependencyPath}
+			if err = b.Recover(ctx); err != nil {
+				return err
+			}
 			residentPlans, err := netconfig.PrepareResidentFirewallUninstall(ctx, dir, verifyOwner)
 			if err != nil {
 				return err

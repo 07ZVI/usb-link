@@ -4,9 +4,12 @@
 package usbgateway
 
 import (
+	"encoding/binary"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"net/netip"
 	"runtime"
+	"suhang/usbnet/internal/transport/routing"
 	"unsafe"
 )
 
@@ -231,7 +234,29 @@ func filterOperation(h uintptr, key, sub windows.GUID, spec Specification, verif
 	sourceMask, destMask := v4Mask{}, v4Mask{}
 	pins.Pin(&sourceMask)
 	pins.Pin(&destMask)
-	if spec.ForwardSource != "" || spec.ForwardDestination != "" {
+	other := spec.OtherLUID
+	pins.Pin(&other)
+	if spec.InternetForward {
+		src, se := netip.ParsePrefix(spec.ForwardSource)
+		dst, de := netip.ParsePrefix(spec.ForwardDestination)
+		peer := netip.MustParsePrefix("10.6.9.2/32")
+		public := src
+		if src == peer {
+			public = dst
+		}
+		if se != nil || de != nil || spec.OtherLUID == 0 || spec.OtherLUID == spec.LUID || !spec.Permit || spec.Layer != forwardingLayers[0] || (src != peer && dst != peer) || !routing.PublicPrefix(public, nil) {
+			return 0, fmt.Errorf("INTERNET_FORWARD_SCOPE_INVALID")
+		}
+		src4, dst4 := src.Addr().As4(), dst.Addr().As4()
+		sourceMask = v4Mask{binary.BigEndian.Uint32(src4[:]), ^uint32(0) << uint(32-src.Bits())}
+		destMask = v4Mask{binary.BigEndian.Uint32(dst4[:]), ^uint32(0) << uint(32-dst.Bits())}
+		otherField := forwardInterface
+		if spec.InterfaceField == forwardInterface {
+			otherField = localInterface
+		}
+		conditions = append(conditions, condition{Key: guid(otherField), Value: value{Type: 4, Data: uintptr(unsafe.Pointer(&other))}})
+		conditions = append(conditions, condition{Key: guid("{ae96897e-2e94-4bc9-b313-b27ee80e574d}"), Value: value{Type: 256, Data: uintptr(unsafe.Pointer(&sourceMask))}}, condition{Key: guid("{2d79133b-b390-45c6-8699-acaceaafed33}"), Value: value{Type: 256, Data: uintptr(unsafe.Pointer(&destMask))}})
+	} else if spec.ForwardSource != "" || spec.ForwardDestination != "" {
 		src, dst, e := exactLocalDeliveryAddresses(spec)
 		if e != nil {
 			return 0, e
@@ -240,6 +265,7 @@ func filterOperation(h uintptr, key, sub windows.GUID, spec Specification, verif
 		destMask = v4Mask{dst, 0xffffffff}
 		conditions = append(conditions, condition{Key: guid("{ae96897e-2e94-4bc9-b313-b27ee80e574d}"), Value: value{Type: 256, Data: uintptr(unsafe.Pointer(&sourceMask))}}, condition{Key: guid("{2d79133b-b390-45c6-8699-acaceaafed33}"), Value: value{Type: 256, Data: uintptr(unsafe.Pointer(&destMask))}})
 	}
+
 	var app *blob
 	if path != "" {
 		p, e := windows.UTF16PtrFromString(path)
@@ -328,7 +354,7 @@ func filterOperation(h uintptr, key, sub windows.GUID, spec Specification, verif
 			return 0, fmt.Errorf("GATEWAY_PORT_PROTOCOL_READBACK_FAILED")
 		}
 		if got.Value.Type == 4 {
-			if got.Value.Data == 0 || *(*uint64)(valuePointer(&got.Value)) != luid {
+			if got.Value.Data == 0 || *(*uint64)(valuePointer(&got.Value)) != *(*uint64)(valuePointer(&want.Value)) {
 				return 0, fmt.Errorf("GATEWAY_INTERFACE_READBACK_FAILED")
 			}
 		}

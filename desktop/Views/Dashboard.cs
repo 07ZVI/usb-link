@@ -376,7 +376,7 @@ public sealed partial class Dashboard : Window
         var head = Columns("*,Auto", Column(2, Label("連線診斷與開發者調試", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
         var developer = DeveloperSection();
         var diagnostics = Card(detailRows, new Thickness(4));
-        var content = Column(16, developer, diagnostics, Gap(4));
+        var content = Column(16, InternetSection(), developer, diagnostics, Gap(4));
         var scroll = new ScrollViewer { Content = content, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var body = scroll;
         var layout = Rows("Auto,14,*", head, Gap(), body);
@@ -469,6 +469,7 @@ public sealed partial class Dashboard : Window
 
     void Update(JsonElement d)
     {
+        UpdateInternet(d);
         string S(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool B(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
         if (S("version") != "") versionText.Text = S("version");

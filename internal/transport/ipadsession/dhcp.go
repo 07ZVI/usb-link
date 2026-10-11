@@ -103,6 +103,11 @@ func DHCPReply(r Request, server, peer [4]byte) ([]byte, byte) {
 // The optional router is this Windows endpoint, not Internet sharing. It is
 // explicitly disclosed to the user because it changes the iPad's default route.
 func DHCPReplyWithRouter(r Request, server, peer [4]byte, router bool) ([]byte, byte) {
+	return DHCPReplyWithDNS(r, server, peer, router, false)
+}
+
+// DHCPReplyWithDNS advertises only the explicitly enabled USB Internet gateway.
+func DHCPReplyWithDNS(r Request, server, peer [4]byte, router, dns bool) ([]byte, byte) {
 	if r.HasServer && r.Server != server {
 		return nil, 0
 	}
@@ -140,6 +145,9 @@ func DHCPReplyWithRouter(r Request, server, peer [4]byte, router bool) ([]byte, 
 	opt(1, []byte{255, 255, 255, 0})
 	if router {
 		opt(3, server[:])
+		if dns {
+			opt(6, server[:])
+		}
 	}
 	var lease [4]byte
 	binary.BigEndian.PutUint32(lease[:], 300)

@@ -131,6 +131,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	nativeNetwork := flag.Bool("native-network", false, "use the protected parent-selected native network comparison")
 	residentFirewall := flag.Bool("resident-firewall", false, "fixed scoped resident firewall selected by verified core")
 	combinedLegacy := flag.Bool("combined-legacy-network", false, "combine existing same-stage legacy scripts selected by verified core")
+	internetRoot := flag.String("internet-root", "", "core-selected current Mac USB identity")
 	externalWintun := flag.String("wintun-path", "", "verified external Wintun DLL")
 	moduleHold := flag.Bool("wintun-module-hold", false, "verified core-selected module lifecycle experiment")
 	coreExecutable := flag.String("core-exe", "", "actual protected SCM parent executable for resident permissions")
@@ -880,8 +881,9 @@ func run(dir string, l *log.Logger) (runErr error) {
 	bench.SetBufferTrim(buffers.Trim)
 	defer bench.SetBufferTrim(nil)
 	var rawReceiver atomic.Pointer[rawusb.Receiver]
+	internet := newInternetPolicy(ctx, *internetRoot)
 	var publishedPeer atomic.Value
-	publishedPeer.Store(bridge.Peer{MTU: mtu})
+	publishedPeer.Store(bridge.Peer{MTU: mtu, Internet: internet.allow, OnInternet: internet.packet})
 	errorsCh := make(chan error, 2)
 	fromUSB := make(chan ncm.Block, 64)
 	// Bound queued data to 512 KiB at the proven 16000-byte maximum.
@@ -1009,8 +1011,8 @@ func run(dir string, l *log.Logger) (runErr error) {
 		}
 	}()
 	l.Printf("%d overlapped bulk reads submitted; Wintun session and bounded TCP benchmark listening", *readDepth)
-	peer := bridge.Peer{MTU: mtu}
-	dhcp := macdhcp.Server{Local: ncm.WindowsIP, Peer: ncm.MacIP}
+	peer := bridge.Peer{MTU: mtu, Internet: internet.allow, OnInternet: internet.packet}
+	dhcp := macdhcp.Server{Local: ncm.WindowsIP, Peer: ncm.MacIP, Internet: internet.enabled}
 	if *profile == usbaddress.Unified {
 		l.Print("MAC_DHCP_STARTED no_router=true no_dns=true usb_only=true")
 	}
@@ -1255,7 +1257,11 @@ func run(dir string, l *log.Logger) (runErr error) {
 				stats.USBReads++
 				for _, frame := range block.Frames {
 					if *profile == usbaddress.Unified {
+						priorACKs := dhcp.ACKs
 						reply, consumed, failure := dhcp.Handle(frame, peer.MAC, time.Now())
+						if dhcp.ACKs > priorACKs {
+							internet.ack()
+						}
 						if failure != "" {
 							return fmt.Errorf("%s", failure)
 						}

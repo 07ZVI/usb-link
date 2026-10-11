@@ -5,12 +5,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net/netip"
 	"suhang/usbnet/internal/transport/ncm"
 )
 
 type Peer struct {
-	MAC [6]byte
-	MTU int
+	MAC        [6]byte
+	MTU        int
+	Internet   func(netip.Addr) bool
+	OnInternet func(inbound bool)
 }
 
 func validMAC(m [6]byte) bool { return m != [6]byte{} && m[0]&1 == 0 && m != ncm.ProbeMAC }
@@ -72,8 +75,11 @@ func (p *Peer) FromMac(frame []byte) (arp, ip []byte) {
 		return nil, nil
 	}
 	b, err := IPv4(e.Payload, p.MTU)
-	if err != nil || !bytes.Equal(b[12:16], ncm.MacIP[:]) || !bytes.Equal(b[16:20], ncm.WindowsIP[:]) || !p.learn(e.Source) {
+	if err != nil || !bytes.Equal(b[12:16], ncm.MacIP[:]) || (!bytes.Equal(b[16:20], ncm.WindowsIP[:]) && (p.Internet == nil || !p.Internet(netip.AddrFrom4([4]byte(b[16:20]))))) || !p.learn(e.Source) {
 		return nil, nil
+	}
+	if !bytes.Equal(b[16:20], ncm.WindowsIP[:]) && p.OnInternet != nil {
+		p.OnInternet(false)
 	}
 	return nil, b
 }
@@ -89,11 +95,14 @@ func (p *Peer) FromWindowsInto(packet, storage []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(b[12:16], ncm.WindowsIP[:]) || !bytes.Equal(b[16:20], ncm.MacIP[:]) {
+	if (!bytes.Equal(b[12:16], ncm.WindowsIP[:]) && (p.Internet == nil || !p.Internet(netip.AddrFrom4([4]byte(b[12:16]))))) || !bytes.Equal(b[16:20], ncm.MacIP[:]) {
 		return nil, fmt.Errorf("outside USB peer addresses")
 	}
 	if p.MAC == [6]byte{} {
 		return nil, fmt.Errorf("peer not resolved")
+	}
+	if !bytes.Equal(b[12:16], ncm.WindowsIP[:]) && p.OnInternet != nil {
+		p.OnInternet(true)
 	}
 	return ncm.FrameInto(storage, p.MAC, ncm.ProbeMAC, 0x800, b), nil
 }

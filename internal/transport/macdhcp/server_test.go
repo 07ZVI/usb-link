@@ -158,3 +158,29 @@ func TestDHCPFramesTraverseNCMThenLeaseARPEntersExistingBridge(t *testing.T) {
 		t.Fatal("assigned peer route rejected", err)
 	}
 }
+func TestGatewayAndDNSAppearOnlyWithPreparedInternetLease(t *testing.T) {
+	s := server()
+	enabled := true
+	s.Internet = func() bool { return enabled }
+	for _, want := range []bool{true, false} {
+		enabled = want
+		f, ok, problem := s.Handle(clientFrame(request(3, 50, 4, 10, 6, 9, 2)), testMAC, time.Now())
+		if !ok || problem != "" {
+			t.Fatal(problem)
+		}
+		e, _ := ncm.ParseEthernet(f)
+		b := e.Payload[28:]
+		found := map[byte]bool{}
+		for i := 240; b[i] != 255; i += 2 + int(b[i+1]) {
+			if b[i] == 3 || b[i] == 6 {
+				found[b[i]] = true
+				if !bytes.Equal(b[i+2:i+6], s.Local[:]) {
+					t.Fatal("foreign gateway")
+				}
+			}
+		}
+		if found[3] != want || found[6] != want {
+			t.Fatal("gateway offered before preparation or after stop")
+		}
+	}
+}

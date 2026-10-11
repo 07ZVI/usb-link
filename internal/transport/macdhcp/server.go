@@ -16,6 +16,7 @@ var broadcastIP = [4]byte{255, 255, 255, 255}
 
 type Server struct {
 	Local, Peer               [4]byte
+	Internet                  func() bool
 	MAC                       [6]byte
 	Window                    time.Time
 	Replies                   int
@@ -61,7 +62,8 @@ func (s *Server) Handle(frame []byte, established [6]byte, now time.Time) (reply
 	if req.Kind == 4 && req.HasRequested && req.Requested == s.Peer {
 		return nil, true, "MAC_DHCP_DECLINED_FIXED_ADDRESS"
 	}
-	b, kind := ipadsession.DHCPReply(req, s.Local, s.Peer)
+	internet := s.Internet != nil && s.Internet()
+	b, kind := ipadsession.DHCPReplyWithDNS(req, s.Local, s.Peer, internet, internet)
 	if b == nil {
 		return
 	}

@@ -260,7 +260,7 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		}
 		response.Payload = json.RawMessage(`{}`)
 	case "action":
-		if handled, e := dependencyAction(request.Payload); handled {
+		if handled, e := internetAction(owner.ctx, request.Payload); handled {
 			if e != nil {
 				response.Problem = e.Error()
 			}
@@ -291,7 +291,15 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		if err := strictCorePayload(request.Payload, &command); err != nil || !command.PrepareUninstall {
 			return response, fmt.Errorf("CORE_SETTINGS_COMMAND_INVALID")
 		}
-
+		if rt := currentInternet.Load(); rt != nil {
+			rt.mu.Lock()
+			e := rt.manager.Disable(owner.ctx)
+			rt.mu.Unlock()
+			if e != nil {
+				response.Problem = e.Error()
+				return response, nil
+			}
+		}
 		dir, ok := serviceDiagnosticDirectory.Load().(string)
 		if !ok || dir == "" {
 			response.Problem = "CORE_INITIALIZING"
@@ -492,6 +500,18 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 				checks = append(checks, ipadncm.PanelCheck{Text: c.Text, Checked: c.Checked, Disabled: c.Disabled})
 			}
 			yes, values := ipadncm.NativePanelWithContext(panelCtx, q.Title, q.Body, q.Accept, checks)
+			if yes && q.Dependency != "" {
+				if q.Dependency != "apple-support" {
+					yes = false
+				} else {
+					e := dependencies.WithProgress(panelCtx, func(c context.Context) error { _, e := dependencies.Ensure(c, q.Dependency); return e })
+					if e != nil {
+						yes = false
+						ipadncm.NativePanelWithContext(panelCtx, "元件尚未就緒", e.Error()+"\n受影響：iPad 通信。其他已滿足依賴的功能可繼續使用。", "知道了", nil)
+					}
+				}
+			}
+
 			if panelCtx.Err() != nil {
 				return
 			}
@@ -573,7 +593,7 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 				if _, e := dependencies.Lookup(dep.ID); e != nil {
 					return nil, e
 				}
-				e := dependencies.WithProgress(actionCtx, func(c context.Context) error { _, e := dependencies.Ensure(c, dep.ID); return e })
+				e := dependencies.WithProgress(actionCtx, func(c context.Context) error { _, e := dependencies.Retry(c, dep.ID); return e })
 				if e != nil {
 					return nil, e
 				}

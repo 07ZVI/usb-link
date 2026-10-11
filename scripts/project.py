@@ -65,10 +65,8 @@ def package():
  shutil.copytree(ROOT/'docs',release/'docs',dirs_exist_ok=True)
  shutil.copyfile(ROOT/'internal/dependencies/catalog.json',release/'external-dependencies.json')
  zipped(OUT/f'USB-Link-{VERSION}-windows-mac.zip',{f.relative_to(release).as_posix():f for f in release.rglob('*') if f.is_file()})
- # Source files come from the committed tree, never the working directory.
- names=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')
- if not names[-1]:names.pop()
- zipped(OUT/f'USB-Link-{VERSION}-source.zip',{f'usb-link/{n}':ROOT/n for n in names})
+ # Source archive uses the committed tree, independently of ignored local files.
+ run(['git','archive','--format=zip','--prefix=usb-link/','--output',OUT/f'USB-Link-{VERSION}-source.zip','HEAD'])
  verify()
 def verify():
  run([sys.executable,'scripts/audit_distribution.py','--package',str(OUT)])

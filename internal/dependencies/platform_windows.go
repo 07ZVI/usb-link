@@ -13,9 +13,11 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc/mgr"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -312,7 +314,9 @@ func (p *WindowsPlatform) Install(ctx context.Context, a Asset, archive, root st
 // Serialize downloads across the UI, service and updater processes.
 var dependencyProcessLock sync.Mutex
 
-func Ensure(ctx context.Context, id string) (string, error) {
+func Ensure(ctx context.Context, id string) (string, error) { return ensureWithRetry(ctx, id, false) }
+func Retry(ctx context.Context, id string) (string, error)  { return ensureWithRetry(ctx, id, true) }
+func ensureWithRetry(ctx context.Context, id string, retry bool) (string, error) {
 	dependencyProcessLock.Lock()
 	defer dependencyProcessLock.Unlock()
 	name, _ := windows.UTF16PtrFromString(`Global\USBLinkOfficialDependencies-7c494949`)
@@ -339,7 +343,61 @@ func Ensure(ctx context.Context, id string) (string, error) {
 		}
 	}
 	defer windows.ReleaseMutex(h)
+	if retry {
+		a, e := Lookup(id)
+		if e != nil {
+			return "", e
+		}
+		p, ok := Default.Platform.(*WindowsPlatform)
+		if !ok {
+			return "", errors.New("DEPENDENCY_PLATFORM_UNCONFIGURED")
+		}
+		root, e := p.Root()
+		if e != nil {
+			return "", e
+		}
+		if _, ready := p.Detect(a, root); !ready {
+			if e = p.prepareRetry(a, root); e != nil {
+				return "", e
+			}
+		}
+	}
 	return Default.Ensure(ctx, id)
 }
 
 const unsafeSizeSA = 24 // SECURITY_ATTRIBUTES layout on Windows amd64.
+
+// Explicit retry preserves invalid product-owned material in quarantine. It is
+// never reused, overwritten silently, or confused with shared/system software.
+func (p *WindowsPlatform) prepareRetry(a Asset, root string) error {
+	u, e := url.Parse(a.URL)
+	if e != nil {
+		return e
+	}
+	archive := filepath.Join(root, a.ID+"-"+a.Version+"-"+a.Digest[:16]+filepath.Ext(u.Path))
+	paths := []string{}
+	if _, e = os.Lstat(archive); e == nil && (check(a, archive) != nil || p.Verify(a, archive) != nil) {
+		paths = append(paths, archive)
+	}
+	tree := p.tree(a, root)
+	if _, e = os.Lstat(tree); e == nil && !p.validTree(a, tree) {
+		paths = append(paths, tree)
+	}
+	for _, path := range paths {
+		if e = filepath.WalkDir(path, func(file string, de os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if p.Safe != nil {
+				return p.Safe(file)
+			}
+			return nil
+		}); e != nil {
+			return e
+		}
+		if e = os.Rename(path, path+".rejected-"+strconv.FormatInt(time.Now().UnixNano(), 10)); e != nil {
+			return e
+		}
+	}
+	return nil
+}
