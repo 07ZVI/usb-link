@@ -102,17 +102,29 @@ func ServiceSMBDesktopRead(ctx context.Context, payload json.RawMessage) (json.R
 		return nil, true, fmt.Errorf("SMB_FOLDER_READ_INVALID")
 	}
 	connectioninstall.RecordSMBUIResult(v.RequestID, v.Action, "core-received")
-	folders, err := connectioninstall.NativeSMBManagerFolders()
-	problem := ""
-	if err != nil {
-		problem = err.Error()
+	done, accepted := smbUIResults.startRead(ctx, "share-folders", v.RequestID, v.Action, func() any {
+		folders, err := connectioninstall.NativeSMBManagerFolders()
+		problem := ""
+		if err != nil {
+			problem = err.Error()
+		}
+		connectioninstall.RecordSMBUIResult(v.RequestID, v.Action, "reply-ready")
+		return map[string]any{"event": "share-folders", "action": v.Action, "request_id": v.RequestID, "folders": folders, "problem": problem}
+	})
+	if !accepted {
+		return nil, true, fmt.Errorf("SMB_FOLDER_READ_BUSY：共享列表仍在讀取，請稍後重新整理。")
 	}
-	b, err := json.Marshal(map[string]any{"event": "share-folders", "action": v.Action, "request_id": v.RequestID, "folders": folders, "problem": problem})
-	if len(b) > 40<<10 {
-		return nil, true, fmt.Errorf("SMB_FOLDER_LIST_TOO_LARGE")
+	// Fast local reads retain their direct reply. Only a slow disk/ACL query
+	// yields this pipe request instead of keeping it occupied for seconds.
+	timer := time.NewTimer(25 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return nil, true, ctx.Err()
+	case <-timer.C:
 	}
-	connectioninstall.RecordSMBUIResult(v.RequestID, v.Action, "reply-ready")
-	return b, true, err
+	return getSMBUIResult("share-folders", v.RequestID), true, nil
 }
 
 func localUIResultEvent(event string) bool {

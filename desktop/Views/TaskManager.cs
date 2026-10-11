@@ -116,14 +116,20 @@ public sealed partial class Dashboard
         if (taskWindow == null || processCapturing || preview) return;
         var owner = taskWindow; var inventory = processInventory; if (inventory == null) return;
         processCapturing = true; processRefresh.IsEnabled = processReverify.IsEnabled = false;
+        var initialPending = true;
         try {
-            var snapshot = await Task.Run(inventory.Capture);
+            Action<RunningProgram[]>? initial = runningPrograms.Length == 0 ? rows => Dispatcher.UIThread.Post(() => {
+                if (!initialPending || taskWindow != owner || processInventory != inventory) return;
+                runningPrograms = rows; RenderProcesses();
+            }, DispatcherPriority.Normal) : null;
+            var snapshot = await Task.Run(() => inventory.Capture(initial));
             if (taskWindow != owner) return;
             runningPrograms = snapshot; processProblem.IsVisible = false; RenderProcesses();
         } catch {
             if (taskWindow != owner) return;
             processProblem.Text = "無法更新進程列表，保留上次結果；請重新整理。"; processProblem.IsVisible = true;
         } finally {
+            initialPending = false;
             if (taskWindow == owner) { processCapturing = false; processRefresh.IsEnabled = processReverify.IsEnabled = true; }
         }
     }

@@ -119,7 +119,11 @@ internal static class ProcessNativeSmoke
         if (!OperatingSystem.IsWindows()) { Console.Error.WriteLine("PROCESS_NATIVE_SMOKE_REQUIRES_WINDOWS"); return 2; }
         try {
             using var inventory = new ProcessInventory();
-            var initial = inventory.Capture(); Thread.Sleep(150); var rows = inventory.Capture();
+            RunningProgram[]? census = null;
+            var initial = inventory.Capture(rows => census = rows);
+            if (census == null || census.Length != initial.Length || census.Any(p => p.Identity != "" || p.Path.Length > 0 && p.Trust.Status != "pending"))
+                throw new InvalidOperationException("initial process list must precede file verification");
+            Thread.Sleep(150); var rows = inventory.Capture();
             var self = rows.Single(p => p.Pid == Environment.ProcessId);
             if (initial.Length == 0 || self.Path.Length == 0 || self.Started == 0 || self.Memory == null || self.Cpu == null)
                 throw new InvalidOperationException("minimum-rights process inventory");

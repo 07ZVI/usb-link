@@ -28,7 +28,7 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            if (Program.BoundedIpc || Program.StandaloneTasks) desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             LaunchTelemetry.Mark("renderer-dashboard-create");
             desktop.MainWindow = new Dashboard();
             LaunchTelemetry.Mark("renderer-dashboard-ready");

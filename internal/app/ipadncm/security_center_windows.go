@@ -122,6 +122,32 @@ func (u *modernUI) securityAction(v desktopRequest) bool {
 		defer securityCenterBusy.Unlock()
 		ctx, cancel := context.WithTimeout(u.lifetime, 45*time.Second)
 		defer cancel()
+		// Independent observations do not need to wait for rule auditing.
+		// Join before publishing; no partial list is presented as complete.
+		var observations sync.WaitGroup
+		var connections []appfirewall.Connection
+		var devices []securitypolicy.DeviceRecord
+		var connectionError, deviceError error
+		observations.Add(2)
+		go func() {
+			defer observations.Done()
+			connections, connectionError = appfirewall.Connections(ctx)
+			if connectionError != nil {
+				connections = []appfirewall.Connection{}
+			}
+		}()
+		go func() {
+			defer observations.Done()
+			nodes, err := deviceguard.Inventory(ctx)
+			devices, deviceError = deviceguard.USBList(nodes, err == nil)
+			if deviceError != nil {
+				devices = []securitypolicy.DeviceRecord{}
+				return
+			}
+			deviceguard.MarkConnectionDevice(devices, macconnection.CurrentRoot(), "Mac")
+			enrichUSBConnections(ctx, nodes, devices)
+			deviceguard.EnrichStorage(ctx, devices)
+		}()
 		m, err := appFirewall(ctx)
 		if err == nil {
 			switch v.Action {
@@ -147,20 +173,12 @@ func (u *modernUI) securityAction(v desktopRequest) bool {
 		} else if v.Action != "security-refresh" {
 			u.setNotice("Windows 應用程式規則已更新；不改變全機預設聯網方式。")
 		}
-		connections, ce := appfirewall.Connections(ctx)
-		if ce != nil {
-			connections = []appfirewall.Connection{}
-			problem += fmt.Sprintf("\nTCP：%v", ce)
+		observations.Wait()
+		if connectionError != nil {
+			problem += fmt.Sprintf("\nTCP：%v", connectionError)
 		}
-		nodes, ne := deviceguard.Inventory(ctx)
-		devices, de := deviceguard.USBList(nodes, ne == nil)
-		if de != nil {
-			devices = []securitypolicy.DeviceRecord{}
-			problem += fmt.Sprintf("\nUSB：%v", de)
-		} else {
-			deviceguard.MarkConnectionDevice(devices, macconnection.CurrentRoot(), "Mac")
-			enrichUSBConnections(ctx, nodes, devices)
-			deviceguard.EnrichStorage(ctx, devices)
+		if deviceError != nil {
+			problem += fmt.Sprintf("\nUSB：%v", deviceError)
 		}
 		u.sendEvent(securityUIMessage(v.Action, v.RequestID, rules, connections, devices, problem, securitySummary()))
 	}()

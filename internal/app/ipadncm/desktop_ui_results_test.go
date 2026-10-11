@@ -2,6 +2,7 @@ package ipadncm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"suhang/usbnet/internal/security/appfirewall"
@@ -71,5 +72,79 @@ func TestSecurityUIMessageFitsLocalPipeWithBusyHost(t *testing.T) {
 	// The displayed limit must not mutate the authoritative observations.
 	if len(connections) != 1024 || len(devices) != 256 {
 		t.Fatal("observer state altered")
+	}
+}
+
+func TestDesktopSlowReadDoesNotBlockOtherReplies(t *testing.T) {
+	var c desktopUIResultCache
+	release, finished := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	id := strings.Repeat("a", 32)
+	if _, accepted := c.startRead(context.Background(), "share-folders", id, "share-folders-refresh", func() any {
+		close(finished)
+		<-release
+		return map[string]any{"event": "share-folders", "request_id": id}
+	}); !accepted {
+		t.Fatal("first read rejected")
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("read did not start")
+	}
+	// A duplicate request must not create another worker, while a different ID
+	// gets a bounded busy result rather than an unbounded queue of filesystem I/O.
+	unexpected := func() any { panic("duplicate worker") }
+	if _, accepted := c.startRead(context.Background(), "share-folders", id, "share-folders-refresh", unexpected); !accepted {
+		t.Fatal("same request not coalesced")
+	}
+	if _, accepted := c.startRead(context.Background(), "share-folders", strings.Repeat("b", 32), "share-folders-refresh", unexpected); accepted {
+		t.Fatal("concurrent read accepted")
+	}
+	c.put("gateway", id, "gateway-refresh", map[string]any{"event": "gateway"}, time.Now())
+	if c.get("gateway", id, time.Now()) == nil {
+		t.Fatal("unrelated reply blocked by filesystem read")
+	}
+	if c.get("share-folders", id, time.Now()) != nil {
+		t.Fatal("unfinished read published")
+	}
+}
+
+func TestDesktopAsyncReadCompletionAndCancellation(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		var c desktopUIResultCache
+		ctx, cancel := context.WithCancel(context.Background())
+		release := make(chan struct{})
+		id := strings.Repeat("c", 32)
+		done, accepted := c.startRead(ctx, "share-folders", id, "share-folders-refresh", func() any {
+			<-release
+			return map[string]any{"event": "share-folders", "request_id": id, "folders": []any{}}
+		})
+		if !accepted {
+			t.Fatal("read rejected")
+		}
+		if cancelled {
+			cancel()
+		}
+		close(release)
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("read did not finish")
+		}
+		cancel()
+		result := c.get("share-folders", id, time.Now())
+		if (result == nil) != cancelled {
+			t.Fatalf("cancelled=%v reply=%s", cancelled, result)
+		}
+		if !cancelled {
+			c.ack("share-folders", id)
+			if c.get("share-folders", id, time.Now()) != nil {
+				t.Fatal("ack did not consume async reply")
+			}
+		}
+		if _, accepted := c.startRead(ctx, "share-folders", id, "share-folders-refresh", func() any { panic("cancelled read") }); accepted {
+			t.Fatal("cancelled owner started read")
+		}
 	}
 }

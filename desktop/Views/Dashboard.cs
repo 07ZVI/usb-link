@@ -40,6 +40,8 @@ public sealed partial class Dashboard : Window
     bool shareEnabled, shareReady, nativeSMB;
  string nativeAccount="", shareProblem="";
     readonly bool preview = Program.Preview;
+    bool backendEnded;
+    bool KeepInTray => !preview && !Program.StandaloneTasks && OperatingSystem.IsWindows();
 
     // ---------- building blocks ----------
 
@@ -210,21 +212,31 @@ public sealed partial class Dashboard : Window
             while ((line = await input.ReadLineAsync()) != null)
             {
                 using var json = JsonDocument.Parse(line);
-                if (Program.BoundedIpc)
-                {
-                    // Keep the document alive until its ordered UI update completes.
-                    // Backpressure retains at most one parsed snapshot and avoids
-                    // cloning full security/share details into an unbounded queue.
-                    await Dispatcher.UIThread.InvokeAsync(() => Update(json.RootElement));
-                }
-                else
-                {
-                    var message = json.RootElement.Clone(); Dispatcher.UIThread.Post(() => Update(message));
-                }
+                // Bound queued UI work even when a large list is being laid out.
+                // Keep the document alive until the ordered update completes.
+                await Dispatcher.UIThread.InvokeAsync(() => Update(json.RootElement), DispatcherPriority.Background);
             }
         }
         catch (Exception) { /* A broken parent pipe ends only the renderer. */ }
-        finally { Dispatcher.UIThread.Post(Close); }
+        finally { Dispatcher.UIThread.Post(() => { backendEnded = true; Close(); }); }
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (KeepInTray && !backendEnded && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined)
+        {
+            e.Cancel = true;
+            HideToTray();
+        }
+        base.OnClosing(e);
+    }
+
+    void HideToTray()
+    {
+        // Close owned editors to stop their polling and clear revealed passwords.
+        // Only the already-built dashboard remains resident for the next tray click.
+        foreach (var window in OwnedWindows.ToArray()) window.Close();
+        Hide();
     }
 
     // ---------- sections ----------
@@ -319,7 +331,7 @@ public sealed partial class Dashboard : Window
 
     Control Footer()
     {
-        var background = Label("關閉視窗後，連線會繼續在背景運作。", 12, key: "Subtle");
+        var background = Label("關閉視窗後縮至托盤，連線繼續運作。", 12, key: "Subtle");
         background.VerticalAlignment = VerticalAlignment.Center;
 
         var stopLabel = Label("退出介面", 12, key: "Error");

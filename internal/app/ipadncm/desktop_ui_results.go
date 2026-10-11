@@ -1,6 +1,7 @@
 package ipadncm
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -12,7 +13,12 @@ const desktopUIResultLimit = 40 << 10
 // their renderer acknowledgement. No credentials belong in this cache.
 type desktopUIResultCache struct {
 	sync.Mutex
-	rows map[string]desktopUIResult
+	rows    map[string]desktopUIResult
+	reading map[string]*desktopUIRead
+}
+type desktopUIRead struct {
+	id   string
+	done chan struct{}
 }
 type desktopUIResult struct {
 	data json.RawMessage
@@ -64,4 +70,32 @@ func (c *desktopUIResultCache) ack(event, id string) {
 	c.Lock()
 	defer c.Unlock()
 	delete(c.rows, desktopResultKey(event, id))
+}
+
+// Start at most one expensive read per result kind. The authenticated pipe can
+// return a pending reply immediately; completion uses the existing ID/ack path.
+func (c *desktopUIResultCache) startRead(ctx context.Context, event, id, action string, read func() any) (<-chan struct{}, bool) {
+	c.Lock()
+	if active := c.reading[event]; active != nil {
+		c.Unlock()
+		return active.done, active.id == id
+	}
+	if ctx.Err() != nil {
+		c.Unlock()
+		return nil, false
+	}
+	if c.reading == nil {
+		c.reading = make(map[string]*desktopUIRead)
+	}
+	work := &desktopUIRead{id: id, done: make(chan struct{})}
+	c.reading[event] = work
+	c.Unlock()
+	go func() {
+		defer func() { c.Lock(); delete(c.reading, event); close(work.done); c.Unlock() }()
+		message := read()
+		if ctx.Err() == nil {
+			c.put(event, id, action, message, time.Now())
+		}
+	}()
+	return work.done, true
 }

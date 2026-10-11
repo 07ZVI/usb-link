@@ -80,7 +80,7 @@ internal sealed class ProcessInventory : IDisposable
 
     internal void Reverify() { lock (gate) { generation++; cache.Clear(); queued.Clear(); } }
 
-    internal RunningProgram[] Capture() {
+    internal RunningProgram[] Capture(Action<RunningProgram[]>? initial = null) {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("此功能需在 Windows 執行。");
         var rows = new List<RunningProgram>();
         var seen = new HashSet<(int, long)>();
@@ -105,30 +105,43 @@ internal sealed class ProcessInventory : IDisposable
                     }
                     var counters = new MemoryCounters { Size = (uint)Marshal.SizeOf<MemoryCounters>() };
                     if (K32GetProcessMemoryInfo(handle, ref counters, counters.Size)) memory = (long)counters.WorkingSet;
-                    // File metadata is observed independently of CPU/memory. A locked,
-                    // content-hashed handle is checked again by the verification worker.
-                    if (path.Length > 0 && !NativeProcessSignature.IsLocalPath(path)) issue = "程式位於遠端路徑，不自動讀取或驗證。";
-                    else if (path.Length > 0) {
-                        try {
-                            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                            identity = FileIdentity(file, path);
-                        } catch { issue = "無法讀取程式檔案，可能為受保護程序或檔案已移除。"; }
-                    }
                 }
-                ProcessTrust trust = new("unverified", issue);
-                if (identity.Length > 0) {
-                    identities.Add(identity);
-                    lock (gate) {
-                        if (cache.TryGetValue(identity, out var saved) && DateTimeOffset.TryParse(saved.CheckedAt, out var checkedAt) &&
-                            DateTimeOffset.UtcNow - checkedAt < TimeSpan.FromSeconds(30)) trust = saved;
-                        else {
-                            trust = new("pending", "正在背景驗證程式檔案與簽署憑證。" );
-                            if (queued.Add(identity) && !queue.Writer.TryWrite((path, identity, generation))) queued.Remove(identity);
-                        }
-                    }
-                }
-                rows.Add(new(pid, started, Clean(name), path, identity, cpu, memory, trust));
+                rows.Add(new(pid, started, Clean(name), path, identity, cpu, memory,
+                    new(path.Length > 0 ? "pending" : "unverified", path.Length > 0 ? "正在讀取程式檔案與簽署憑證。" : issue)));
             }
+        }
+        // Show the process census before any executable file I/O or signature work.
+        // Records are immutable; later verification cannot mutate this first view.
+        if (!lifetime.IsCancellationRequested) initial?.Invoke(rows.ToArray());
+        var fileObservations = new Dictionary<string, (string Identity, string Issue)>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < rows.Count && !lifetime.IsCancellationRequested; index++) {
+            var row = rows[index]; var path = row.Path;
+            if (path.Length == 0) continue;
+            if (!fileObservations.TryGetValue(path, out var observed)) {
+                string fileID = "", problem = "";
+                if (!NativeProcessSignature.IsLocalPath(path)) problem = "程式位於遠端路徑，不自動讀取或驗證。";
+                else {
+                    try {
+                        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        fileID = FileIdentity(file, path);
+                    } catch { problem = "無法讀取程式檔案，可能為受保護程序或檔案已移除。"; }
+                }
+                observed = (fileID, problem); fileObservations[path] = observed;
+            }
+            var (identity, issue) = observed;
+            ProcessTrust trust = new("unverified", issue);
+            if (identity.Length > 0) {
+                identities.Add(identity);
+                lock (gate) {
+                    if (cache.TryGetValue(identity, out var saved) && DateTimeOffset.TryParse(saved.CheckedAt, out var checkedAt) &&
+                        DateTimeOffset.UtcNow - checkedAt < TimeSpan.FromSeconds(30)) trust = saved;
+                    else {
+                        trust = new("pending", "正在背景驗證程式檔案與簽署憑證。" );
+                        if (queued.Add(identity) && !queue.Writer.TryWrite((path, identity, generation))) queued.Remove(identity);
+                    }
+                }
+            }
+            rows[index] = row with { Identity = identity, Trust = trust };
         }
         foreach (var key in previous.Keys.Where(k => !seen.Contains(k)).ToArray()) previous.Remove(key);
         lock (gate) foreach (var key in cache.Keys.Where(k => !identities.Contains(k)).ToArray()) cache.Remove(key);

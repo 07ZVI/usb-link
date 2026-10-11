@@ -100,6 +100,13 @@ public sealed partial class Dashboard
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");
+            OpenDetails(); OpenTaskManager(); OpenSMBManager();
+            HideToTray();
+            if (IsVisible || detailWindow != null || taskWindow != null || smbAccountWindow != null || smbPassword.Text != "")
+                throw new InvalidOperationException("tray hide must close child windows and clear credentials");
+            using (var show = JsonDocument.Parse("""{"event":"show"}""")) Update(show.RootElement);
+            if (!IsVisible || WindowState != WindowState.Normal)
+                throw new InvalidOperationException("tray show must reuse dashboard");
             Console.Error.WriteLine("CONNECTION_SMOKE_PASS");
             (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(0);
         }

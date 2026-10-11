@@ -44,6 +44,7 @@ type modernUI struct {
 	cmd               *exec.Cmd
 	input             io.WriteCloser
 	messages          chan any
+	showRequests      chan struct{}
 	notice            string
 	startupBusy       bool
 	startupRequested  bool
@@ -75,7 +76,7 @@ func (u *modernUI) show(reason string) bool {
 	}
 	if u.cmd != nil {
 		select {
-		case u.messages <- map[string]string{"event": "show"}:
+		case u.showRequests <- struct{}{}:
 			recordDesktopOpenTiming(request, "existing-renderer-show-queued", started)
 		default:
 		}
@@ -123,6 +124,8 @@ func (u *modernUI) show(reason string) bool {
 	u.cmd, u.input = cmd, in
 	messages := make(chan any, 4)
 	u.messages = messages
+	showRequests := make(chan struct{}, 1)
+	u.showRequests = showRequests
 	childDone := make(chan struct{})
 	u.childDone = childDone
 	if currentServiceUIProxy() == nil {
@@ -130,12 +133,27 @@ func (u *modernUI) show(reason string) bool {
 	}
 	ready := make(chan struct{}, 1)
 	go func() {
+		encoder := json.NewEncoder(in)
 		for {
+			// Tray activation is coalesced separately so status traffic cannot
+			// fill its slot or leave a click silently dropped.
+			select {
+			case <-showRequests:
+				if encoder.Encode(map[string]string{"event": "show"}) != nil {
+					return
+				}
+				continue
+			default:
+			}
 			select {
 			case <-childDone:
 				return
+			case <-showRequests:
+				if encoder.Encode(map[string]string{"event": "show"}) != nil {
+					return
+				}
 			case m := <-messages:
-				if json.NewEncoder(in).Encode(m) != nil {
+				if encoder.Encode(m) != nil {
 					return
 				}
 			}
