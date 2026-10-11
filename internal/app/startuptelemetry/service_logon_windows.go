@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"time"
 	"unsafe"
-
 )
 
 // ObserveAuthenticatedSession must be called only for the owner's session

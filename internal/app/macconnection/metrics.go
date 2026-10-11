@@ -4,10 +4,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
-	"suhang/usbnet/internal/transport/ipadsession"
-	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/diagnostics/throughput"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/ipadsession"
 )
 
 type Result struct {

@@ -9,8 +9,8 @@ import (
 	"log"
 	"runtime"
 	"strings"
-	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/platform/windows/wincom"
+	"suhang/usbnet/internal/transport/usbaddress"
 	"time"
 	"unsafe"
 

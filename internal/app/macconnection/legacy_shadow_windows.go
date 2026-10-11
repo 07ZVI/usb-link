@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"strings"
-	"suhang/usbnet/internal/transport/bridge"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/bridge"
 )
 
 // Called only by the ordinary connection's successful FILES-ready event. This

@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"suhang/usbnet/internal/platform/windows/wincom"
 	"suhang/usbnet/internal/security/securitypolicy"
 	"suhang/usbnet/internal/transport/usbaddress"
-	"suhang/usbnet/internal/platform/windows/wincom"
 )
 
 const legacyMaintenanceRule = "Suhang-Remote-Update-7c494949-v1"

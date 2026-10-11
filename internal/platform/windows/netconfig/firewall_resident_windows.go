@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"suhang/usbnet/internal/platform/windows/wincom"
 	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/transport/usbaddress"
-	"suhang/usbnet/internal/platform/windows/wincom"
 )
 
 // PreparedResidentFirewall is scoped to one fixed role and one live verified

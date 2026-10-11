@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "id": "wintun",
+      "version": "0.14.1",
+      "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+      "digest": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
+      "algorithm": "sha256",
+      "max_bytes": 16777216,
+      "features": [
+        "Mac USB",
+        "iPad shared host"
+      ],
+      "license": "Wintun prebuilt binaries license",
+      "signer": "WireGuard LLC"
+    },
+    {
+      "id": "zadig",
+      "version": "2.9",
+      "url": "https://github.com/pbatard/libwdi/releases/download/v1.5.1/zadig-2.9.exe",
+      "digest": "4ecaa95df3da3621486a043aef8b3050b8bafe7c901402871e816229ef82039b",
+      "algorithm": "sha256",
+      "max_bytes": 16777216,
+      "features": [
+        "Mac WinUSB binding"
+      ],
+      "license": "GPL-3.0-or-later; libwdi LGPL-3.0-or-later",
+      "signer": "Akeo Consulting",
+      "source_url": "https://github.com/pbatard/libwdi/archive/refs/tags/v1.5.1.zip"
+    },
+    {
+      "id": "apple-support",
+      "version": "20.0.0.35",
+      "url": "https://secure-appldnld.apple.com/itunes12/140-75773-20260908-6e5e0165-99cb-4b30-b541-1b615fccfc1a/iTunes64Setup.exe",
+      "digest": "25b28905a81406a5edbf482f7f3ee4831a8641d32d29dceda5d1eb3e8d534c08",
+      "algorithm": "sha256",
+      "max_bytes": 536870912,
+      "features": [
+        "iPad USB communication"
+      ],
+      "license": "Apple official installer terms",
+      "signer": "Apple Inc."
+    },
+    {
+      "id": "apple-driver",
+      "version": "486.0.0.0",
+      "url": "https://catalog.s.download.windowsupdate.com/d/msdownload/update/driver/drvs/2020/11/01d96dfd-2f6f-46f7-8bc3-fd82088996d2_a31ff7000e504855b3fa124bf27b3fe5bc4d0893.cab",
+      "digest": "9e6aa358c1c8207ccc13bbc52cd637ae2db57086b8727ed45c3cde87def72d89",
+      "algorithm": "sha256",
+      "max_bytes": 33554432,
+      "features": [
+        "iPad USB driver"
+      ],
+      "license": "Official driver package terms",
+      "signer": "Microsoft Windows Hardware Compatibility Publisher"
+    },
+    {
+      "id": "dotnet",
+      "version": "10.0.12",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.12/dotnet-runtime-10.0.12-win-x64.zip",
+      "digest": "844fa99e16fd6f44e0a7c29def7a82d7846902334d6a955248a9519a4dddb3f5acceb9c9223bef69f8c83b8ae2417537e5b76dddf79fb7117dc85b5039bc1297",
+      "algorithm": "sha512",
+      "max_bytes": 104857600,
+      "features": [
+        "Desktop interface"
+      ],
+      "license": "MIT and .NET third-party notices",
+      "signer": "Microsoft Corporation"
+    }
+  ]
+}

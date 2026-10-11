@@ -6,7 +6,7 @@ import "suhang/usbnet/internal/app/connectioninstall"
 
 // The desktop component has its own release identity. Reusing verified bytes
 // must not make the installer version select an unembedded archive name.
-const bundledDesktopAsset = "assets/desktop-0.8.140.zip"
+const bundledDesktopAsset = "assets/desktop.zip"
 
 // The integrator calls these helpers from the normal/recovery launcher and
 // installation cleanup. Both modes use identical embedded content identities.

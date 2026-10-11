@@ -4,8 +4,8 @@ package netconfig
 
 import (
 	"context"
-	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/platform/windows/wincom"
+	"suhang/usbnet/internal/transport/usbaddress"
 )
 
 func residentDiagnosticNames(role string) ([]string, int) {

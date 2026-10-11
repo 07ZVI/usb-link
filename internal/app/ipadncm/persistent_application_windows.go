@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
-	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/ipadsession"
 )
 
 // Presence selects stricter recovery; it never proves identity or authorization.

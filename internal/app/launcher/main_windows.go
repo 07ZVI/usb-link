@@ -6,7 +6,6 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,28 +16,30 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-	"suhang/usbnet/internal/security/applelease"
-	"suhang/usbnet/internal/diagnostics/attemptlog"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/sharing/fileshare"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/app/ipadeasy"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/macconnection"
-	"suhang/usbnet/internal/diagnostics/memorydiag"
-	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/app/remoteupdate"
 	"suhang/usbnet/internal/app/startupopt"
 	"suhang/usbnet/internal/app/startuptelemetry"
 	"suhang/usbnet/internal/app/uistartup"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/buildinfo"
+	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/diagnostics/attemptlog"
+	"suhang/usbnet/internal/diagnostics/memorydiag"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/security/applelease"
+	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/transport/wintun"
 	"sync/atomic"
 	"time"
 	"unsafe"
 )
 
-const version = "0.8.140"
+var version = buildinfo.Version
 
 // Publisher-only diagnostic candidate: ordinary iPad auto-connect is held.
 // Default OFF; this is not a persisted user setting or remotely supplied flag.
@@ -208,59 +209,19 @@ func prepare(r *Result, system string) {
 	r.AlreadyInstalled = servicePresent()
 	if !r.AlreadyInstalled {
 		r.Stage = "INSTALL_CONSENT"
-		r.InstallConsent = dialog("這台電腦尚未找到 Apple Mobile Device Service。\n\n是否安裝此程式內建的蘋果官方「Apple Mobile Device Support 20.0.0.35」？\n\n這個 MSI 提供背景通信服務，USB 驅動會在下一步另外確認。它不安裝 iTunes 主程式或 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", 0x4|0x20|0x100) == 6
+		r.InstallConsent = dialog("這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", 0x4|0x20|0x100) == 6
 		if !r.InstallConsent {
 			r.Error = "INSTALL_DECLINED"
 			return
 		}
 		r.Stage = "COMPONENT_VALIDATION"
-		b, e := bundledFile("AppleMobileDeviceSupport64.msi")
-		if e != nil {
-			r.Error = "COMPONENT_FILE_UNAVAILABLE"
+		r.Stage = "OFFICIAL_APPLE_DOWNLOAD_AND_INSTALL"
+		if _, e := dependencies.Ensure(context.Background(), "apple-support"); e != nil {
+			r.Error = e.Error()
+			r.RebootRequired = strings.Contains(r.Error, "REBOOT_REQUIRED")
 			return
 		}
-		if fmt.Sprintf("%x", sha256.Sum256(b)) != msiSHA {
-			r.Error = "COMPONENT_HASH_MISMATCH"
-			return
-		}
-		r.HashVerified = true
-		dir, e := privateStage()
-		if e != nil {
-			r.Error = "PRIVATE_STAGING_FAILED"
-			return
-		}
-		defer os.RemoveAll(dir)
-		path := filepath.Join(dir, "AppleMobileDeviceSupport64.msi")
-		if e = os.WriteFile(path, b, 0600); e != nil {
-			r.Error = "COMPONENT_STAGING_FAILED"
-			return
-		}
-		b = nil
-		if !verify(path, system) {
-			r.Error = "WINDOWS_APPLE_SIGNATURE_NOT_VERIFIED"
-			return
-		}
-		r.SignatureVerified = true
-		r.Stage = "OFFICIAL_APPLE_INSTALLER"
-		// Let Apple's own UI present its license. Do not suppress it or force
-		// termination mid-install. Preserve MSI's reboot-required exit code.
-		c := exec.Command(filepath.Join(system, "msiexec.exe"), "/i", path, "/norestart")
-		e = c.Run()
-		if c.ProcessState == nil {
-			r.Error = "INSTALLER_LAUNCH_FAILED"
-			return
-		}
-		exit := c.ProcessState.ExitCode()
-		r.InstallerExit = &exit
-		if exit == 3010 || exit == 1641 {
-			r.RebootRequired = true
-			r.Error = "REBOOT_REQUIRED_BEFORE_RETEST"
-			return
-		}
-		if e != nil || exit != 0 {
-			r.Error = "OFFICIAL_INSTALLER_NOT_COMPLETED"
-			return
-		}
+
 	}
 	r.AppleServicePresent = servicePresent()
 	if !r.AppleServicePresent {
@@ -468,6 +429,7 @@ func installationFailure(r *Result, stage, message string) {
 	}
 }
 func Main() {
+	dependencies.Configure(connectioninstall.DependencyDirectory, connectioninstall.VerifyDependencyPath)
 	if dispatchWintunLifecycleProbe() {
 		return
 	}
@@ -548,6 +510,12 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			dialog("未取得管理員權限，沒有安裝或檢查。", 0x10)
 		}
 		return
+	}
+	if !service && !uninstall {
+		err := dependencies.WithProgress(ctx, func(download context.Context) error { _, e := dependencies.Ensure(download, "dotnet"); return e })
+		if err != nil {
+			dialog("桌面元件尚未齊備，核心仍可使用備用介面。\n請聯網後重試。\n"+err.Error(), 0x30)
+		}
 	}
 	if preparedInstall {
 		if err := connectioninstall.ValidatePreparedInstall(version); err != nil {
@@ -1009,8 +977,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	defer func() { cancel(); closeUI() }()
 	memorydiag.RecordStage("parent_ui_monitor_started")
 	ipadncm.ConfigureUnpairedDiagnosticStartupHold(unpairedDiagnosticStartupHold)
-	macPayload, pe := macArchive("assets/mac-payload-0.8.140.zip")
-	macManifest, me := payload.ReadFile("assets/MAC-SOURCES-0.8.140.json")
+	macPayload, pe := macArchive("assets/mac-payload.zip")
+	macManifest, me := payload.ReadFile("assets/mac-sources.json")
 	if pe != nil || me != nil {
 		dialog("Mac 傳輸元件缺失。", 0x10)
 		return

@@ -4,5 +4,5 @@ package launcher
 
 import _ "embed"
 
-//go:embed assets/usb-resource-0.8.140.exe
+//go:embed assets/usb-resource.exe
 var resourceObserver []byte

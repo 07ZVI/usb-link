@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"suhang/usbnet/internal/platform/windows/wincom"
 	"suhang/usbnet/internal/security/securitypolicy"
 	"suhang/usbnet/internal/transport/usbaddress"
-	"suhang/usbnet/internal/platform/windows/wincom"
 	"sync"
 )
 

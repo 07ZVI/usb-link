@@ -7,8 +7,8 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/platform/windows/wincom"
+	"suhang/usbnet/internal/transport/usbaddress"
 	"syscall"
 	"unsafe"
 

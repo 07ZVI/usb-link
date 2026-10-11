@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 	"log"
-	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/platform/windows/wincom"
+	"suhang/usbnet/internal/transport/usbaddress"
 )
 
 // This mandatory owner callback freshly proves the protected application

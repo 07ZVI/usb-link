@@ -1,0 +1,32 @@
+{
+  "source_url": "https://catalog.s.download.windowsupdate.com/d/msdownload/update/driver/drvs/2020/11/01d96dfd-2f6f-46f7-8bc3-fd82088996d2_a31ff7000e504855b3fa124bf27b3fe5bc4d0893.cab",
+  "cab_sha256": "9e6aa358c1c8207ccc13bbc52cd637ae2db57086b8727ed45c3cde87def72d89",
+  "provider": "Apple Inc.",
+  "driver_version": "486.0.0.0",
+  "driver_date": "2020-10-02",
+  "cat_cms_signer_signature_verified": true,
+  "cat_signer": {
+    "country_name": "US",
+    "state_or_province_name": "Washington",
+    "locality_name": "Redmond",
+    "organization_name": "Microsoft Corporation",
+    "common_name": "Microsoft Windows Hardware Compatibility Publisher"
+  },
+  "windows_catalog_trust_and_membership_verified": false,
+  "native_driver_install_verified": false,
+  "file_sha256": {
+    "AppleKmdfFilter.sys": "e044b74ff494725d56b292ace8d558e315ae406085ee3695d859ad97254897fa",
+    "AppleLowerFilter.sys": "61c6533dadad5c47bdcf996297e69501092ffb0d1f1dcc2ac6df92e6043d5b43",
+    "AppleUsb.inf": "95cab1fbf0e6cd6211a6d14d75041c83c182740c39c21c5d7a4e2430bd8b1e56",
+    "AppleUsbFilter.dll": "84536890ac36f4fbcaeaef44ee38eb73123093e9253d07a6906f918b8b974ae8",
+    "appleusb.cat": "09b243b79396357d982016ad043c6102b7281eca7076e3d6593d23f65bea823d"
+  },
+  "contains_target_hardware_id": "USB\\VID_05AC&PID_12AB",
+  "uses_inbox_usbccgp_and_winusb": true,
+  "includes_official_apple_filters": [
+    "AppleLowerFilter.sys",
+    "AppleKmdfFilter.sys",
+    "AppleUsbFilter.dll"
+  ],
+  "boundary": "Windows must validate the catalog and driver package via its native driver installer; no modified INF or unsigned/custom filter."
+}

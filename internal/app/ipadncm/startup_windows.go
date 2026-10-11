@@ -10,8 +10,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"suhang/usbnet/internal/security/deviceguard"
 	"suhang/usbnet/internal/diagnostics/grouptrial"
+	"suhang/usbnet/internal/security/deviceguard"
 )
 
 func problemStatus(set windows.DevInfo, info *windows.DevInfoData) (string, string) {

@@ -3,66 +3,47 @@
 package launcher
 
 import (
-	"archive/zip"
 	"bytes"
+	"context"
 	"embed"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/macconnection"
+	"suhang/usbnet/internal/dependencies"
+	"time"
 )
 
-//go:embed assets/desktop-0.8.140.zip assets/apple-payload.zip assets/NOTICES.txt assets/SOURCES.json assets/mac-payload-0.8.140.zip assets/MAC-SOURCES-0.8.140.json assets/MAC-NOTICES.txt assets/SMB-LICENSES-0.8.36.txt assets/SMB-SOURCES-0.8.36.json
+//go:embed assets/desktop.zip assets/mac-payload.zip assets/mac-sources.json assets/notices.txt assets/sources.json assets/smb-licenses.txt assets/smb-sources.json
 var payload embed.FS
 
 // Read only fixed known entries. Existing installer validation then checks each
 // exact file digest and native signature before any registration/installation.
 func bundledFile(name string) ([]byte, error) {
-	limit := int64(1024 * 1024)
-	if name == "AppleMobileDeviceSupport64.msi" {
-		limit = 64 * 1024 * 1024
-	} else if _, ok := driverFiles[filepath.Base(name)]; !ok || name != "AppleUSB/"+filepath.Base(name) {
-		return nil, errors.New("unknown bundled file")
+	if name != "AppleUSB/"+filepath.Base(name) {
+		return nil, errors.New("unknown external file")
 	}
-	b, e := payload.ReadFile("assets/apple-payload.zip")
+	if _, ok := driverFiles[filepath.Base(name)]; !ok {
+		return nil, errors.New("unknown external driver file")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	dir, e := dependencies.Ensure(ctx, "apple-driver")
 	if e != nil {
 		return nil, e
 	}
-	z, e := zip.NewReader(bytes.NewReader(b), int64(len(b)))
-	if e != nil {
+	path := filepath.Join(dir, filepath.Base(name))
+	if e = connectioninstall.VerifyDependencyPath(path); e != nil {
 		return nil, e
 	}
-	var found *zip.File
-	for _, f := range z.File {
-		if f.Name == name {
-			if found != nil {
-				return nil, errors.New("duplicate bundled file")
-			}
-			found = f
-		}
-	}
-	if found == nil || found.UncompressedSize64 > uint64(limit) {
-		return nil, errors.New("missing or oversized bundled file")
-	}
-	r, e := found.Open()
-	if e != nil {
-		return nil, e
-	}
-	defer r.Close()
-	content, e := io.ReadAll(io.LimitReader(r, limit+1))
-	if e != nil {
-		return nil, e
-	}
-	if int64(len(content)) > limit {
-		return nil, errors.New("oversized bundled file")
-	}
-	return content, nil
+	return os.ReadFile(path)
 }
 
 func writeNotices(dir string) error {
-	for name, src := range map[string]string{"SMB-LICENSES.txt": "assets/SMB-LICENSES-0.8.36.txt", "SMB-SOURCES.json": "assets/SMB-SOURCES-0.8.36.json", "LICENSES.txt": "assets/NOTICES.txt", "SOURCES.json": "assets/SOURCES.json", "MAC-SOURCES.json": "assets/MAC-SOURCES-0.8.140.json", "MAC-LICENSES.txt": "assets/MAC-NOTICES.txt"} {
+	for name, src := range map[string]string{"SMB-LICENSES.txt": "assets/smb-licenses.txt", "SMB-SOURCES.json": "assets/smb-sources.json", "LICENSES.txt": "assets/notices.txt", "SOURCES.json": "assets/sources.json", "MAC-SOURCES.json": "assets/mac-sources.json", "MAC-LICENSES.txt": "assets/notices.txt"} {
 		b, e := payload.ReadFile(src)
 		if e != nil {
 			return e

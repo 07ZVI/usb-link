@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"suhang/usbnet/internal/transport/bridge"
 	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/bridge"
 )
 
 type sessionRecord = bridge.OwnedSession

@@ -251,10 +251,10 @@ func UpdateNativeSMBAccount(reset bool, password, name string) (bool, error) {
 	}
 	nativeSMBOperationMu.Lock()
 	defer nativeSMBOperationMu.Unlock()
-	return updateNativeSMBAccountLocked(reset,password,name)
+	return updateNativeSMBAccountLocked(reset, password, name)
 }
 
-func updateNativeSMBAccountLocked(reset bool,password,name string) (bool,error) {
+func updateNativeSMBAccountLocked(reset bool, password, name string) (bool, error) {
 	// A password reset retains the SID and every share/ACL. Changing a password
 	// must not traverse directory trees or depend on removable-drive availability.
 	if reset {

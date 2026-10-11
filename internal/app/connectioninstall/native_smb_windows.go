@@ -23,9 +23,9 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"io"
 	"log"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/usbgateway"
+	"suhang/usbnet/internal/sharing/fileshare"
 )
 
 const nativeSMBMarker = "USB Link native SMB / v1 / "

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/sharing/fileshare"
 	"time"
 )
 

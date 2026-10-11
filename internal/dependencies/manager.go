@@ -1,0 +1,294 @@
+// Package dependencies owns official downloads, never product payloads.
+package dependencies
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	_ "embed"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"hash"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+//go:embed catalog.json
+var catalog []byte
+
+type Asset struct {
+	ID        string   `json:"id"`
+	Version   string   `json:"version"`
+	URL       string   `json:"url"`
+	Digest    string   `json:"digest"`
+	Algorithm string   `json:"algorithm"`
+	MaxBytes  int64    `json:"max_bytes"`
+	Features  []string `json:"features"`
+	License   string   `json:"license"`
+	Signer    string   `json:"signer"`
+	SourceURL string   `json:"source_url,omitempty"`
+}
+type Status struct {
+	ID       string   `json:"id"`
+	Version  string   `json:"version"`
+	Features []string `json:"features"`
+	State    string   `json:"state"`
+	Bytes    int64    `json:"bytes,omitempty"`
+	Total    int64    `json:"total,omitempty"`
+	Problem  string   `json:"problem,omitempty"`
+}
+
+func Catalog() []Asset {
+	var c struct {
+		Assets []Asset `json:"assets"`
+	}
+	if json.Unmarshal(catalog, &c) != nil {
+		panic("invalid dependency catalog")
+	}
+	return c.Assets
+}
+func Lookup(id string) (Asset, error) {
+	for _, a := range Catalog() {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return Asset{}, errors.New("DEPENDENCY_UNKNOWN")
+}
+
+// Verify and Install are platform boundaries; Install must retain official UI
+// where license acceptance is required. A download is never proof of readiness.
+type Platform interface {
+	Root() (string, error)
+	Verify(Asset, string) error
+	Install(context.Context, Asset, string, string) (string, error)
+	Detect(Asset, string) (string, bool)
+}
+type Manager struct {
+	Platform Platform
+	Client   *http.Client
+	work     sync.Mutex
+	mu       sync.Mutex
+	states   map[string]Status
+	Progress func(Status)
+}
+
+func (m *Manager) update(a Asset, state string, n, total int64, err error) {
+	s := Status{ID: a.ID, Version: a.Version, Features: a.Features, State: state, Bytes: n, Total: total}
+	if err != nil {
+		s.Problem = err.Error()
+	}
+	m.mu.Lock()
+	if m.states == nil {
+		m.states = map[string]Status{}
+	}
+	m.states[a.ID] = s
+	m.mu.Unlock()
+	if m.Progress != nil {
+		m.Progress(s)
+	}
+}
+func (m *Manager) Snapshot() []Status {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Status{}
+	for _, a := range Catalog() {
+		s, ok := m.states[a.ID]
+		if !ok {
+			s = Status{ID: a.ID, Version: a.Version, Features: a.Features, State: "not_checked"}
+		}
+		out = append(out, s)
+	}
+	return out
+}
+func allowedHost(host string) bool {
+	host = strings.ToLower(host)
+	for _, h := range []string{"www.wintun.net", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com", "secure-appldnld.apple.com", "catalog.s.download.windowsupdate.com", "builds.dotnet.microsoft.com"} {
+		if host == h {
+			return true
+		}
+	}
+	return false
+}
+func officialClient() *http.Client {
+	return &http.Client{Timeout: 15 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || req.URL.Scheme != "https" || req.URL.User != nil || !allowedHost(req.URL.Hostname()) {
+			return errors.New("DEPENDENCY_REDIRECT_REJECTED")
+		}
+		return nil
+	}}
+}
+func digest(a Asset) (hash.Hash, error) {
+	switch a.Algorithm {
+	case "sha256":
+		return sha256.New(), nil
+	case "sha512":
+		return sha512.New(), nil
+	}
+	return nil, errors.New("DEPENDENCY_DIGEST_UNSUPPORTED")
+}
+func check(a Asset, path string) error {
+	f, e := os.Open(path)
+	if e != nil {
+		return e
+	}
+	defer f.Close()
+	s, e := f.Stat()
+	if e != nil || !s.Mode().IsRegular() || s.Size() > a.MaxBytes {
+		return errors.New("DEPENDENCY_FILE_INVALID")
+	}
+	h, e := digest(a)
+	if e != nil {
+		return e
+	}
+	n, e := io.Copy(h, io.LimitReader(f, a.MaxBytes+1))
+	if e != nil || n > a.MaxBytes || hex.EncodeToString(h.Sum(nil)) != a.Digest {
+		return errors.New("DEPENDENCY_HASH_MISMATCH")
+	}
+	return nil
+}
+func (m *Manager) Ensure(ctx context.Context, id string) (path string, err error) {
+	a, e := Lookup(id)
+	if e != nil {
+		return "", e
+	}
+	return m.ensureAsset(ctx, a)
+}
+func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err error) {
+	m.work.Lock()
+	defer m.work.Unlock()
+	defer func() {
+		if err != nil {
+			state := "failed"
+			if errors.Is(err, context.Canceled) {
+				state = "cancelled"
+			}
+			m.update(a, state, 0, 0, err)
+		}
+	}()
+	root, e := m.Platform.Root()
+	if e != nil {
+		return "", e
+	}
+	m.update(a, "detecting", 0, 0, nil)
+	if p, ok := m.Platform.Detect(a, root); ok {
+		m.update(a, "ready", 0, 0, nil)
+		return p, nil
+	}
+	u, e := url.Parse(a.URL)
+	if e != nil || u.Scheme != "https" || u.User != nil || !allowedHost(u.Hostname()) {
+		return "", errors.New("DEPENDENCY_SOURCE_REJECTED")
+	}
+	archive := filepath.Join(root, a.ID+"-"+a.Version+"-"+a.Digest[:16]+filepath.Ext(u.Path))
+	if e = check(a, archive); e != nil {
+		if _, stat := os.Lstat(archive); stat == nil {
+			return "", errors.New("DEPENDENCY_CACHE_CORRUPTED")
+		}
+		temp, e := os.CreateTemp(root, "download-")
+		if e != nil {
+			return "", e
+		}
+		temporary := temp.Name()
+		defer os.Remove(temporary)
+		req, e := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
+		if e != nil {
+			temp.Close()
+			return "", e
+		}
+		client := m.Client
+		if client == nil {
+			client = officialClient()
+		}
+		response, e := client.Do(req)
+		if e != nil {
+			temp.Close()
+			return "", fmt.Errorf("DEPENDENCY_NETWORK_UNAVAILABLE: %s required for %s: %w", a.ID, strings.Join(a.Features, ", "), e)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != 200 || response.ContentLength > a.MaxBytes {
+			temp.Close()
+			return "", errors.New("DEPENDENCY_DOWNLOAD_REJECTED")
+		}
+		m.update(a, "downloading", 0, response.ContentLength, nil)
+		buf := make([]byte, 64<<10)
+		var n int64
+		for {
+			count, re := response.Body.Read(buf)
+			if count > 0 {
+				n += int64(count)
+				if n > a.MaxBytes {
+					temp.Close()
+					return "", errors.New("DEPENDENCY_SIZE_LIMIT")
+				}
+				if _, e = temp.Write(buf[:count]); e != nil {
+					temp.Close()
+					return "", e
+				}
+				m.update(a, "downloading", n, response.ContentLength, nil)
+			}
+			if re == io.EOF {
+				break
+			}
+			if re != nil {
+				temp.Close()
+				return "", re
+			}
+			if e = ctx.Err(); e != nil {
+				temp.Close()
+				return "", e
+			}
+		}
+		if e = temp.Close(); e != nil {
+			return "", e
+		}
+		if e = check(a, temporary); e != nil {
+			return "", e
+		}
+		if e = m.Platform.Verify(a, temporary); e != nil {
+			return "", e
+		}
+		if e = os.Rename(temporary, archive); e != nil {
+			return "", e
+		}
+	}
+	if e = m.Platform.Verify(a, archive); e != nil {
+		return "", e
+	}
+	m.update(a, "installing", 0, 0, nil)
+	path, e = m.Platform.Install(ctx, a, archive, root)
+	if e != nil {
+		return "", e
+	}
+	if p, ok := m.Platform.Detect(a, root); !ok {
+		return "", errors.New("DEPENDENCY_INSTALL_READBACK_FAILED")
+	} else {
+		path = p
+	}
+	m.update(a, "ready", 0, 0, nil)
+	return path, nil
+}
+
+// Refresh detects availability without downloading or changing system state.
+func (m *Manager) Refresh() {
+	m.work.Lock()
+	defer m.work.Unlock()
+	root, e := m.Platform.Root()
+	if e != nil {
+		return
+	}
+	for _, a := range Catalog() {
+		if _, ok := m.Platform.Detect(a, root); ok {
+			m.update(a, "ready", 0, 0, nil)
+		} else {
+			m.update(a, "missing", 0, 0, nil)
+		}
+	}
+}

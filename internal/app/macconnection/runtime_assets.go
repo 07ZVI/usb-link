@@ -16,7 +16,7 @@ import (
 	"sync"
 )
 
-const expectedBridgeSHA = "a2d7677828cf8622fb886cb52276c63a7106d222e3a08e1c0bdd9077a6359a17"
+var expectedBridgeSHA string // Injected from the freshly built bridge by the release pipeline.
 
 var runtimeName = runtimeDirectoryName(expectedBridgeSHA)
 

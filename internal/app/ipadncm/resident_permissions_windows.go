@@ -9,8 +9,8 @@ import (
 	"log"
 	"os"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/transport/usbaddress"
 )
 

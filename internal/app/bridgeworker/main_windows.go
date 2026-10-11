@@ -21,21 +21,22 @@ import (
 	"regexp"
 	"runtime/pprof"
 	"strings"
-	"suhang/usbnet/internal/diagnostics/bench"
-	"suhang/usbnet/internal/transport/bridge"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/buildinfo"
+	"suhang/usbnet/internal/diagnostics/bench"
 	"suhang/usbnet/internal/diagnostics/latencyprobe"
 	"suhang/usbnet/internal/diagnostics/logfile"
-	"suhang/usbnet/internal/transport/macdhcp"
 	"suhang/usbnet/internal/diagnostics/memorydiag"
 	"suhang/usbnet/internal/diagnostics/mtutrial"
-	"suhang/usbnet/internal/transport/ncm"
-	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/transport/packetbuffer"
-	"suhang/usbnet/internal/transport/parentlifetime"
 	"suhang/usbnet/internal/diagnostics/probecontrol"
 	"suhang/usbnet/internal/diagnostics/rawusb"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/bridge"
+	"suhang/usbnet/internal/transport/macdhcp"
+	"suhang/usbnet/internal/transport/ncm"
+	"suhang/usbnet/internal/transport/packetbuffer"
+	"suhang/usbnet/internal/transport/parentlifetime"
 	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/transport/usbwait"
 	"suhang/usbnet/internal/transport/wintun"
@@ -47,7 +48,7 @@ import (
 	"unsafe"
 )
 
-const version = "0.8.140-shared-subnet"
+var version = buildinfo.Version + "-shared-subnet"
 
 type statistics struct {
 	USBReads, USBWrites, ToWindows, ToMac, ToWindowsBytes, ToMacBytes, Dropped, Filtered, RingOverflow, PendingOverflow uint64
@@ -130,6 +131,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	nativeNetwork := flag.Bool("native-network", false, "use the protected parent-selected native network comparison")
 	residentFirewall := flag.Bool("resident-firewall", false, "fixed scoped resident firewall selected by verified core")
 	combinedLegacy := flag.Bool("combined-legacy-network", false, "combine existing same-stage legacy scripts selected by verified core")
+	externalWintun := flag.String("wintun-path", "", "verified external Wintun DLL")
 	moduleHold := flag.Bool("wintun-module-hold", false, "verified core-selected module lifecycle experiment")
 	coreExecutable := flag.String("core-exe", "", "actual protected SCM parent executable for resident permissions")
 	ownedDadZero := flag.Bool("owned-dad-zero", false, "independent owned DadTransmits-only change")
@@ -257,7 +259,10 @@ func run(dir string, l *log.Logger) (runErr error) {
 	configDir := filepath.Dir(dir)
 	var dadApplied bool
 	launchPhase = "mac_runtime_acquire"
-	dll := filepath.Join(dir, "wintun.dll")
+	dll := *externalWintun
+	if dll == "" {
+		return fmt.Errorf("EXTERNAL_WINTUN_REQUIRED")
+	}
 	if err := netconfig.VerifyWintun(dll, l); err != nil {
 		return err
 	}

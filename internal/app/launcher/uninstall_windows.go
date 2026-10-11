@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/macconnection"
-	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/netconfig"
 	"time"
 )
 
@@ -72,6 +72,7 @@ func recoverUninstallInterfaces(parent context.Context, dir, system string, lock
 			if err := verifyOwner(); err != nil {
 				return err
 			}
+
 			residentPlans, err := netconfig.PrepareResidentFirewallUninstall(ctx, dir, verifyOwner)
 			if err != nil {
 				return err
@@ -114,11 +115,11 @@ func recoverUninstallInterfaces(parent context.Context, dir, system string, lock
 			var dll string
 			if hostFactory || macFactory {
 				// Both names are compiled-in; no caller-selected version, path or DLL.
-				archive, err := macArchive("assets/mac-payload-" + version + ".zip")
+				archive, err := macArchive("assets/mac-payload.zip")
 				if err != nil {
 					return fmt.Errorf("UNINSTALL_BUILTIN_ARCHIVE_UNAVAILABLE: %w", err)
 				}
-				manifest, err := payload.ReadFile("assets/MAC-SOURCES-" + version + ".json")
+				manifest, err := payload.ReadFile("assets/mac-sources.json")
 				if err != nil {
 					return fmt.Errorf("UNINSTALL_BUILTIN_MANIFEST_UNAVAILABLE: %w", err)
 				}
@@ -192,7 +193,10 @@ func recoverUninstallInterfaces(parent context.Context, dir, system string, lock
 			if err := interfaceconfig.FinishPersistentUninstall(dir); err != nil {
 				return err
 			}
-			return interfaceconfig.ConfirmOwnedDADUninstallComplete(dir)
+			if e := interfaceconfig.ConfirmOwnedDADUninstallComplete(dir); e != nil {
+				return e
+			}
+			return connectioninstall.RemoveDependencies()
 		})
 		return inner
 	})

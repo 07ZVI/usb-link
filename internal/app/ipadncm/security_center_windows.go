@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"path/filepath"
-	"suhang/usbnet/internal/security/appfirewall"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/security/deviceguard"
 	"suhang/usbnet/internal/app/macconnection"
 	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/security/appfirewall"
+	"suhang/usbnet/internal/security/deviceguard"
 	"suhang/usbnet/internal/security/securitypolicy"
 	"suhang/usbnet/internal/security/usbgateway"
 	"sync"
@@ -20,6 +20,7 @@ import (
 
 type desktopRequest struct {
 	Action        string `json:"action"`
+	Upstream      uint32 `json:"upstream,omitempty"`
 	Password      string `json:"password,omitempty"`
 	Username      string `json:"username,omitempty"`
 	Remember      bool   `json:"remember,omitempty"`

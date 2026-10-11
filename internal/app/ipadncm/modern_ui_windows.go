@@ -12,12 +12,15 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/startuptelemetry"
-	"suhang/usbnet/internal/diagnostics/throughput"
 	"suhang/usbnet/internal/app/uistartup"
+	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/diagnostics/throughput"
 	"sync"
 	"syscall"
 	"time"
@@ -85,7 +88,18 @@ func (u *modernUI) show(reason string) bool {
 		return false
 	}
 	recordDesktopOpenTiming(request, "payload-verified", started)
+	runtimeRoot, runtimeError := dependencies.Ensure(u.lifetime, "dotnet")
+	if runtimeError != nil {
+		u.notice = runtimeError.Error()
+		return false
+	}
 	cmd := exec.CommandContext(u.lifetime, path)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "DOTNET_ROOT=") && !strings.HasPrefix(strings.ToUpper(entry), "DOTNET_ROOT_X64=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "DOTNET_ROOT="+runtimeRoot, "DOTNET_ROOT_X64="+runtimeRoot)
 	cmd.Dir = filepath.Dir(path)
 	stderr := &desktopErrorBuffer{}
 	cmd.Stderr = stderr

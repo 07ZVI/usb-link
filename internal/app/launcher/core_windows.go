@@ -19,17 +19,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"suhang/usbnet/internal/platform/windows/background"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/contracts/coreipc"
 	"suhang/usbnet/internal/app/coreprompt"
 	"suhang/usbnet/internal/app/coreupdatenotice"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/startupopt"
 	"suhang/usbnet/internal/app/startuptelemetry"
 	"suhang/usbnet/internal/app/uistartup"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/contracts/coreipc"
+	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/platform/windows/background"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 )
 
 type coreLifetime struct{ ctx context.Context }
@@ -227,6 +228,7 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 			response.Problem = err.Error()
 			return response, nil
 		}
+		display = extendDesktopSnapshot(display)
 		response.Payload, err = json.Marshal(struct {
 			Version      string                   `json:"version"`
 			Healthy      bool                     `json:"remote_usb_healthy"`
@@ -258,6 +260,13 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		}
 		response.Payload = json.RawMessage(`{}`)
 	case "action":
+		if handled, e := dependencyAction(request.Payload); handled {
+			if e != nil {
+				response.Problem = e.Error()
+			}
+			response.Payload = json.RawMessage(`{}`)
+			return response, nil
+		}
 		if reply, handled, err := ipadncm.ServiceSMBDesktopRead(owner.ctx, request.Payload); handled {
 			if err != nil {
 				response.Problem = err.Error()
@@ -282,6 +291,7 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		if err := strictCorePayload(request.Payload, &command); err != nil || !command.PrepareUninstall {
 			return response, fmt.Errorf("CORE_SETTINGS_COMMAND_INVALID")
 		}
+
 		dir, ok := serviceDiagnosticDirectory.Load().(string)
 		if !ok || dir == "" {
 			response.Problem = "CORE_INITIALIZING"
@@ -552,6 +562,23 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			}
 			return snapshot.Display, nil
 		}, Action: func(actionCtx context.Context, b json.RawMessage) (json.RawMessage, error) {
+			var dep struct {
+				Action string `json:"action"`
+				ID     string `json:"id"`
+			}
+			if json.Unmarshal(b, &dep) == nil && dep.Action == "dependency-install" {
+				if e := strictCorePayload(b, &dep); e != nil {
+					return nil, e
+				}
+				if _, e := dependencies.Lookup(dep.ID); e != nil {
+					return nil, e
+				}
+				e := dependencies.WithProgress(actionCtx, func(c context.Context) error { _, e := dependencies.Ensure(c, dep.ID); return e })
+				if e != nil {
+					return nil, e
+				}
+				return call(actionCtx, "action", json.RawMessage(`{"action":"dependency-refresh"}`))
+			}
 			return call(actionCtx, "action", b)
 		},
 	})

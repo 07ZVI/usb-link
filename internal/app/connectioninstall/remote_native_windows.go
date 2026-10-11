@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/platform/windows/netconfig"
 	"time"
 )
 

@@ -6,9 +6,9 @@ import (
 	"context"
 	"sort"
 	"strings"
-	"suhang/usbnet/internal/security/deviceguard"
 	"suhang/usbnet/internal/app/startuptelemetry"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/security/deviceguard"
 	"time"
 )
 

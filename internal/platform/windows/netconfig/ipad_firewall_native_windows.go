@@ -6,10 +6,10 @@ import (
 	"context"
 	"errors"
 	"log"
-	"suhang/usbnet/internal/transport/ipadsession"
-	"suhang/usbnet/internal/security/securitypolicy"
-	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/platform/windows/wincom"
+	"suhang/usbnet/internal/security/securitypolicy"
+	"suhang/usbnet/internal/transport/ipadsession"
+	"suhang/usbnet/internal/transport/usbaddress"
 )
 
 func EnsureIPadSessionRulesNative(ctx context.Context, p ipadsession.Plan, logger *log.Logger) error {

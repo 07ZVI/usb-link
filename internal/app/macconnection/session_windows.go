@@ -19,21 +19,22 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"suhang/usbnet/internal/platform/windows/background"
-	"suhang/usbnet/internal/transport/bridge"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/sharing/filedrop"
-	"suhang/usbnet/internal/sharing/fileshare"
-	"suhang/usbnet/internal/platform/windows/installer"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/dependencies"
 	"suhang/usbnet/internal/diagnostics/logfile"
-	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/transport/parentlifetime"
 	"suhang/usbnet/internal/diagnostics/probecontrol"
 	"suhang/usbnet/internal/diagnostics/throughput"
-	"suhang/usbnet/internal/transport/usbaddress"
+	"suhang/usbnet/internal/platform/windows/background"
+	"suhang/usbnet/internal/platform/windows/installer"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/usbgateway"
-	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/sharing/filedrop"
+	"suhang/usbnet/internal/sharing/fileshare"
+	"suhang/usbnet/internal/transport/bridge"
+	"suhang/usbnet/internal/transport/parentlifetime"
+	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/transport/wintun"
 	"suhang/usbnet/internal/transport/winusb"
 	"sync"
@@ -346,7 +347,11 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		if strings.EqualFold(pairs[n].Service, "WinUSB") {
 			continue
 		}
-		zadig := filepath.Join(dir, "zadig-2.9.exe")
+		zadig, e := dependencies.Ensure(ctx, "zadig")
+		if e != nil {
+			out.Error = e.Error()
+			return
+		}
 		if installer.VerifySignature(zadig, l) != nil {
 			out.Error = "MAC_SIGNED_BINDING_TOOL_UNVERIFIED"
 			return
@@ -463,6 +468,12 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	cmd.Args = append(cmd.Args, "--wintun-module-hold="+strconv.FormatBool(wintun.ModuleLifetimeHoldEnabled()))
 	cmd.Args = append(cmd.Args, "--owned-dad-zero="+strconv.FormatBool(interfaceconfig.OwnedDADZeroEnabled()))
 	cmd.Args = append(cmd.Args, "--combined-legacy-network="+strconv.FormatBool(netconfig.CombinedLegacyNetworkEnabled()))
+	dll, e := dependencies.Ensure(ctx, "wintun")
+	if e != nil {
+		out.Error = e.Error()
+		return
+	}
+	cmd.Args = append(cmd.Args, "--wintun-path", dll)
 	cmd.Dir = dir
 	// A detached console process keeps the explicit stdout/stderr pipes but
 	// never creates or inherits a console host; shutdown uses the owned stop event.
@@ -987,9 +998,9 @@ func PrepareSharedHostDLL(parent string, payload, manifest []byte) (string, erro
 	return PrepareSharedHostDLLArchive(parent, ArchiveBytes(payload), manifest)
 }
 func PrepareSharedHostDLLArchive(parent string, payload RuntimeArchive, manifest []byte) (string, error) {
-	d, e := unpackArchive(parent, payload, manifest)
+	_, e := unpackArchive(parent, payload, manifest)
 	if e != nil {
 		return "", e
 	}
-	return filepath.Join(d, "wintun.dll"), nil
+	return dependencies.Ensure(context.Background(), "wintun")
 }

@@ -30,8 +30,8 @@ func dispatchWintunLifecycleProbe() bool {
 		fmt.Fprintln(os.Stderr, "WINTUN_PROBE_CHILD_ARGUMENT_INVALID")
 		os.Exit(1)
 	}
-	archive, err := macArchive("assets/mac-payload-0.8.140.zip")
-	manifest, manifestErr := payload.ReadFile("assets/MAC-SOURCES-0.8.140.json")
+	archive, err := macArchive("assets/mac-payload.zip")
+	manifest, manifestErr := payload.ReadFile("assets/mac-sources.json")
 	if err != nil || manifestErr != nil {
 		fmt.Fprintln(os.Stderr, "WINTUN_PROBE_CHILD_PAYLOAD_UNAVAILABLE")
 		os.Exit(1)

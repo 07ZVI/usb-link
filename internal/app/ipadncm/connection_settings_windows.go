@@ -9,9 +9,9 @@ import (
 	"golang.org/x/sys/windows"
 	"os"
 	"path/filepath"
-	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/app/macconnection"
 	"suhang/usbnet/internal/security/securitypolicy"
+	"suhang/usbnet/internal/transport/ipadsession"
 	"sync"
 )
 

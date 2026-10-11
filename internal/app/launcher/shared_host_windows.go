@@ -8,12 +8,12 @@ import (
 	"log"
 	"os"
 	"suhang/usbnet/internal/app/connectioninstall"
-	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/app/macconnection"
-	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/transport/usbaddress"
-	"suhang/usbnet/internal/security/usbgateway"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/security/usbgateway"
+	"suhang/usbnet/internal/transport/usbaddress"
 	"time"
 )
 

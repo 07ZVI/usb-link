@@ -1,0 +1,24 @@
+{
+  "source_url": "https://www.apple.com/itunes/download/win64",
+  "resolved_url": "https://secure-appldnld.apple.com/itunes12/140-75773-20260908-6e5e0165-99cb-4b30-b541-1b615fccfc1a/iTunes64Setup.exe",
+  "source_archive_sha256": "25b28905a81406a5edbf482f7f3ee4831a8641d32d29dceda5d1eb3e8d534c08",
+  "source_authenticode_cms_signature_verified": true,
+  "source_authenticode_content_digest_verified": true,
+  "source_signer": {
+    "country_name": "US",
+    "state_or_province_name": "California",
+    "locality_name": "Cupertino",
+    "organization_name": "Apple Inc.",
+    "common_name": "Apple Inc."
+  },
+  "source_primary_signature_digest": "sha1",
+  "component": "AppleMobileDeviceSupport64.msi",
+  "component_version": "20.0.0.35",
+  "component_sha256": "b4ce042947e9d72c0d7eb2d0d719408d45c932694ee0920680db0dc638d79adb",
+  "component_cms_signer_signature_verified": true,
+  "component_cms_digest": "sha256",
+  "windows_chain_timestamp_and_msi_content_trust_verified": false,
+  "native_installer_execution_verified": false,
+  "native_iPad_protocol_verified": false,
+  "verification_boundary": "Offline cryptographic signature/content verification of source EXE and CMS signer check of unmodified MSI; Windows enforces Valid Apple signer before MSI installation."
+}

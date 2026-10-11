@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"suhang/usbnet/internal/platform/windows/wincom"
 	"suhang/usbnet/internal/security/securitypolicy"
 	"suhang/usbnet/internal/transport/usbaddress"
-	"suhang/usbnet/internal/platform/windows/wincom"
 	"unsafe"
 
 	"golang.org/x/sys/windows"

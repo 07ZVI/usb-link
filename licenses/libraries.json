@@ -1,0 +1,301 @@
+{
+  "schema": 1,
+  "libraries": [
+    {
+      "ecosystem": "Go",
+      "name": "github.com/hirochachacha/go-smb2",
+      "version": "v1.1.0",
+      "source": "https://github.com/hirochachacha/go-smb2",
+      "notices": [
+        "licenses/libraries/github.com-hirochachacha-go-smb2-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "Go",
+      "name": "github.com/geoffgarside/ber",
+      "version": "v1.1.0",
+      "source": "https://github.com/geoffgarside/ber",
+      "notices": [
+        "licenses/libraries/github.com-geoffgarside-ber-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "Go",
+      "name": "golang.org/x/crypto",
+      "version": "v0.57.0",
+      "source": "https://golang.org/x/crypto",
+      "notices": [
+        "licenses/libraries/golang.org-x-crypto-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "Go",
+      "name": "golang.org/x/net",
+      "version": "v0.59.0",
+      "source": "https://golang.org/x/net",
+      "notices": [
+        "licenses/libraries/golang.org-x-net-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "Go",
+      "name": "golang.org/x/sys",
+      "version": "v0.48.0",
+      "source": "https://golang.org/x/sys",
+      "notices": [
+        "licenses/libraries/golang.org-x-sys-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "Go",
+      "name": "howett.net/plist",
+      "version": "v1.0.1",
+      "source": "https://howett.net/plist",
+      "notices": [
+        "licenses/libraries/howett.net-plist-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Angle.Windows.Natives",
+      "version": "2.1.25547.20250602",
+      "source": "https://github.com/AvaloniaUI/angle/",
+      "license": "LICENSE",
+      "notices": [
+        "licenses/libraries/Avalonia.Angle.Windows.Natives-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.BuildServices",
+      "version": "11.3.2",
+      "source": "https://github.com/AvaloniaUI/Avalonia.BuildServices",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.BuildServices-LICENSE.txt"
+      ],
+      "license_source": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia.BuildServices/777f975b0a0cecf0311273711d56697212c558c0/LICENSE"
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Desktop",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.Desktop-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.FreeDesktop",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.FreeDesktop-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Native",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.Native-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Remote.Protocol",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.Remote.Protocol-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Skia",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.Skia-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Themes.Fluent",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.Themes.Fluent-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.Win32",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.Win32-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Avalonia.X11",
+      "version": "11.3.12",
+      "source": "https://github.com/AvaloniaUI/Avalonia/",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Avalonia.X11-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "HarfBuzzSharp",
+      "version": "8.3.1.1",
+      "source": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/HarfBuzzSharp-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "HarfBuzzSharp.NativeAssets.Linux",
+      "version": "8.3.1.1",
+      "source": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.Linux-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.Linux-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "HarfBuzzSharp.NativeAssets.WebAssembly",
+      "version": "8.3.1.1",
+      "source": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.WebAssembly-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.WebAssembly-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "HarfBuzzSharp.NativeAssets.Win32",
+      "version": "8.3.1.1",
+      "source": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.Win32-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.Win32-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "HarfBuzzSharp.NativeAssets.macOS",
+      "version": "8.3.1.1",
+      "source": "https://go.microsoft.com/fwlink/?linkid=868515",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.macOS-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/HarfBuzzSharp.NativeAssets.macOS-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "MicroCom.Runtime",
+      "version": "0.11.0",
+      "source": "https://github.com/kekekeks/MicroCom",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/MicroCom.Runtime-LICENSE.txt"
+      ],
+      "license_source": "https://raw.githubusercontent.com/kekekeks/MicroCom/master/LICENSE"
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "SkiaSharp",
+      "version": "2.88.9",
+      "source": "https://github.com/mono/SkiaSharp",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/SkiaSharp-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/SkiaSharp-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "SkiaSharp.NativeAssets.Linux",
+      "version": "2.88.9",
+      "source": "https://github.com/mono/SkiaSharp",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/SkiaSharp.NativeAssets.Linux-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/SkiaSharp.NativeAssets.Linux-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "SkiaSharp.NativeAssets.WebAssembly",
+      "version": "2.88.9",
+      "source": "https://github.com/mono/SkiaSharp",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/SkiaSharp.NativeAssets.WebAssembly-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/SkiaSharp.NativeAssets.WebAssembly-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "SkiaSharp.NativeAssets.Win32",
+      "version": "2.88.9",
+      "source": "https://github.com/mono/SkiaSharp",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/SkiaSharp.NativeAssets.Win32-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/SkiaSharp.NativeAssets.Win32-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "SkiaSharp.NativeAssets.macOS",
+      "version": "2.88.9",
+      "source": "https://github.com/mono/SkiaSharp",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/SkiaSharp.NativeAssets.macOS-THIRD-PARTY-NOTICES.txt.txt",
+        "licenses/libraries/SkiaSharp.NativeAssets.macOS-LICENSE.txt.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Tmds.DBus.Protocol",
+      "version": "0.21.3",
+      "source": "https://github.com/tmds/Tmds.DBus.git",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Tmds.DBus.Protocol-LICENSE.txt"
+      ],
+      "license_source": "https://raw.githubusercontent.com/tmds/Tmds.DBus/8cb04f66c330b64244e996ff68f685f27f7381a0/COPYING"
+    }
+  ]
+}

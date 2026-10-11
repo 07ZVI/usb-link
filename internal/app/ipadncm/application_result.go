@@ -1,10 +1,10 @@
 package ipadncm
 
 import (
-	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/app/macconnection"
-	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/diagnostics/throughput"
+	"suhang/usbnet/internal/platform/windows/netconfig"
+	"suhang/usbnet/internal/transport/ipadsession"
 	"sync"
 )
 
