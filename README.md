@@ -29,11 +29,9 @@ Current application UI preview. Devices, traffic and speeds use example data; th
 
 SMB and other applications still need their services, accounts and firewall permissions configured. A direct USB network does not automatically share Internet access; Windows → Mac Internet sharing is a separate, optional feature and starts off.
 
-## Status and updates
+## Status
 
 See [VERSION](VERSION). This is a preview: **Windows/Mac/iPad hardware acceptance is still pending**. Successful builds and automated tests do not establish support for every device. See [validation](docs/VALIDATION.md).
-
-End-user builds do not provide developer remote debugging, remotely pushed upgrades or automatic USB upgrade acceptance. To update, run the new installer locally on Windows. Previous remote authorization cannot reactivate these entry points.
 
 ## Build from source
 
@@ -53,7 +51,6 @@ Outputs in `out/` include an unsigned Windows launcher, Mac network helper tools
 - [Workspace and GitHub synchronization](docs/WORKSPACE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Internet sharing](docs/INTERNET-SHARING.md)
-- [Release feature boundaries](docs/RELEASE-SCOPE.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 Original code is licensed under [GPL-3.0-only](LICENSE), with the narrowly scoped [official Wintun DLL linking exception](LICENSE-WINTUN-EXCEPTION). Third-party code retains its own licenses; see [notices](licenses/THIRD-PARTY.txt).

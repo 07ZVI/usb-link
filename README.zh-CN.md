@@ -29,11 +29,9 @@ USB Link 负责把 USB 连接变成可用的网络。连接建立后，设备之
 
 网络连通后，SMB 等应用仍需正确配置服务、账户和防火墙权限。USB 直连也不等于自动共享互联网；Windows → Mac 上网共享是单独的可选功能，默认关闭。
 
-## 当前状态与更新
+## 当前状态
 
 版本见 [VERSION](VERSION)。当前为预览版，**Windows／Mac／iPad 实机验收仍未完成**；构建和自动化测试通过不代表所有设备均可用。详见[验证记录](docs/VALIDATION.md)。
-
-面向普通用户的构建不提供开发者远程调试、远程推送升级或自动接受 USB 升级。更新时，在 Windows 本机运行新版安装程序。原有远程授权不会重新开启这些入口。
 
 ## 从源码构建
 
@@ -55,7 +53,6 @@ python3 scripts/project.py package
 - [工作区与 GitHub 同步](docs/WORKSPACE.md)
 - [架构](docs/ARCHITECTURE.md)
 - [网络共享](docs/INTERNET-SHARING.md)
-- [发布版功能边界](docs/RELEASE-SCOPE.md)
 - [参与贡献](CONTRIBUTING.md) · [安全说明](SECURITY.md)
 
 原创代码采用 [GPL-3.0-only](LICENSE)，附带范围有限的[官方 Wintun DLL 链接例外](LICENSE-WINTUN-EXCEPTION)。第三方代码保留各自的许可证，详见[第三方声明](licenses/THIRD-PARTY.txt)。
