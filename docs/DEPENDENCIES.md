@@ -22,16 +22,16 @@ Official pages: [.NET](https://dotnet.microsoft.com/en-us/download/dotnet/10.0),
 
 ## Check what is already installed
 
-- **.NET:** run `& "$env:ProgramFiles\dotnet\dotnet.exe" --list-runtimes` in PowerShell and look for `Microsoft.NETCore.App 10.x`. Detection checks the standard x64 system installation and USB Link's private runtime, not arbitrary custom directories.
+- **.NET:** any valid x64 `Microsoft.NETCore.App 10.0.x` installation is reusable, including one installed by another application, Desktop Runtime or SDK. Detection checks the standard directory, Microsoft's x64 installation registry and the private runtime; no product installer receipt is required. .NET 8/9/11 or preview-only runtimes cannot satisfy the current framework request.
 - **Apple communication service:** open Windows Services (`services.msc`) and look for `Apple Mobile Device Service`. Component detection also verifies the service executable's Apple signature. The presence of an Apple app alone does not prove this service is available.
 - **USB drivers:** connect the device and let USB Link check its binding. A downloaded or driver-store package does not necessarily mean the target interface uses it; repeated reinstalls are unnecessary.
-- **Wintun and Zadig:** verified USB Link-managed copies are reused. Files in Downloads, VPN installations or unrelated tool directories are not automatically imported.
+- **Wintun and Zadig:** compatible original files are recognized by their actual bytes, not who installed them. The supported Wintun DLL can be reused without a product-created receipt. An installed adapter alone cannot replace the userspace DLL. Already bound WinUSB interfaces skip Zadig. Original packages in the shared offline cache are validated and reused instead of downloaded again.
 
 ## Prepare before going offline
 
 1. Save the required official packages above on a connected computer and copy them to the Windows host. For manual preinstallation, use the .NET x64 EXE and Apple's original installer; complete any requested restart before running USB Link.
 2. If the host can connect temporarily, run USB Link with the intended devices attached. Use the component controls in connection diagnostics to check/install missing components and complete connection preparation.
-3. Restart and reconnect with Internet access disabled to check for missing components. The current application does not import arbitrary offline folders or automatically scan Downloads for ZIP/CAB/EXE files. Saving the files alone therefore does not guarantee a fully offline first launch.
+3. The private offline bundle's plain `install_all.bat` invokes the original Microsoft .NET and Apple installers in sequence, skips installed components, and retains Wintun/Zadig/Apple CAB originals under `%ProgramData%/USB-Link Components`. That shared cache needs no product-created source receipt; compiled hashes and signatures are still checked before use. Restart and reconnect offline to confirm the required components are available.
 
 Verified private installations and caches are reused. Failed verification requires preparation through the application's retry flow. Removing USB Link does not uninstall existing shared .NET, Apple software or unrelated drivers.
 

@@ -181,6 +181,27 @@ func TestDetectReuseInstallReadbackAndRepeatedLaunch(t *testing.T) {
 		t.Fatal(e, p.installs)
 	}
 }
+
+func TestAlreadyUsableComponentNeedsNoProductReceiptOrInstaller(t *testing.T) {
+	for _, a := range Catalog() {
+		t.Run(a.ID, func(t *testing.T) {
+			m, p, _ := fixture(t, "unused download")
+			p.ready = true // An external/system installation is already usable.
+			m.Client.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
+				t.Fatal("already installed component was downloaded again")
+				return nil, errors.New("unexpected network")
+			})
+			for range 2 {
+				if _, e := m.ensureAsset(context.Background(), a); e != nil {
+					t.Fatal(e)
+				}
+			}
+			if p.installs != 0 {
+				t.Fatal("already installed component was installed again")
+			}
+		})
+	}
+}
 func TestDamageSignatureOfflineCancellationAndReadbackFailClosed(t *testing.T) {
 	for _, kind := range []string{"damage", "signature", "offline", "cancel", "readback"} {
 		t.Run(kind, func(t *testing.T) {

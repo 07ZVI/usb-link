@@ -464,7 +464,7 @@ func installationFailure(r *Result, stage, message string) {
 }
 func Main() {
 	dependencies.Configure(connectioninstall.DependencyDirectory, connectioninstall.VerifyDependencyPath)
-	dependencies.Default.SetOfflineArchiveSource(connectioninstall.LegacyOfflineDependencyArchive)
+	dependencies.Default.SetOfflineArchiveSource(connectioninstall.LocalDependencyArchive)
 	if dispatchWintunLifecycleProbe() {
 		return
 	}

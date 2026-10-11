@@ -31,6 +31,23 @@ func DependencyDirectory() (string, error) {
 	return protectedRootAt(filepath.Join(root, "Dependencies"), true)
 }
 
+// A normal offline BAT or another installer may have supplied these original
+// archives. Readiness never depends on which program copied them. The manager
+// checks the compiled catalog hash and official signature before using bytes.
+func LocalDependencyArchive(a dependencies.Asset) string {
+	base, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if e == nil {
+		u, e := url.Parse(a.URL)
+		if e == nil {
+			path := filepath.Join(base, "USB-Link Components", filepath.Base(u.Path))
+			if st, e := os.Lstat(path); e == nil && st.Mode().IsRegular() && st.Size() <= a.MaxBytes {
+				return path
+			}
+		}
+	}
+	return LegacyOfflineDependencyArchive(a)
+}
+
 // Compatibility import for verified offline ZIPs supplied to an older version.
 // This never starts a receiver, grants access or executes a received file. Only
 // catalog-pinned .NET/Wintun archives can be selected; source data is preserved.

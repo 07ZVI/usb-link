@@ -132,7 +132,7 @@ func run() (err error) {
 			return e
 		}
 		dependencies.Configure(connectioninstall.DependencyDirectory, connectioninstall.VerifyDependencyPath)
-		dependencies.Default.SetOfflineArchiveSource(connectioninstall.LegacyOfflineDependencyArchive)
+		dependencies.Default.SetOfflineArchiveSource(connectioninstall.LocalDependencyArchive)
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
 		return dependencies.WithProgress(ctx, func(ctx context.Context) error {

@@ -100,8 +100,9 @@ func (m *Manager) ObserveProgress(observer func(Status)) func() {
 	return func() { m.mu.Lock(); delete(m.observers, id); m.mu.Unlock() }
 }
 
-// The owning installer selects a protected local archive directory. Catalog
-// hashes/signatures still apply; this does not accept UI or remote paths.
+// Application configuration selects known local archive locations, including a
+// shared offline cache populated by another installer. Catalog hashes/signatures
+// authorize the bytes; a product-created source receipt is not required.
 func (m *Manager) SetOfflineArchiveSource(source func(Asset) string) {
 	m.mu.Lock()
 	m.offlineArchive = source

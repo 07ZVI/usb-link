@@ -13,7 +13,7 @@ import zipfile
 root = Path(__file__).resolve().parents[2]
 source = Path(__file__).resolve().parent
 version = (root / 'VERSION').read_text().strip()
-assert version == '0.10.0'
+assert version.startswith('0.10.')
 parser = argparse.ArgumentParser()
 parser.add_argument('--installer-sha', required=True, help='SHA256 of the reviewed release installer')
 parser.add_argument('--offline-components', action='store_true', help='Include pinned third-party packages for fully offline preparation; default is the small online kit')
@@ -46,7 +46,8 @@ if args.offline_components:
     pins['@COMPONENT_PIN@'] = "        'offline-components\\install_all.bat' = '" + sha(destination / 'offline-components/install_all.bat').upper() + "'"
     pins['@COMPONENT_PREPARE@'] = """    Write-Host 'Verifying local/offline components; existing verified components are reused.'
     Write-Host 'If official Apple setup opens, finish its wizard. No device is force-bound.'
-    & (Join-Path $PSScriptRoot 'offline-components\\install_all.bat') --no-pause"""
+    & (Join-Path $PSScriptRoot 'offline-components\\install_all.bat') --no-pause
+    if ($LASTEXITCODE -eq 0) { & $repair --prepare-components }"""
 else:
     pins['@COMPONENT_PIN@'] = ''
     pins['@COMPONENT_PREPARE@'] = """    Write-Host 'Reusing verified .NET/Wintun; missing components download from pinned official sources.'

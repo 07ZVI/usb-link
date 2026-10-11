@@ -6,11 +6,13 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/sha256"
+	"debug/pe"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc/mgr"
 	"io"
 	"net/url"
@@ -150,19 +152,58 @@ func (p *WindowsPlatform) Detect(a Asset, root string) (string, bool) {
 		return "", false
 	}
 	if a.ID == "dotnet" {
+		var locations []string
 		pf, e := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
 		if e == nil {
-			binary := filepath.Join(pf, "dotnet/dotnet.exe")
+			locations = append(locations, filepath.Join(pf, "dotnet"))
+		}
+		// The official x64 installation registry also covers a non-default
+		// system location installed by an SDK or another program.
+		if key, e := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\dotnet\Setup\InstalledVersions\x64`, registry.QUERY_VALUE|registry.WOW64_64KEY); e == nil {
+			location, _, e := key.GetStringValue("InstallLocation")
+			key.Close()
+			if e == nil && filepath.IsAbs(location) {
+				locations = append(locations, location)
+			}
+		}
+		seen := map[string]bool{}
+		for _, location := range locations {
+			binary := filepath.Join(location, "dotnet.exe")
+			if seen[strings.ToLower(binary)] {
+				continue
+			}
+			seen[strings.ToLower(binary)] = true
+			image, e := pe.Open(binary)
+			if e != nil {
+				continue
+			}
+			amd64 := image.Machine == pe.IMAGE_FILE_MACHINE_AMD64
+			image.Close()
+			verify := *p
+			verify.Safe = nil // Shared Microsoft installation is not product-owned.
+			if !amd64 || verify.Verify(a, binary) != nil {
+				continue
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
 			c := exec.CommandContext(ctx, binary, "--list-runtimes")
 			c.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
-			if b, e := c.Output(); e == nil {
-				for _, line := range strings.Split(string(b), "\n") {
-					if strings.HasPrefix(line, "Microsoft.NETCore.App 10.") {
-						return filepath.Dir(binary), true
-					}
-				}
+			b, e := c.Output()
+			cancel()
+			if e == nil && supportsDotnet10(string(b)) {
+				return location, true
+			}
+		}
+	}
+	if a.ID == "wintun" {
+		// Do not require our receipt when the actual compatible DLL is already
+		// available. Never load a DLL based only on an installed adapter name.
+		paths := []string{filepath.Join(p.tree(a, root), "wintun.dll"), filepath.Join(root, "wintun.dll")}
+		if system, e := windows.GetSystemDirectory(); e == nil {
+			paths = append(paths, filepath.Join(system, "wintun.dll"))
+		}
+		for _, path := range paths {
+			if matchingDLL(path, WintunAMD64SHA256) {
+				return path, true
 			}
 		}
 	}
