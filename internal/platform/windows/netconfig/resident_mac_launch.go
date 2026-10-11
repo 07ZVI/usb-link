@@ -5,7 +5,7 @@ import (
 	"regexp"
 )
 
-var residentMacRuntime = regexp.MustCompile(`^mac-runtime-[a-f0-9]{64}$`)
+var residentMacRuntime = regexp.MustCompile(`^mac-runtime-([a-f0-9]{64}|[0-9]+\.[0-9]+\.[0-9]+)$`)
 var residentMacGateway = regexp.MustCompile(`^Local\\USBLinkGatewayReady-[a-f0-9]{24}$`)
 
 // Validation of a compiled launch shape only; not executable/adapter authority.

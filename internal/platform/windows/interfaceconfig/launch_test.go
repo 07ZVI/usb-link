@@ -25,3 +25,18 @@ func TestMacOptionalLaunchCannotEnterUnownedLegacyPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestReadableRuntimeKeepsDADAndOptimizationLaunchConstraints(t *testing.T) {
+	if err := ValidateMacOwnedDADLaunch(true, true, "unified", "owned-gate", "mac-runtime-0.9.4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateMacOwnedDADLaunch(true, true, "legacy", "owned-gate", "mac-runtime-0.9.4"); err == nil {
+		t.Fatal("wrong profile accepted")
+	}
+	if err := ValidateMacOptimizationLaunch(true, true, true, true, "unified", "owned-gate", "mac-runtime-0.9.4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateMacOptimizationLaunch(true, true, false, true, "unified", "owned-gate", "mac-runtime-0.9.4"); err == nil {
+		t.Fatal("unselected native mode accepted")
+	}
+}

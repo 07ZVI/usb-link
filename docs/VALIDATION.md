@@ -1,4 +1,4 @@
-# Validation record: 0.9.3 candidate
+# Validation record: 0.9.4 candidate
 
 Baseline: 0.8.140. Public history starts with modular source, then dependency acquisition/rebuilding, then Internet sharing. The source-only refactor checkpoint preserves original runtime compatibility identities; distribution preparation is completed by the subsequent dependency commit. Validate the final HEAD for a public build.
 
@@ -121,3 +121,12 @@ checks. Windows-specific directory mutation fixtures are cross-checked by vet;
 execution on Windows is still pending. Initial native preview attempts inside the
 restricted sandbox could not start the Mac render timer; the permitted native
 window run succeeded.
+
+## 0.9.4 readable bridge compatibility
+
+Code review during the 0.9.3 hardware attempt found three bridge launch/recovery
+checks still requiring hash-named runtime folders. The 0.9.4 checks accept exact
+numeric release folders as well as legacy hash folders. Kernel-parent, catalog
+bytes, native interface, process/session and protected-handle proofs are retained;
+a readable folder name cannot authorize ownership. Regression fixtures require
+all launch preconditions and reject foreign/malformed release names.

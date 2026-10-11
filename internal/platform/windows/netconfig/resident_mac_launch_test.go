@@ -26,3 +26,21 @@ func TestResidentMacLaunchKeepsNativeAndPersistentExperimentsSeparate(t *testing
 		t.Fatal("core source accepted while mode disabled")
 	}
 }
+
+func TestReadableReleaseStillRequiresAllResidentLaunchProofs(t *testing.T) {
+	gate := `Local\USBLinkGatewayReady-0123456789abcdef01234567`
+	exe := `C:\Program Files\USB Link\0.9.4\USB-Link.exe`
+	for _, name := range []string{"mac-runtime-0.9.4", "mac-runtime-0.9.3"} {
+		if err := ValidateResidentMacLaunch(true, false, false, false, true, true, "unified", gate, name, exe); err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateResidentMacLaunch(true, false, false, false, true, false, "unified", gate, name, exe); err == nil {
+			t.Fatal("missing kernel parent accepted")
+		}
+	}
+	for _, name := range []string{"mac-runtime-dev", "mac-runtime-0.9.4-foreign", "mac-runtime-0.9", "mac-runtime-0.9.4/other"} {
+		if err := ValidateResidentMacLaunch(true, false, false, false, true, true, "unified", gate, name, exe); err == nil {
+			t.Fatal("foreign runtime admitted", name)
+		}
+	}
+}

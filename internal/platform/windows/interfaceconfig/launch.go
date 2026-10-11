@@ -5,7 +5,7 @@ import (
 	"regexp"
 )
 
-var macRuntimeBase = regexp.MustCompile(`^mac-runtime-[a-f0-9]{64}$`)
+var macRuntimeBase = regexp.MustCompile(`^mac-runtime-([a-f0-9]{64}|[0-9]+\.[0-9]+\.[0-9]+)$`)
 
 // ValidateMacOptimizationLaunch rejects unsupported optional combinations.
 // This is not authorization: the bridge still requires fresh USB attachment,

@@ -115,3 +115,17 @@ func TestOrdinaryRecordProtectedInheritedLeafFixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestReadableRuntimeNameCannotAuthorizeWritableStore(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "mac-runtime-0.9.4")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if !ownedRuntimeName.MatchString(filepath.Base(dir)) {
+		t.Fatal("readable release syntax rejected")
+	}
+	if retainedRuntimeProtected(dir) {
+		t.Fatal("release name authorized an unprotected store")
+	}
+}

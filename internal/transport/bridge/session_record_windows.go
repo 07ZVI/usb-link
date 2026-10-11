@@ -18,7 +18,7 @@ import (
 const retainedFileAllAccess = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
 const retainedRecordSDDL = "O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)"
 
-var ownedRuntimeName = regexp.MustCompile(`^mac-runtime-[a-f0-9]{64}$`)
+var ownedRuntimeName = regexp.MustCompile(`^mac-runtime-([a-f0-9]{64}|[0-9]+\.[0-9]+\.[0-9]+)$`)
 
 // Every retained record is a protected fixed leaf; a legacy unprotected record
 // is never imported as a retained lease. Neither record nor runtime name grants
