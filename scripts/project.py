@@ -65,7 +65,7 @@ def package():
  for name in [f'USB-Link-{VERSION}-windows-x64.exe','usb-link-mac-x64','usb-link-mac-arm64','suhang-update.exe']:
   shutil.copyfile(OUT/name,release/name)
  shutil.copytree(ROOT/'licenses',release/'licenses',dirs_exist_ok=True)
- for name in ['LICENSE','LICENSE-WINTUN-EXCEPTION','README.md','VERSION']:
+ for name in ['LICENSE','LICENSE-WINTUN-EXCEPTION','README.md','README.zh-CN.md','VERSION']:
   shutil.copyfile(ROOT/name,release/name)
  shutil.copytree(ROOT/'docs',release/'docs',dirs_exist_ok=True)
  shutil.copyfile(ROOT/'internal/dependencies/catalog.json',release/'external-dependencies.json')

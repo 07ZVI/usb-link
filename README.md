@@ -1,5 +1,7 @@
 # USB Link
 
+**English** | [简体中文](README.zh-CN.md)
+
 USB Link connects Windows to an authorized Mac or iPad over the existing USB channel. It provides file transfer, native Windows SMB (445), a separate compatibility SMB service (10690), device/application authorization, and recoverable installation and network changes.
 
 Version: see [VERSION](VERSION). This public source tree starts from the 0.8.140 implementation. The internal Go module name and Windows installation identity remain unchanged so existing receipts, upgrades and rollback paths keep their meaning.
