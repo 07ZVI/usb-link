@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type testPlatform struct {
@@ -18,6 +21,130 @@ type testPlatform struct {
 	verifyErr error
 	installs  int
 	reads     bool
+}
+
+type concurrentPlatform struct {
+	root     string
+	mu       sync.Mutex
+	ready    map[string]bool
+	installs int
+	entered  chan struct{}
+	resume   chan struct{}
+}
+
+func (p *concurrentPlatform) Root() (string, error)      { return p.root, nil }
+func (p *concurrentPlatform) Verify(Asset, string) error { return nil }
+func (p *concurrentPlatform) Detect(a Asset, root string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return root, p.ready[a.ID]
+}
+func (p *concurrentPlatform) Install(ctx context.Context, a Asset, archive, root string) (string, error) {
+	p.mu.Lock()
+	p.installs++
+	p.mu.Unlock()
+	close(p.entered)
+	select {
+	case <-p.resume:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	p.mu.Lock()
+	p.ready[a.ID] = true
+	p.mu.Unlock()
+	return root, nil
+}
+
+func TestSlowPreparationDoesNotBlockAvailableComponentOrCancelledWaiter(t *testing.T) {
+	m, _, a := fixture(t, "verified")
+	p := &concurrentPlatform{root: t.TempDir(), ready: map[string]bool{"wintun": true}, entered: make(chan struct{}), resume: make(chan struct{})}
+	m.Platform = p
+	finished := make(chan error, 1)
+	go func() { _, err := m.ensureAsset(context.Background(), a); finished <- err }()
+	select {
+	case <-p.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("preparation never started")
+	}
+	defer close(p.resume)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := m.Ensure(ctx, "wintun"); err != nil {
+		t.Fatalf("ready USB component blocked: %v", err)
+	}
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer waitCancel()
+	if _, err := m.ensureAsset(waitCtx, a); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued cancellation: %v", err)
+	}
+	p.mu.Lock()
+	n := p.installs
+	p.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("duplicate installation while busy: %d", n)
+	}
+	// Resume explicitly, then replace the deferred close to await orderly exit.
+	p.resume <- struct{}{}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ensureAsset(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	n = p.installs
+	p.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("ready component reinstalled: %d", n)
+	}
+}
+
+func TestRefreshPreservesActivePreparationProgressAndChecksOtherComponents(t *testing.T) {
+	m, _, _ := fixture(t, "verified")
+	p := &concurrentPlatform{root: t.TempDir(), ready: map[string]bool{"wintun": true}}
+	m.Platform = p
+	a, _ := Lookup("dotnet")
+	release, err := m.work.acquire(context.Background(), a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	m.update(a, "downloading", 123, 456, nil)
+	m.Refresh()
+	for _, s := range m.Snapshot() {
+		if s.ID == "dotnet" && (s.State != "downloading" || s.Bytes != 123) {
+			t.Fatalf("progress overwritten: %+v", s)
+		}
+		if s.ID == "wintun" && s.State != "ready" {
+			t.Fatalf("USB readiness not refreshed: %+v", s)
+		}
+	}
+}
+
+func TestIndependentProgressObserversSurviveClosingAnotherWindow(t *testing.T) {
+	m, _, a := fixture(t, "verified")
+	var first, second atomic.Int32
+	unsubscribeFirst := m.ObserveProgress(func(Status) { first.Add(1) })
+	unsubscribeSecond := m.ObserveProgress(func(Status) { second.Add(1) })
+	defer unsubscribeSecond()
+	m.update(a, "detecting", 0, 0, nil)
+	unsubscribeFirst()
+	m.update(a, "ready", 0, 0, nil)
+	if first.Load() != 1 || second.Load() != 2 {
+		t.Fatal(first.Load(), second.Load())
+	}
+	// A closing observer may overlap an update already captured by the worker.
+	var workers sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			close := m.ObserveProgress(func(Status) {})
+			m.update(a, "ready", 0, 0, nil)
+			close()
+		}()
+	}
+	workers.Wait()
 }
 
 func (p *testPlatform) Root() (string, error)               { return p.root, nil }

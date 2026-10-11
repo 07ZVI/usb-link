@@ -29,6 +29,11 @@ func ownedRegistration() error {
 	}
 	cmd, _, e := k.GetStringValue("UninstallString")
 	args, err := windows.DecomposeCommandLine(cmd)
+	if e == nil && err == nil && len(args) == 2 && args[1] == "--uninstall" {
+		if _, missing := os.Lstat(args[0]); os.IsNotExist(missing) {
+			return fmt.Errorf("INSTALL_FILES_DELETED: 程式檔案已刪除，但 Windows 安裝登錄仍在。請先檢查 USB Link 殘留服務與安裝登錄，再重新安裝；沒有覆寫現有登錄。")
+		}
+	}
 	if e != nil || err != nil || len(args) != 2 || args[1] != "--uninstall" || Verify(args[0]) != nil {
 		return fmt.Errorf("changed uninstall action")
 	}

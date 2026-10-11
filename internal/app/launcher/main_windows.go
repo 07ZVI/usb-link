@@ -535,6 +535,12 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		return
 	}
 	if !service && !uninstall {
+		if remoteInstallID == "" {
+			if err := connectioninstall.PreflightLocalInstallation(); err != nil {
+				dialog("安裝前檢查未通過。\n"+err.Error(), 0x10)
+				return
+			}
+		}
 		err := dependencies.WithProgress(ctx, func(download context.Context) error { _, e := dependencies.Ensure(download, "dotnet"); return e })
 		if err != nil {
 			dialog("桌面元件尚未齊備，核心仍可使用備用介面。\n請聯網後重試。\n"+err.Error(), 0x30)
@@ -699,7 +705,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			return
 		}
 		if e = connectioninstall.Register(installed, version); e != nil {
-			installationFailure(&r, "OWNED_INSTALL_REGISTRATION_FAILED", "程式已保存，但安裝登錄未完成；現有登錄已保留。")
+			installationFailure(&r, "OWNED_INSTALL_REGISTRATION_FAILED", "程式已保存，但安裝登錄未完成；現有登錄已保留。\n"+e.Error())
 			return
 		}
 		if e = connectioninstall.UpdateShortcut(installed, false); e != nil {

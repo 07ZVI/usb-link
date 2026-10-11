@@ -13,6 +13,13 @@ import (
 )
 
 func DependencyDirectory() (string, error) {
+	// Different component preparations may run together, but first creation of
+	// the common directory/marker must finish before another process reads it.
+	release, e := acquireUpgradeJobMutex(`Global\USBLinkDependencyDirectory-v1`, 10000)
+	if e != nil {
+		return "", e
+	}
+	defer release()
 	base, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
 	if e != nil {
 		return "", e

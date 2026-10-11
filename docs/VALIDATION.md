@@ -1,4 +1,4 @@
-# Validation record: 0.9.4 candidate
+# Validation record: 0.9.5 candidate
 
 Baseline: 0.8.140. Public history starts with modular source, then dependency acquisition/rebuilding, then Internet sharing. The source-only refactor checkpoint preserves original runtime compatibility identities; distribution preparation is completed by the subsequent dependency commit. Validate the final HEAD for a public build.
 
@@ -130,3 +130,11 @@ numeric release folders as well as legacy hash folders. Kernel-parent, catalog
 bytes, native interface, process/session and protected-handle proofs are retained;
 a readable folder name cannot authorize ownership. Regression fixtures require
 all launch preconditions and reject foreign/malformed release names.
+
+## 0.9.5 component coordination and reinstall preflight
+
+Source/chat reconciliation is recorded in [the startup audit](STARTUP-AUDIT.zh-CN.md). Component preparation now serializes per asset, supports cancelled waiters and leaves active progress intact during refresh. Shared directory creation is separately protected. Native mutex acquisition/release pins its OS thread, accepts and verifies existing handles, and rejects unproven descriptors. Progress windows use independent subscriptions. Local installation checks existing ownership before downloading components or copying another release, with explicit deleted-file/residual-service errors. A fully source-verified interrupted transition still uses the original recovery coordinator.
+
+The complete macOS Go race suite, native vet, Windows x64 vet, architecture and source/history audits passed. New concurrency and progress regressions passed. Elevated Windows mutex fixtures are cross-checked but not executed here. The prior combined renderer smoke results still cover the unchanged desktop code; no Windows responsiveness claim is added. The offline helper is rebuilt from current source and remains private.
+
+The 0.9.3 attempt did not restore the observed USB channel before the user deleted the Windows installation directory. Its exact native failure and final rollback outcome were not read back. 0.9.4 was not installed. 0.9.5 has not been installed. Native Windows runtime/USB/SMB acceptance and the hosted Windows failures above remain unresolved.

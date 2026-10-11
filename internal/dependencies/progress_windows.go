@@ -32,11 +32,10 @@ func WithProgress(ctx context.Context, work func(context.Context) error) error {
 	text, _, _ := create.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("正在检查必备组件…"))), 0x50000000, 18, 18, 560, 100, h, 0, 0, 0)
 	var latest atomic.Value
 	latest.Store("正在检查必备组件…")
-	previous := Default.Progress
-	Default.Progress = func(s Status) {
+	unsubscribe := Default.ObserveProgress(func(s Status) {
 		latest.Store(fmt.Sprintf("%s %s · %s\n%s\n%s", s.ID, s.Version, fmt.Sprintf("%s (%d / %d bytes)", s.State, s.Bytes, s.Total), joinFeatures(s.Features), s.Problem))
-	}
-	defer func() { Default.Progress = previous }()
+	})
+	defer unsubscribe()
 	old, _, _ := user32.NewProc("GetWindowLongPtrW").Call(h, ^uintptr(3))
 	callback := windows.NewCallback(func(hwnd uintptr, msg uint32, w, l uintptr) uintptr {
 		if msg == 0x10 {

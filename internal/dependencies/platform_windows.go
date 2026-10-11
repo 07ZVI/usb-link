@@ -17,9 +17,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -310,26 +310,43 @@ func (p *WindowsPlatform) ReuseWintun(ctx context.Context, a Asset, source, root
 	return importPinnedWintun(ctx, a, source, root, WintunAMD64SHA256, p.Safe)
 }
 
-// Serialize downloads across the UI, service and updater processes.
-var dependencyProcessLock sync.Mutex
+// Serialize each component across the UI and core processes, without a .NET
+// download or Apple installer holding an already usable Mac USB component.
+var dependencyProcessLock assetWork
 
 func Ensure(ctx context.Context, id string) (string, error) { return ensureWithRetry(ctx, id, false) }
 func Retry(ctx context.Context, id string) (string, error)  { return ensureWithRetry(ctx, id, true) }
 func ensureWithRetry(ctx context.Context, id string, retry bool) (string, error) {
-	dependencyProcessLock.Lock()
-	defer dependencyProcessLock.Unlock()
-	name, _ := windows.UTF16PtrFromString(`Global\USBLinkOfficialDependencies-7c494949`)
-	sd, e := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)")
+	a, e := Lookup(id)
+	if e != nil {
+		return "", e
+	}
+	release, e := dependencyProcessLock.acquire(ctx, a.ID)
+	if e != nil {
+		return "", e
+	}
+	defer release()
+	// Native mutex ownership belongs to an OS thread, not a Go goroutine.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	name, _ := windows.UTF16PtrFromString(`Global\USBLinkOfficialDependencies-v2-` + a.ID)
+	sd, e := windows.SecurityDescriptorFromString("O:BAG:BAD:P(A;;0x001f0001;;;SY)(A;;0x001f0001;;;BA)")
 	if e != nil {
 		return "", e
 	}
 	sa := windows.SecurityAttributes{Length: uint32(unsafeSizeSA), SecurityDescriptor: sd}
 	h, e := windows.CreateMutex(&sa, false, name)
-	if e != nil {
+	if e != nil && e != windows.ERROR_ALREADY_EXISTS {
 		return "", e
 	}
 	defer windows.CloseHandle(h)
+	if e = verifyDependencyMutex(h); e != nil {
+		return "", e
+	}
 	for {
+		if e = ctx.Err(); e != nil {
+			return "", e
+		}
 		state, e := windows.WaitForSingleObject(h, 200)
 		if e != nil {
 			return "", e
@@ -343,10 +360,6 @@ func ensureWithRetry(ctx context.Context, id string, retry bool) (string, error)
 	}
 	defer windows.ReleaseMutex(h)
 	if retry {
-		a, e := Lookup(id)
-		if e != nil {
-			return "", e
-		}
 		p, ok := Default.Platform.(*WindowsPlatform)
 		if !ok {
 			return "", errors.New("DEPENDENCY_PLATFORM_UNCONFIGURED")

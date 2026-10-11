@@ -27,3 +27,12 @@ Use a separate NuGet lock path when previewing for a different runtime so the
 committed Windows dependency lock remains unchanged. Release packaging always
 sets `USBLinkDesignTools=false` and checks a symbol-bearing launcher twin for
 removed remote-upgrade and temporary file-transfer handlers before stripping.
+
+After a complete package passes inspection, the package command prunes older
+exactly named generated Windows installers and their binary ZIPs. It keeps the
+current and previous build by default; this is build retention, not hardware
+acceptance. Set `USBLINK_ROLLBACK_VERSION` to the exact previously verified
+release when a newer build failed acceptance. That selected installer may remain
+in separate private rollback storage, which this cleanup never modifies. Source
+archives, evidence, runtime tools, unknown files and symlinks are preserved. The
+removal receipt and current checksums remain in `out/`.

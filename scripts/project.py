@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Single public build entry: python3 scripts/project.py check|build|package|verify."""
-import argparse,hashlib,json,os,pathlib,shutil,subprocess,sys,tempfile,zipfile
+import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 VERSION=(ROOT/'VERSION').read_text().strip()
 OUT=ROOT/'out'
@@ -85,8 +85,44 @@ def package():
  # Source archive uses the committed tree, independently of ignored local files.
  run(['git','archive','--format=zip','--prefix=usb-link/','--output',OUT/f'USB-Link-{VERSION}-source.zip','HEAD'])
  verify()
+ retain_installers()
+ write_checksums()
+def retain_installers():
+ # Run only after the complete package passes inspection. An explicitly chosen
+ # rollback may be kept separately from public build output.
+ pattern=re.compile(r'USB-Link-(\d+\.\d+\.\d+)-windows-x64\.exe')
+ if OUT.is_symlink():raise ValueError('Refusing redirected build output')
+ previous=os.environ.get('USBLINK_ROLLBACK_VERSION')
+ if previous is not None and not re.fullmatch(r'\d+\.\d+\.\d+',previous):
+  raise ValueError('USBLINK_ROLLBACK_VERSION must be an exact numeric release')
+ candidates=[]
+ for path in OUT.iterdir():
+  match=pattern.fullmatch(path.name)
+  if match and path.is_file() and not path.is_symlink():candidates.append((match[1],path))
+ if previous is None:
+  older=[v for v,_ in candidates if tuple(map(int,v.split('.')))<tuple(map(int,VERSION.split('.')))]
+  previous=max(older,key=lambda v:tuple(map(int,v.split('.'))),default=None)
+ removed=[]
+ for version,path in candidates:
+  if version in (VERSION,previous):continue
+  if tuple(map(int,version.split('.')))>=tuple(map(int,VERSION.split('.'))):continue
+  # Only exact generated paths; preserve source archives, unknown files,
+  # symlinks, runtime tools, evidence and external rollback storage.
+  nested=OUT/f'USB-Link-{version}'/path.name
+  binary_zip=OUT/f'USB-Link-{version}-windows-mac.zip'
+  paths=[path]
+  if not nested.parent.is_symlink():paths.append(nested)
+  paths.append(binary_zip)
+  for item in paths:
+   if item.is_file() and not item.is_symlink():
+    removed.append({'path':item.relative_to(OUT).as_posix(),'sha256':sha(item)})
+    item.unlink()
+ (OUT/'installer-retention.json').write_text(json.dumps({'current':VERSION,'previous':previous,'removed':removed},indent=2)+'\n')
+ print(f'Installer retention: current={VERSION}, previous={previous}; removed {len(removed)} generated files.',flush=True)
 def verify():
  run([sys.executable,'scripts/audit_distribution.py','--package',str(OUT)])
+ write_checksums()
+def write_checksums():
  files=sorted(f for f in OUT.iterdir() if f.is_file() and f.suffix in ['.zip','.exe'])
  (OUT/'SHA256SUMS').write_text(''.join(f'{sha(f)}  {f.name}\n' for f in files))
 if __name__=='__main__':

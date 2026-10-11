@@ -75,12 +75,29 @@ type Platform interface {
 type Manager struct {
 	Platform       Platform
 	Client         *http.Client
-	work           sync.Mutex
+	work           assetWork
+	rootMu         sync.Mutex
 	mu             sync.Mutex
 	states         map[string]Status
 	Progress       func(Status)
 	localSource    func(Asset) string
 	offlineArchive func(Asset) string
+	observers      map[uint64]func(Status)
+	nextObserver   uint64
+}
+
+// Progress windows subscribe independently. Restoring a global callback when
+// one window closes must not discard another window's updates or race a worker.
+func (m *Manager) ObserveProgress(observer func(Status)) func() {
+	m.mu.Lock()
+	if m.observers == nil {
+		m.observers = make(map[uint64]func(Status))
+	}
+	m.nextObserver++
+	id := m.nextObserver
+	m.observers[id] = observer
+	m.mu.Unlock()
+	return func() { m.mu.Lock(); delete(m.observers, id); m.mu.Unlock() }
 }
 
 // The owning installer selects a protected local archive directory. Catalog
@@ -108,9 +125,18 @@ func (m *Manager) update(a Asset, state string, n, total int64, err error) {
 		m.states = map[string]Status{}
 	}
 	m.states[a.ID] = s
-	m.mu.Unlock()
+	callbacks := make([]func(Status), 0, len(m.observers)+1)
 	if m.Progress != nil {
-		m.Progress(s)
+		callbacks = append(callbacks, m.Progress)
+	}
+	for _, observer := range m.observers {
+		if observer != nil {
+			callbacks = append(callbacks, observer)
+		}
+	}
+	m.mu.Unlock()
+	for _, observer := range callbacks {
+		observer(s)
 	}
 }
 func (m *Manager) Snapshot() []Status {
@@ -180,8 +206,11 @@ func (m *Manager) Ensure(ctx context.Context, id string) (path string, err error
 	return m.ensureAsset(ctx, a)
 }
 func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err error) {
-	m.work.Lock()
-	defer m.work.Unlock()
+	release, e := m.work.acquire(ctx, a.ID)
+	if e != nil {
+		return "", e
+	}
+	defer release()
 	defer func() {
 		if err != nil {
 			state := "failed"
@@ -191,7 +220,7 @@ func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err er
 			m.update(a, state, 0, 0, err)
 		}
 	}()
-	root, e := m.Platform.Root()
+	root, e := m.root()
 	if e != nil {
 		return "", e
 	}
@@ -326,17 +355,29 @@ func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err er
 
 // Refresh detects availability without downloading or changing system state.
 func (m *Manager) Refresh() {
-	m.work.Lock()
-	defer m.work.Unlock()
-	root, e := m.Platform.Root()
+	root, e := m.root()
 	if e != nil {
 		return
 	}
 	for _, a := range Catalog() {
+		release, available := m.work.tryAcquire(a.ID)
+		if !available {
+			continue // Keep an active preparation's progress and readiness intact.
+		}
 		if _, ok := m.Platform.Detect(a, root); ok {
 			m.update(a, "ready", 0, 0, nil)
 		} else {
 			m.update(a, "missing", 0, 0, nil)
 		}
+		release()
 	}
+}
+
+func (m *Manager) root() (string, error) {
+	m.rootMu.Lock()
+	defer m.rootMu.Unlock()
+	if m.Platform == nil {
+		return "", errors.New("DEPENDENCY_PLATFORM_UNCONFIGURED")
+	}
+	return m.Platform.Root()
 }
