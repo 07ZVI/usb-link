@@ -32,7 +32,9 @@ After a complete package passes inspection, the package command prunes older
 exactly named generated Windows installers and their binary ZIPs. It keeps the
 current and previous build by default; this is build retention, not hardware
 acceptance. Set `USBLINK_ROLLBACK_VERSION` to the exact previously verified
-release when a newer build failed acceptance. That selected installer may remain
+release when a newer build failed acceptance. This explicit choice is retained
+for later packages until a publisher selects another rollback, so a failed
+candidate does not silently replace it. That selected installer may remain
 in separate private rollback storage, which this cleanup never modifies. Source
 archives, evidence, runtime tools, unknown files and symlinks are preserved. The
 removal receipt and current checksums remain in `out/`.

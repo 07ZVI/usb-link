@@ -93,6 +93,15 @@ def retain_installers():
  pattern=re.compile(r'USB-Link-(\d+\.\d+\.\d+)-windows-x64\.exe')
  if OUT.is_symlink():raise ValueError('Refusing redirected build output')
  previous=os.environ.get('USBLINK_ROLLBACK_VERSION')
+ selected=previous is not None
+ receipt=OUT/'installer-retention.json'
+ if receipt.is_symlink():raise ValueError('Refusing redirected installer receipt')
+ if previous is None and receipt.is_file() and not receipt.is_symlink():
+  saved=json.loads(receipt.read_text())
+  if saved.get('previous_selection')=='selected':
+   previous=saved.get('previous')
+   if not isinstance(previous,str):raise ValueError('Invalid saved rollback selection')
+   selected=True
  if previous is not None and not re.fullmatch(r'\d+\.\d+\.\d+',previous):
   raise ValueError('USBLINK_ROLLBACK_VERSION must be an exact numeric release')
  candidates=[]
@@ -117,7 +126,7 @@ def retain_installers():
    if item.is_file() and not item.is_symlink():
     removed.append({'path':item.relative_to(OUT).as_posix(),'sha256':sha(item)})
     item.unlink()
- (OUT/'installer-retention.json').write_text(json.dumps({'current':VERSION,'previous':previous,'removed':removed},indent=2)+'\n')
+ receipt.write_text(json.dumps({'current':VERSION,'previous':previous,'previous_selection':'selected' if selected else 'previous_build','removed':removed},indent=2)+'\n')
  print(f'Installer retention: current={VERSION}, previous={previous}; removed {len(removed)} generated files.',flush=True)
 def verify():
  run([sys.executable,'scripts/audit_distribution.py','--package',str(OUT)])
