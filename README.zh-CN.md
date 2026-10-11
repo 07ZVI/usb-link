@@ -12,8 +12,6 @@ USB Link 负责把 USB 连接变成可用的网络。连接建立后，设备之
 - **SMB 共享管理**：在 Windows 端管理共享文件夹、账户和访问权限。Mac 使用 Finder，iPad 使用系统“文件”App 访问。
 - **连接管理**：查看设备、授权状态和网络流量，断开时清理本程序管理的网络配置。
 
-需要像聊天软件那样选择文件、发送到另一台设备时，可以在两端使用 LocalSend 等工具。USB Link 不提供独立的文件收发客户端。
-
 ## 程序界面
 
 ![USB Link 主界面：Mac 与 iPad 的 USB 连接状态和 SMB 共享入口](docs/images/dashboard.png)

@@ -12,8 +12,6 @@ USB Link turns the USB connection into a usable network. Once connected, devices
 - **SMB management**: manage shared folders, accounts and access permissions on Windows. Connect using Finder on Mac or the built-in Files app on iPad.
 - **Connection management**: view devices, authorization and traffic, and clean up network settings owned by USB Link on disconnect.
 
-For choosing files and sending them to another device, use a tool such as LocalSend on both devices. USB Link does not include a standalone file-transfer client.
-
 ## Screenshot
 
 ![USB Link dashboard showing Mac and iPad USB connections and SMB sharing](docs/images/dashboard.png)
