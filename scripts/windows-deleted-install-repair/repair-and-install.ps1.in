@@ -20,7 +20,7 @@ try {
     $pins = @{
         'repair-deleted-install.exe' = '@REPAIR_SHA@'
         'USB-Link-@VERSION@-windows-x64.exe' = '@INSTALLER_SHA@'
-        'offline-components\prepare-components.exe' = '@COMPONENT_SHA@'
+@COMPONENT_PIN@
     }
     foreach ($relative in $pins.Keys) {
         $path = Join-Path $PSScriptRoot $relative
@@ -33,9 +33,7 @@ try {
     Write-Host 'Checking exact residual service/registration before any component preparation.'
     & $repair --check-only
     if ($LASTEXITCODE -ne 0) { throw 'Residual state differs from the reviewed report. Nothing was removed.' }
-    Write-Host 'Verifying local/offline components; existing verified components are reused.'
-    Write-Host 'If official Apple setup opens, finish its wizard. No device is force-bound.'
-    & (Join-Path $PSScriptRoot 'offline-components\prepare-components.exe')
+@COMPONENT_PREPARE@
     if ($LASTEXITCODE -ne 0) { throw 'Component preparation failed or requires restart. No residual service/registration was removed.' }
     & $repair
     $exitCode = $LASTEXITCODE

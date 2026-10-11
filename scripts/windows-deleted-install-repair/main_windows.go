@@ -5,6 +5,7 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -120,8 +121,29 @@ func startupDiagnostics(start time.Time) []map[string]string {
 
 func run() (err error) {
 	checkOnly := len(os.Args) == 2 && os.Args[1] == "--check-only"
-	if len(os.Args) != 1 && !checkOnly || !windows.GetCurrentProcessToken().IsElevated() {
+	prepareOnly := len(os.Args) == 2 && os.Args[1] == "--prepare-components"
+	if len(os.Args) != 1 && !checkOnly && !prepareOnly || !windows.GetCurrentProcessToken().IsElevated() {
 		return errors.New("Run repair-and-install.bat and accept administrator elevation.")
+	}
+	if prepareOnly {
+		// Check the reported machine before downloading anything. Preparing
+		// components never removes the old service or uninstall registration.
+		if e := connectioninstall.InspectReportedDeletedInstallation(); e != nil {
+			return e
+		}
+		dependencies.Configure(connectioninstall.DependencyDirectory, connectioninstall.VerifyDependencyPath)
+		dependencies.Default.SetOfflineArchiveSource(connectioninstall.LegacyOfflineDependencyArchive)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		return dependencies.WithProgress(ctx, func(ctx context.Context) error {
+			for _, id := range []string{"dotnet", "wintun"} {
+				fmt.Println("Checking component; reusing verified installation or downloading missing package:", id)
+				if _, e := dependencies.Ensure(ctx, id); e != nil {
+					return fmt.Errorf("REPAIR_COMPONENT_PREPARATION: %s: %w; residual service/registration retained", id, e)
+				}
+			}
+			return nil
+		})
 	}
 	if checkOnly {
 		if e := connectioninstall.InspectReportedDeletedInstallation(); e != nil {
@@ -175,7 +197,7 @@ func run() (err error) {
 			return e
 		}
 		if _, ready := p.Detect(a, root); !ready {
-			return fmt.Errorf("REPAIR_COMPONENT_NOT_READY: %s; run the supplied offline preparation first", id)
+			return fmt.Errorf("REPAIR_COMPONENT_NOT_READY: %s; rerun repair-and-install.bat to prepare missing components first", id)
 		}
 	}
 	r.Stage = "repairing_exact_deleted_install"

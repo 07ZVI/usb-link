@@ -16,12 +16,15 @@ version = (root / 'VERSION').read_text().strip()
 assert version == '0.10.0'
 parser = argparse.ArgumentParser()
 parser.add_argument('--installer-sha', required=True, help='SHA256 of the reviewed release installer')
+parser.add_argument('--offline-components', action='store_true', help='Include pinned third-party packages for fully offline preparation; default is the small online kit')
 args = parser.parse_args()
 assert len(args.installer_sha) == 64 and all(c in '0123456789abcdef' for c in args.installer_sha)
-destination = root / ('.local/deliverables/USB-Link-reinstall-' + version)
+destination = root / ('.local/deliverables/USB-Link-reinstall-' + version + ('' if args.offline_components else '-online'))
 installer = root / ('out/USB-Link-' + version + '-windows-x64.exe')
 digest = hashlib.sha256(installer.read_bytes()).hexdigest()
 assert digest == args.installer_sha
+if destination.exists() and any(destination.iterdir()):
+    raise SystemExit('Refusing to mix an existing kit/logs with a new build; preserve or move the existing kit first.')
 destination.mkdir(parents=True, exist_ok=True)
 environment = os.environ.copy()
 environment.update(GOOS='windows', GOARCH='amd64', CGO_ENABLED='0', GOTOOLCHAIN='local')
@@ -37,12 +40,22 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 shutil.copy2(installer, destination / installer.name)
-shutil.copytree(root / 'offline-components', destination / 'offline-components', dirs_exist_ok=True, ignore=shutil.ignore_patterns('logs', '__pycache__'))
-pins = {'@VERSION@': version, '@REPAIR_SHA@': sha(destination / 'repair-deleted-install.exe'), '@INSTALLER_SHA@': digest, '@COMPONENT_SHA@': sha(destination / 'offline-components/prepare-components.exe')}
+pins = {'@VERSION@': version, '@REPAIR_SHA@': sha(destination / 'repair-deleted-install.exe'), '@INSTALLER_SHA@': digest}
+if args.offline_components:
+    shutil.copytree(root / 'offline-components', destination / 'offline-components', ignore=shutil.ignore_patterns('logs', '__pycache__', '.DS_Store'))
+    pins['@COMPONENT_PIN@'] = "        'offline-components\\prepare-components.exe' = '" + sha(destination / 'offline-components/prepare-components.exe').upper() + "'"
+    pins['@COMPONENT_PREPARE@'] = """    Write-Host 'Verifying local/offline components; existing verified components are reused.'
+    Write-Host 'If official Apple setup opens, finish its wizard. No device is force-bound.'
+    & (Join-Path $PSScriptRoot 'offline-components\\prepare-components.exe')"""
+else:
+    pins['@COMPONENT_PIN@'] = ''
+    pins['@COMPONENT_PREPARE@'] = """    Write-Host 'Reusing verified .NET/Wintun; missing components download from pinned official sources.'
+    Write-Host 'Keep Windows online if a required component is missing. No third-party packages are bundled.'
+    & $repair --prepare-components"""
 script = (source / 'repair-and-install.ps1.in').read_text()
 for placeholder, value in pins.items():
-    script = script.replace(placeholder, value.upper())
-assert '@REPAIR_SHA@' not in script and '@INSTALLER_SHA@' not in script and '@COMPONENT_SHA@' not in script
+    script = script.replace(placeholder, value)
+assert all(placeholder not in script for placeholder in pins)
 (destination / 'repair-and-install.ps1').write_bytes(script.replace('\n', '\r\n').encode('utf-8-sig'))
 batch = '''@echo off
 setlocal
@@ -56,11 +69,12 @@ pause
 exit /b %KIT_EXIT%
 '''
 (destination / 'repair-and-install.bat').write_bytes(batch.replace('\n', '\r\n').encode('ascii'))
-(destination / '使用说明.txt').write_bytes('''USB Link @VERSION@ 删除安装目录后的专用修复包
+component_instructions = ('已有效的组件会复用；缺少的组件使用离线包准备。若出现 Apple 官方安装向导，按向导完成。' if args.offline_components else '不附带第三方安装包。先复用通过校验的 .NET／Wintun，缺失时从固定的官方来源下载；缺组件时请保持 Windows 联网。Apple 通信组件按连接设备需要由主程序提示。')
+(destination / '使用说明.txt').write_bytes('''USB Link @VERSION@ 删除安装目录后的专用修复包（@MODE@）
 
-1. 将整个 USB-Link-reinstall-@VERSION@ 文件夹复制到 Windows，或从 U 盘直接运行。
+1. 完整解压并将整个文件夹复制到 Windows，或从 U 盘直接运行。
 2. 双击 repair-and-install.bat，允许管理员提示。不要单独运行目录内的 EXE。
-3. 已有效的组件会复用；缺少的组件使用离线包准备。若出现 Apple 官方安装向导，按向导完成。
+3. @COMPONENT_INSTRUCTIONS@
 4. 工具只核对并处理已删除目录的 0.8.139 安装登记和停止的 0.9.3 服务，先保存备份。
 5. 等待窗口的核验结果。程序打开不等于 USB 或共享已验收。
 6. 保留这个文件夹及 logs。完成后接回 Mac/iPad 检查连接；失败时把 logs 文件夹带回 Mac。
@@ -69,7 +83,7 @@ exit /b %KIT_EXIT%
 如果目标状态已改变，工具会停止，不覆盖其他安装或运行中的服务。
 原始残留备份：ProgramData/USB Link/DeletedInstallRecovery/。
 这次手动删除的密码/权限凭据可能已丢失，因此不自动重置原 SMB 账户。
-'''.replace('@VERSION@', version).replace('\n', '\r\n').encode('utf-8-sig'))
+'''.replace('@VERSION@', version).replace('@MODE@', '离线完整包' if args.offline_components else '精简联网包').replace('@COMPONENT_INSTRUCTIONS@', component_instructions).replace('\n', '\r\n').encode('utf-8-sig'))
 receipt = {
     'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
     'source_dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).strip()),
@@ -77,6 +91,7 @@ receipt = {
     'installer_sha256': digest, 'helper_sha256': pins['@REPAIR_SHA@'],
     'validation': 'Windows x64 cross-build and native vet passed; Windows execution and device acceptance pending',
     'private_build_tag': 'usblink_operator_repair',
+    'component_mode': 'offline' if args.offline_components else 'online-reuse-or-download',
     'repair_sources': {p.name: sha(p) for p in sorted(source.iterdir()) if p.is_file()},
 }
 (destination / 'BUILD-RECEIPT.json').write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + '\n')
