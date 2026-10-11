@@ -43,10 +43,10 @@ shutil.copy2(installer, destination / installer.name)
 pins = {'@VERSION@': version, '@REPAIR_SHA@': sha(destination / 'repair-deleted-install.exe'), '@INSTALLER_SHA@': digest}
 if args.offline_components:
     shutil.copytree(root / 'offline-components', destination / 'offline-components', ignore=shutil.ignore_patterns('logs', '__pycache__', '.DS_Store'))
-    pins['@COMPONENT_PIN@'] = "        'offline-components\\prepare-components.exe' = '" + sha(destination / 'offline-components/prepare-components.exe').upper() + "'"
+    pins['@COMPONENT_PIN@'] = "        'offline-components\\install_all.bat' = '" + sha(destination / 'offline-components/install_all.bat').upper() + "'"
     pins['@COMPONENT_PREPARE@'] = """    Write-Host 'Verifying local/offline components; existing verified components are reused.'
     Write-Host 'If official Apple setup opens, finish its wizard. No device is force-bound.'
-    & (Join-Path $PSScriptRoot 'offline-components\\prepare-components.exe')"""
+    & (Join-Path $PSScriptRoot 'offline-components\\install_all.bat') --no-pause"""
 else:
     pins['@COMPONENT_PIN@'] = ''
     pins['@COMPONENT_PREPARE@'] = """    Write-Host 'Reusing verified .NET/Wintun; missing components download from pinned official sources.'

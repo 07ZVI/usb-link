@@ -1,0 +1,84 @@
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$exitCode = 1
+$transcriptStarted = $false
+$held = $null
+$helper = $null
+$helperDir = $null
+$logDir = $null
+try {
+    if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') {
+        throw '本组件包适用于 Windows x64（Intel／AMD）。'
+    }
+    $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $admin) {
+        $kitLiteral = "'" + $env:KIT_SCRIPT.Replace("'", "''") + "'"
+        $command = '$env:KIT_SCRIPT = ' + $kitLiteral + '; ' + '@BOOTSTRAP_COMMAND@'
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -Verb RunAs -Wait -PassThru
+        exit $process.ExitCode
+    }
+    if ([Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0) { throw '请从 Windows 桌面双击 install_all.bat。' }
+    $kit = [IO.Path]::GetFullPath($env:KIT_SCRIPT)
+    $packageDir = [IO.Path]::GetDirectoryName($kit)
+    $session = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N')
+    $logDir = Join-Path ([IO.Path]::GetTempPath()) ('USB-Link-ComponentLogs\' + $session)
+    New-Item -ItemType Directory -Path $logDir -ErrorAction Stop | Out-Null
+    Start-Transcript -Path (Join-Path $logDir 'install.txt') | Out-Null
+    $transcriptStarted = $true
+    Write-Host 'USB Link · 一键安装运行组件' -ForegroundColor Cyan
+    Write-Host '已有组件自动跳过；缺少的组件使用本地离线包。'
+    Write-Host '请关闭 USB Link。Apple 官方安装向导出现时，按向导完成。'
+    Write-Host ''
+    $parts = [IO.File]::ReadAllText($kit).Split([string[]]@(('::'+'USB-LINK-PS'), ('::'+'USB-LINK-HELPER')), [StringSplitOptions]::None)
+    if ($parts.Length -ne 3) { throw '安装脚本不完整，请重新复制组件包。' }
+    $compressed = [Convert]::FromBase64String($parts[2])
+    $inputStream = [IO.MemoryStream]::new([byte[]]$compressed, $false)
+    $gzip = [IO.Compression.GzipStream]::new($inputStream, [IO.Compression.CompressionMode]::Decompress)
+    $outputStream = [IO.MemoryStream]::new()
+    try {
+        $buffer = New-Object byte[] 65536
+        while (($read = $gzip.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            if ($outputStream.Length + $read -gt 33554432) { throw '安装脚本内容超过限制。' }
+            $outputStream.Write($buffer, 0, $read)
+        }
+        $bytes = $outputStream.ToArray()
+    } finally {
+        $gzip.Dispose()
+        $inputStream.Dispose()
+        $outputStream.Dispose()
+    }
+    $helperDir = Join-Path ([IO.Path]::GetTempPath()) ('USB-Link-ComponentInstaller-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $helperDir -ErrorAction Stop | Out-Null
+    $helper = Join-Path $helperDir 'prepare-components.exe'
+    $file = [IO.File]::Open($helper, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $file.Write($bytes, 0, $bytes.Length); $file.Flush($true) } finally { $file.Dispose() }
+    if ((Get-Item -LiteralPath $helper).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '安装助手路径被重定向。' }
+    $held = [IO.File]::Open($helper, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $actual = [BitConverter]::ToString($hasher.ComputeHash($held)).Replace('-', '') } finally { $hasher.Dispose() }
+    if ($actual -ne '@HELPER_SHA@') { throw '安装助手校验失败，请重新复制组件包。' }
+    & $helper --package-dir $packageDir --report (Join-Path $logDir 'result.json')
+    $exitCode = $LASTEXITCODE
+    Write-Host ''
+    if ($exitCode -eq 0) {
+        Write-Host '全部组件已准备好。可安装／启动 USB Link。' -ForegroundColor Green
+    } elseif ($exitCode -eq 3010) {
+        Write-Host '安装需要重启。请重启 Windows 后再运行本 BAT 核对状态。' -ForegroundColor Yellow
+    } else {
+        Write-Host '未全部完成。请查看上方错误；修复后再次运行即可。' -ForegroundColor Red
+    }
+} catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    $exitCode = 1
+} finally {
+    if ($held) { $held.Dispose() }
+    if ($helper -and (Test-Path -LiteralPath $helper)) { Remove-Item -LiteralPath $helper -Force -ErrorAction SilentlyContinue }
+    if ($helperDir -and (Test-Path -LiteralPath $helperDir)) {
+        # Remove only the empty directory created by this run, never unknown files.
+        try { [IO.Directory]::Delete($helperDir, $false) } catch { }
+    }
+    if ($logDir) { Write-Host ('日志位置：' + $logDir) }
+    if ($transcriptStarted) { Stop-Transcript | Out-Null }
+}
+exit $exitCode
