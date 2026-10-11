@@ -4,6 +4,7 @@ package launcher
 
 import (
 	"bytes"
+	"context"
 	"suhang/usbnet/internal/app/connectioninstall"
 )
 
@@ -41,4 +42,20 @@ func prepareBundledDesktop() (string, error) {
 		return "", err
 	}
 	return connectioninstall.PrepareDesktopVersion(archive.Reader, archive.Size, version)
+}
+
+// Setup stages the complete immutable UI before stopping the previous core.
+func installBundledRelease(ctx context.Context) (string, error) {
+	if !connectioninstall.DesktopStreamingEnabled() {
+		b, e := payload.ReadFile(bundledDesktopAsset)
+		if e != nil {
+			return "", e
+		}
+		return connectioninstall.InstallRelease(ctx, version, bytes.NewReader(b), int64(len(b)))
+	}
+	archive, e := macArchive(bundledDesktopAsset)
+	if e != nil {
+		return "", e
+	}
+	return connectioninstall.InstallRelease(ctx, version, archive.Reader, archive.Size)
 }

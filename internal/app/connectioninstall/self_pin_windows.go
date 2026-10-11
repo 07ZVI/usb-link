@@ -99,7 +99,7 @@ func PinCoreSelfSource(exe string) (func() error, error) {
 	if e = verifyCoreSelfPin(v); e != nil {
 		return nil, e
 	}
-	root, e := Root()
+	root, e := coreStateDirectory()
 	if e != nil {
 		return nil, e
 	}
@@ -150,8 +150,8 @@ func sameCoreSelfFile(a, b windows.ByHandleFileInformation) bool {
 // The tiny authorization documents are deliberately reread. A live immutable
 // source never makes a changed receipt, ACL, path mapping or service trusted.
 func verifyCoreSelfPin(v *coreSelfSourcePin) error {
-	root, e := protectedRoot(false)
-	if e != nil || filepath.Base(v.path) != BinaryName || !strings.EqualFold(filepath.Dir(filepath.Dir(v.path)), root) {
+	root, e := trustedCoreDirectory(filepath.Dir(v.path))
+	if e != nil || filepath.Base(v.path) != BinaryName {
 		return fmt.Errorf("CORE_SELF_PIN_ROOT_CHANGED")
 	}
 	for _, p := range []string{root, filepath.Join(root, "product-id.txt"), filepath.Dir(v.path), filepath.Join(filepath.Dir(v.path), "ownership.json")} {
@@ -165,8 +165,11 @@ func verifyCoreSelfPin(v *coreSelfSourcePin) error {
 	}
 	raw, e := coreProtectedRead(filepath.Join(filepath.Dir(v.path), "ownership.json"), false, true)
 	var receipt Receipt
-	if e != nil || len(raw) > 4096 || json.Unmarshal(raw, &receipt) != nil || receipt.Product != ProductID || !versionPattern.MatchString(receipt.Version) || filepath.Base(filepath.Dir(v.path)) != receipt.Version || receipt.SHA != v.sha {
+	if e != nil || len(raw) > 4096 || json.Unmarshal(raw, &receipt) != nil || receipt.Product != ProductID || !versionPattern.MatchString(receipt.Version) || !receiptDirectoryMatches(filepath.Base(filepath.Dir(v.path)), receipt.Version) || receipt.SHA != v.sha {
 		return fmt.Errorf("CORE_SELF_PIN_RECEIPT_CHANGED")
+	}
+	if e = verifyTransactionCoreReceipt(filepath.Dir(v.path), receipt); e != nil {
+		return e
 	}
 	var held windows.ByHandleFileInformation
 	if e = protectedCoreSelfIdentity(windows.Handle(v.file.Fd()), &held); e != nil || !sameCoreSelfFile(v.identity, held) {

@@ -335,12 +335,12 @@ func RepairReportedDeletedInstallation() (backup string, err error) {
 	return backup, PreflightLocalInstallation()
 }
 
-func ObserveReinstalledCore(expectedSHA string) error {
+func ObserveReinstalledCore(expectedSHA,expectedVersion string) error {
 	root, e := Root()
 	if e != nil {
 		return e
 	}
-	exe := filepath.Join(root, "0.9.5", BinaryName)
+	exe := filepath.Join(root, CurrentApplicationDirectory, BinaryName)
 	if e = ownedRegistration(); e != nil {
 		return e
 	}
@@ -350,7 +350,7 @@ func ObserveReinstalledCore(expectedSHA string) error {
 	}
 	defer k.Close()
 	v, _, e := k.GetStringValue("DisplayVersion")
-	if e != nil || v != "0.9.5" {
+	if e != nil || v != expectedVersion {
 		return fmt.Errorf("REINSTALL_REGISTRATION_NOT_READY")
 	}
 	for name, want := range map[string]string{"DisplayIcon": exe, "InstallLocation": filepath.Dir(exe)} {
@@ -381,5 +381,10 @@ func ObserveReinstalledCore(expectedSHA string) error {
 	if e != nil || status.State != svc.Running || status.ProcessId == 0 {
 		return fmt.Errorf("REINSTALL_CORE_NOT_RUNNING")
 	}
+	t,present,e:=readInstallationTransaction()
+ if e!=nil||!present||t.Phase!=InstallComplete||t.Next.Version!=expectedVersion||t.Next.SHA!=expectedSHA{return fmt.Errorf("REINSTALL_TRANSACTION_NOT_ACCEPTED")}
+ state,e:=StateDirectory();if e!=nil{return e}
+ raw,e:=coreProtectedRead(filepath.Join(state,installationReadyName),false,true);var ready installationReady
+ if e!=nil||json.Unmarshal(raw,&ready)!=nil||ready.SHA256!=expectedSHA||!installationReadyProcess(ready){return fmt.Errorf("REINSTALL_INITIALIZATION_NOT_ACCEPTED")}
 	return nil
 }

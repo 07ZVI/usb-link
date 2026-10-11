@@ -73,3 +73,5 @@ python3 scripts/project.py package
 - [参与贡献](CONTRIBUTING.md) · [安全说明](SECURITY.md)
 
 原创代码采用 [GPL-3.0-only](LICENSE)，附带范围有限的[官方 Wintun DLL 链接例外](LICENSE-WINTUN-EXCEPTION)。第三方代码保留各自的许可证，详见[第三方声明](licenses/THIRD-PARTY.txt)。
+
+Windows 安装、更新与卸载的目录和清理规则见[安装规范](docs/INSTALLATION-LIFECYCLE.zh-CN.md)。

@@ -541,7 +541,7 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			b, err := call(readCtx, "snapshot", q)
 			if err != nil {
 				uiTimings.Restore(timings)
-				if handoffLoginUI(exe, minimized) {
+				if connectioninstall.LocalInstallationDraining(exe) || handoffLoginUI(exe, minimized) {
 					cancel()
 				}
 				return nil, err

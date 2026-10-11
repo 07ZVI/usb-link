@@ -510,6 +510,10 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == connectioninstall.PreparedInstallArgument && remoteInstallID == "" {
+		dialog("請直接執行安裝程式；舊版續接選項已停用。", 0x10)
+		return
+	}
 	preparedInstall := len(os.Args) == 2 && os.Args[1] == connectioninstall.PreparedInstallArgument
 	resident := service || len(os.Args) == 2 && os.Args[1] == "--resident"
 	uninstall := len(os.Args) == 2 && os.Args[1] == "--uninstall"
@@ -536,7 +540,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	}
 	if !service && !uninstall {
 		if remoteInstallID == "" {
-			if err := connectioninstall.PreflightLocalInstallation(); err != nil {
+			if err := connectioninstall.PreflightLocalInstallationForSetup(version); err != nil {
 				dialog("安裝前檢查未通過。\n"+err.Error(), 0x10)
 				return
 			}
@@ -587,36 +591,34 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 	}
 	if !service && !resident && !uninstall && !preparedInstall && remoteInstallID == "" {
-		// Publish only the immutable owned executable before touching the live
-		// connection owner. The child validates its exact source, owner/version
-		// and job state before it is allowed to request the previous core's stop.
-		installed, err := connectioninstall.Prepare(version)
+		var installed string
+		err := dependencies.WithTextProgress(ctx, "USB Link · 安裝與更新", connectioninstall.InstallationProgressText, func(work context.Context) error { var e error; installed, e = installBundledRelease(work); return e })
 		if err != nil {
-			dialog("安裝檔案準備未通過；目前核心未被停止。MANUAL_BOOTSTRAP_PREPARE_FAILED", 0x10)
+			dialog("安裝／更新未完成，已保留可恢復的檔案與記錄。\n"+err.Error(), 0x10)
 			return
 		}
-		launched, err := connectioninstall.LaunchPrepared(installed, func() error { return nil })
-		if err != nil {
-			dialog("無法啟動已驗證的安裝續接；目前核心未被停止。MANUAL_BOOTSTRAP_LAUNCH_FAILED", 0x10)
-			return
+		child := exec.Command(installed)
+		if err = child.Start(); err != nil {
+			dialog("程式已安裝，無法開啟介面。\n"+err.Error(), 0x10)
+		} else {
+			_ = child.Process.Release()
 		}
-		if launched {
-			return
-		}
-		// A first installation may already be executing its own prepared copy
-		// without a binding. It needs the same full gate, never a silent fallback
-		// into RequestPreviousStop when the ordinary owner lookup failed.
-		if err := connectioninstall.ValidatePreparedInstall(version); err != nil {
-			dialog("安裝續接驗證未通過；目前核心未被停止。"+err.Error(), 0x10)
-			return
-		}
-		preparedInstall = true
+		return
 	}
+
 	// Cancellation precedes even stopping the running owner or opening recovery.
 	// Merely selecting uninstall must not withdraw persistent protection.
 	if uninstall {
 		yes, _ := ipadncm.NativePanel("卸載USB Link", "將恢復本程式改動的 iPad 照片介面、USB 分組與 Apple 服務原設定，取消本帳戶的開機啟動、刪除本程式和已記住的設備，關閉本程式建立的 SMB 共享及專用帳戶，恢復本程式改動的 Guest 設定。\r\n\r\n會保留共享資料夾內的檔案、其他 Windows 共享、蘋果官方元件、共用驅動及診斷資料。正在使用的程式檔案會安排在下一次重啟 Windows 後刪除。", "卸載", nil)
 		if !yes {
+			return
+		}
+		exe, e := os.Executable()
+		if e != nil {
+			return
+		}
+		if e = connectioninstall.CloseInstalledLoginClients(ctx, exe); e != nil {
+			dialog("卸載尚未開始，無法正常關閉舊介面。\n"+e.Error(), 0x10)
 			return
 		}
 		if err := prepareCoreUninstall(ctx); err != nil {
@@ -670,7 +672,11 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		if e != nil || connectioninstall.VerifyCoreExecutable(installed) != nil {
 			return
 		}
-		if e = ipadncm.InitConnectionSettings(filepath.Dir(filepath.Dir(installed)), func(enabled bool) error { return setCoreStartup(ctx, enabled, installed) }); e != nil {
+		settingsDir, settingsError := connectioninstall.StateDirectory()
+		if settingsError != nil {
+			return
+		}
+		if e = ipadncm.InitConnectionSettings(settingsDir, func(enabled bool) error { return setCoreStartup(ctx, enabled, installed) }); e != nil {
 			return
 		}
 	} else if !uninstall {
@@ -807,6 +813,13 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			dialog("已卸載USB Link。", 0x40)
 		}
 		return
+	}
+	if service {
+		if e := connectioninstall.AcceptInstallationReady(); e != nil {
+			r.Stage, r.Error = "INSTALL_ACCEPTANCE_FAILED", e.Error()
+			_, _ = save(r)
+			return
+		}
 	}
 	var pruned []string
 	defer ipadncm.StartStartupTimingEvidence(ctx, recoveryDir, version)()

@@ -22,6 +22,7 @@ import (
 	"suhang/usbnet/internal/dependencies"
 )
 
+var installerVersion string
 var installerSHA string // Build pins the reviewed installer, not a mutable manifest.
 
 type report struct {
@@ -69,9 +70,9 @@ func startupDiagnostics(start time.Time) []map[string]string {
 	if e != nil {
 		return nil
 	}
-	patterns := []string{filepath.Join(system, "Temp", "Suhang-iPad-Grouping-Recovery", "core-diagnostics", "0.9.5", "*", "*.zip")}
+	patterns := []string{filepath.Join(system, "Temp", "Suhang-iPad-Grouping-Recovery", "core-diagnostics", installerVersion, "*", "*.zip")}
 	if base := os.Getenv("LOCALAPPDATA"); base != "" {
-		patterns = append(patterns, filepath.Join(base, "Suhang", "iPadUSBSetup", "0.9.5", "*", "*.zip"))
+		patterns = append(patterns, filepath.Join(base, "Suhang", "iPadUSBSetup", installerVersion, "*", "*.zip"))
 	}
 	var results []map[string]string
 	for _, pattern := range patterns {
@@ -101,7 +102,7 @@ func startupDiagnostics(start time.Time) []map[string]string {
 					Stage   string `json:"stage"`
 					Error   string `json:"error"`
 				}
-				if e == nil && len(b) <= 2<<20 && json.Unmarshal(b, &fields) == nil && fields.Version == "0.9.5" {
+				if e == nil && len(b) <= 2<<20 && json.Unmarshal(b, &fields) == nil && fields.Version == installerVersion {
 					if len(fields.Error) > 2048 {
 						fields.Error = fields.Error[:2048]
 					}
@@ -139,7 +140,7 @@ func run() (err error) {
 		return e
 	}
 	start := time.Now()
-	r := report{StartedUTC: start.UTC().Format(time.RFC3339), Stage: "checking", InstallerVersion: "0.9.5", InstallerSHA: installerSHA}
+	r := report{StartedUTC: start.UTC().Format(time.RFC3339), Stage: "checking", InstallerVersion: installerVersion, InstallerSHA: installerSHA}
 	writeReport := func() error {
 		b, e := json.MarshalIndent(r, "", "  ")
 		if e != nil {
@@ -156,7 +157,7 @@ func run() (err error) {
 			err = e
 		}
 	}()
-	installer := filepath.Join(base, "USB-Link-0.9.5-windows-x64.exe")
+	installer := filepath.Join(base, "USB-Link-"+installerVersion+"-windows-x64.exe")
 	file, e := pinnedInstaller(installer)
 	if e != nil {
 		return e
@@ -200,12 +201,12 @@ func run() (err error) {
 	if e = writeReport(); e != nil {
 		return e
 	}
-	fmt.Println("Installing 0.9.5; waiting for verified registration, binding and running service. Keep this window open.")
+	fmt.Println("Installing fixed-layout release; waiting for verified registration, binding and running service. Keep this window open.")
 	deadline := time.Now().Add(5 * time.Minute)
 	stable := 0
 	var last error
 	for time.Now().Before(deadline) {
-		last = connectioninstall.ObserveReinstalledCore(installerSHA)
+		last = connectioninstall.ObserveReinstalledCore(installerSHA, installerVersion)
 		if last == nil {
 			stable++
 		} else {
@@ -220,7 +221,7 @@ func run() (err error) {
 					return fmt.Errorf("REINSTALL_STARTUP_PROBLEM: %s: %s", diagnostic["stage"], diagnostic["error"])
 				}
 			}
-			fmt.Println("0.9.5 core is verified and running. USB/SMB still require device acceptance.")
+			fmt.Println("Fixed-layout core is verified and running. USB/SMB still require device acceptance.")
 			return nil
 		}
 		time.Sleep(2 * time.Second)

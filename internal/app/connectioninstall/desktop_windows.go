@@ -39,15 +39,15 @@ func PrepareDesktopVersion(reader io.ReaderAt, size int64, version string) (stri
 	if !versionPattern.MatchString(version) {
 		return "", fmt.Errorf("invalid desktop version")
 	}
-	root, err := protectedRoot(false)
-	if err != nil {
-		return "", err
+	exe, err := CurrentApplication()
+	if err != nil || VerifyCoreExecutable(exe) != nil {
+		return "", fmt.Errorf("DESKTOP_ACTIVE_SOURCE_UNPROVEN")
 	}
-	root, err = protectedRootAt(filepath.Join(root, "Desktop"), true)
-	if err != nil {
-		return "", err
+	receipt, err := readReceipt(filepath.Dir(exe))
+	if err != nil || receipt.Version != version {
+		return "", fmt.Errorf("DESKTOP_ACTIVE_VERSION_CHANGED")
 	}
-	return prepareDesktopAt(reader, size, root, version)
+	return prepareDesktopAt(reader, size, filepath.Dir(exe), "Desktop")
 }
 
 func prepareDesktopAt(reader io.ReaderAt, size int64, root, name string) (string, error) {

@@ -94,3 +94,5 @@ or a catalog-pinned official runtime ZIP already received by that older version.
 Every imported byte is checked and copied into the new owned dependency tree;
 changed files cannot authorize reuse. This does not restore file upload or remote
 maintenance in the public build.
+
+0.10.0 supersedes the versioned program/desktop layout above with one active `Program Files/USB Link/App` and transaction-only previous content. See [installation lifecycle](INSTALLATION-LIFECYCLE.zh-CN.md). Windows lifecycle and device acceptance remain pending.

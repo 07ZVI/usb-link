@@ -137,6 +137,14 @@ func withStoppedCoreForUninstall(ctx context.Context, exe string, restore func(f
 // The fixed protected journal remains untouched. Reuse the same strict terminal
 // selection as a prepared local install; an unknown result is never "no job".
 func verifyUninstallUpgradeIdle() error {
+	t, ok, e := readInstallationTransaction()
+	if e != nil {
+		return e
+	}
+	if ok && t.Phase != InstallComplete && t.Phase != InstallRolledBack {
+		return errors.New("CORE_UNINSTALL_LOCAL_UPDATE_PENDING")
+	}
+
 	root, err := remoteRoot()
 	if err != nil {
 		return err

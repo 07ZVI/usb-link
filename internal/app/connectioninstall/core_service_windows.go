@@ -28,10 +28,15 @@ func coreLifecycleLock() (func() error, error) {
 var coreOwnerSID atomic.Pointer[string]
 
 // VerifyCoreExecutable is stricter than legacy startup verification: only the
-// current protected ProgramFiles product path, never legacy/download/user paths.
+// protected active program or an authenticated transaction source; never a
+// download/user path. Temporary sources require a nonterminal exact receipt.
 func VerifyCoreExecutable(exe string) error {
-	root, e := Root()
-	if e != nil || filepath.Base(exe) != BinaryName || !strings.EqualFold(filepath.Dir(filepath.Dir(exe)), root) || Verify(exe) != nil {
+	root, e := trustedCoreDirectory(filepath.Dir(exe))
+	if e != nil || filepath.Base(exe) != BinaryName || Verify(exe) != nil {
+		return fmt.Errorf("CORE_INSTALLED_SOURCE_UNPROVEN")
+	}
+	legacy, e := legacyRoot()
+	if e != nil || strings.EqualFold(root, legacy) {
 		return fmt.Errorf("CORE_INSTALLED_SOURCE_UNPROVEN")
 	}
 	for _, p := range []string{root, filepath.Join(root, "product-id.txt"), filepath.Dir(exe), filepath.Join(filepath.Dir(exe), "ownership.json"), exe} {
@@ -117,7 +122,7 @@ func coreFileACLValid(sd *windows.SECURITY_DESCRIPTOR) bool {
 	return seenBA && seenSY
 }
 func readCoreBinding() (CoreServiceBinding, bool, error) {
-	root, e := protectedRoot(false)
+	root, e := coreStateDirectory()
 	if e != nil {
 		return CoreServiceBinding{}, false, e
 	}
@@ -154,7 +159,7 @@ func writeCoreBinding(v CoreServiceBinding, old *CoreServiceBinding) error {
 	if _, e = parseCoreBinding(b); e != nil {
 		return e
 	}
-	root, e := protectedRoot(false)
+	root, e := coreStateDirectory()
 	if e != nil {
 		return e
 	}
@@ -513,7 +518,10 @@ func InstallCoreServiceObserved(exe string) (created bool, err error) {
 func installCoreService(exe string, created *bool) error {
 	return installCoreServicePrepared(exe, created, "")
 }
-func installCoreServicePrepared(exe string, created *bool, preparedVersion string) (result error) {
+func installCoreServicePrepared(exe string, created *bool, preparedVersion string) error {
+	return bindCoreService(exe, created, preparedVersion, true)
+}
+func bindCoreService(exe string, created *bool, preparedVersion string, start bool) (result error) {
 	unlock, e := coreLifecycleLock()
 	if e != nil {
 		return e
@@ -580,7 +588,10 @@ func installCoreServicePrepared(exe string, created *bool, preparedVersion strin
 		}
 	}
 	if found && old == next {
-		return StartCoreService()
+		if start {
+			return StartCoreService()
+		}
+		return stopCore(s)
 	}
 	transition := coreServiceTransition{Version: 1, Next: next}
 	if found {
@@ -609,6 +620,9 @@ func installCoreServicePrepared(exe string, created *bool, preparedVersion strin
 			return fmt.Errorf("CORE_SERVICE_CONFIG_CHANGED")
 		}
 		c.BinaryPathName = command
+		if !start {
+			c.StartType = mgr.StartManual
+		}
 		if e = s.UpdateConfig(c); e != nil {
 			return e
 		}
@@ -633,7 +647,10 @@ func installCoreServicePrepared(exe string, created *bool, preparedVersion strin
 	if e = clearCoreTransition(transition); e != nil {
 		return e
 	}
-	return StartCoreService()
+	if start {
+		return StartCoreService()
+	}
+	return nil
 }
 func RemoveCoreService() (result error) {
 	return removeCoreService(nil)
@@ -736,7 +753,7 @@ func removeCoreServiceUnlocked(expected *CoreServiceBinding) error {
 	for time.Now().Before(end) {
 		check, e := m.OpenService(CoreServiceName)
 		if e == windows.ERROR_SERVICE_DOES_NOT_EXIST {
-			root, _ := Root()
+			root, _ := coreStateDirectory()
 			got, present, e := readCoreBinding()
 			if e != nil || !present || got != b {
 				return fmt.Errorf("CORE_SERVICE_BINDING_CHANGED")
@@ -783,7 +800,7 @@ func clearAbsentCoreBinding(m *mgr.Mgr, b CoreServiceBinding) error {
 	if e != windows.ERROR_SERVICE_DOES_NOT_EXIST {
 		return e
 	}
-	root, _ := Root()
+	root, _ := coreStateDirectory()
 	if e = os.Remove(filepath.Join(root, coreBindingFile)); e != nil {
 		return e
 	}

@@ -18,7 +18,7 @@ const coreTransitionFile = "core-service-transition.json"
 
 func readCoreTransition() (coreServiceTransition, bool, error) {
 	var t coreServiceTransition
-	root, e := protectedRoot(false)
+	root, e := coreStateDirectory()
 	if e != nil {
 		return t, false, e
 	}
@@ -49,7 +49,7 @@ func writeCoreTransition(t coreServiceTransition) error {
 	if e != nil || found {
 		return fmt.Errorf("CORE_SERVICE_TRANSITION_PENDING")
 	}
-	root, e := protectedRoot(false)
+	root, e := coreStateDirectory()
 	if e != nil {
 		return e
 	}
@@ -96,7 +96,7 @@ func clearCoreTransition(t coreServiceTransition) error {
 	if e != nil || !present || !equalCoreTransition(got, t) {
 		return fmt.Errorf("CORE_SERVICE_TRANSITION_CHANGED")
 	}
-	root, _ := Root()
+	root, _ := coreStateDirectory()
 	if e = os.Remove(filepath.Join(root, coreTransitionFile)); e != nil {
 		return e
 	}
@@ -203,7 +203,7 @@ func recoverCoreServiceTransition() error {
 		if e != nil || !present || fresh != binding {
 			return fmt.Errorf("CORE_SERVICE_TRANSITION_BINDING_CHANGED")
 		}
-		root, _ := Root()
+		root, _ := coreStateDirectory()
 		if e = os.Remove(filepath.Join(root, coreBindingFile)); e != nil {
 			return e
 		}

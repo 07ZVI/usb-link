@@ -49,7 +49,18 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 		held("installation", "ownership unavailable")
 		return r
 	}
-	if err = Verify(filepath.Join(root, current, BinaryName)); err != nil {
+	currentExe := filepath.Join(root, current, BinaryName)
+	fixedExe := filepath.Join(root, CurrentApplicationDirectory, BinaryName)
+	fixed := Verify(fixedExe) == nil
+	if fixed {
+		currentExe = fixedExe
+		t, present, e := readInstallationTransaction()
+		if e != nil || present && t.Phase != InstallComplete {
+			held("installation", "local update transaction still owns rollback files")
+			return r
+		}
+	}
+	if err = Verify(currentExe); err != nil {
 		held("installation", "current executable verification failed")
 		return r
 	}
@@ -65,7 +76,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 	if binding, bound, bindingError := readCoreBinding(); bindingError != nil {
 		held("core service", "owner binding unverified")
 		return r
-	} else if bound && filepath.Base(filepath.Dir(binding.Executable)) != current {
+	} else if bound && !strings.EqualFold(binding.Executable, currentExe) {
 		held("core service", "service still references a different executable version")
 		return r
 	}
@@ -83,7 +94,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 	startupTaskLock.Lock()
 	defer startupTaskLock.Unlock()
 	dependencyCtx, dependencyCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	taskTargets, taskDependencyError := nativeStartupDependencies(dependencyCtx, filepath.Join(root, current, BinaryName))
+	taskTargets, taskDependencyError := nativeStartupDependencies(dependencyCtx, currentExe)
 	dependencyCancel()
 
 	roots := []struct{ path, binary string }{{root, BinaryName}}
@@ -161,7 +172,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 				held("Desktop", "enumeration failed")
 			} else {
 				for _, entry := range entries {
-					if !entry.IsDir() || !versionPattern.MatchString(entry.Name()) || !installcleanup.OlderVersion(entry.Name(), current) || entry.Name() == rollbackVersion {
+					if !entry.IsDir() || !versionPattern.MatchString(entry.Name()) || !installcleanup.OlderVersion(entry.Name(), current) || !fixed && entry.Name() == rollbackVersion {
 						continue
 					}
 					dir := filepath.Join(desktopRoot, entry.Name())
@@ -226,7 +237,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 		remove(c)
 	}
 	for _, c := range versions {
-		if filepath.Base(c.dir) == rollbackVersion {
+		if !fixed && filepath.Base(c.dir) == rollbackVersion {
 			continue
 		}
 		// A foreign scheduler writer is not covered by our mutex. Re-observe the
@@ -234,7 +245,7 @@ func cleanupInstallation(current, desktop string, runtimeCleanup func() ([]strin
 		// failure retains this and every remaining prior version.
 		if taskDependencyError == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			taskTargets, taskDependencyError = nativeStartupDependencies(ctx, filepath.Join(root, current, BinaryName))
+			taskTargets, taskDependencyError = nativeStartupDependencies(ctx, currentExe)
 			cancel()
 		}
 		var target string

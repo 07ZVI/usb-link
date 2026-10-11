@@ -19,7 +19,7 @@ try {
     $transcriptStarted = $true
     $pins = @{
         'repair-deleted-install.exe' = '@REPAIR_SHA@'
-        'USB-Link-0.9.5-windows-x64.exe' = '@INSTALLER_SHA@'
+        'USB-Link-@VERSION@-windows-x64.exe' = '@INSTALLER_SHA@'
         'offline-components\prepare-components.exe' = '@COMPONENT_SHA@'
     }
     foreach ($relative in $pins.Keys) {
@@ -29,7 +29,7 @@ try {
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $pins[$relative]) { throw ('Checksum mismatch: ' + $relative) }
     }
     $repair = Join-Path $PSScriptRoot 'repair-deleted-install.exe'
-    Write-Host 'USB Link 0.9.5 - repair deleted installation'
+    Write-Host 'USB Link @VERSION@ - repair deleted installation'
     Write-Host 'Checking exact residual service/registration before any component preparation.'
     & $repair --check-only
     if ($LASTEXITCODE -ne 0) { throw 'Residual state differs from the reviewed report. Nothing was removed.' }

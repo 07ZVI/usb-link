@@ -8,6 +8,8 @@ Before removal, it saves and flushes a protected native configuration/security b
 
 The new installer is build-pinned by SHA-256 and held open denying write/delete throughout launch. Local .NET and Wintun must pass the existing pinned dependency checks before residual removal. The supplied offline kit prepares any missing components first. UAC must run in an interactive administrator session.
 
-The tool waits for 0.9.5 registration, verified source/binding and a running core over five consecutive observations. This proves installation and service startup only. It does not claim USB connectivity, SMB access or browser throughput acceptance. Reports contain only installation state and bounded startup stage/error fields; full diagnostics and original recovery journals stay on Windows.
+The tool waits for fixed-layout 0.10.0 registration, verified source/binding, the completed installation transaction and authenticated initialization over five consecutive observations. This proves installation and core initialization only. It does not claim USB connectivity, SMB access or browser throughput acceptance. Reports contain only installation state and bounded startup stage/error fields; full diagnostics and original recovery journals stay on Windows.
 
-Build with `python3 scripts/windows-deleted-install-repair/build.py`. Windows native vet/cross-build can run on macOS; execution and device acceptance require the affected Windows machine. Do not distribute this operator recovery kit as a public USB Link release.
+Build with `python3 scripts/windows-deleted-install-repair/build.py --installer-sha <reviewed SHA256>`. Windows native vet/cross-build can run on macOS; execution and device acceptance require the affected Windows machine. Do not distribute this operator recovery kit as a public USB Link release.
+
+The 0.9.5 kit is paused. The private builder now targets fixed-layout 0.10.0 and requires an explicit reviewed installer SHA256. It verifies the completed installation transaction and authenticated initialization, not only SCM Running. Windows execution remains pending.

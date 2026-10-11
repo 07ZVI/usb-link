@@ -35,7 +35,7 @@ func mutexDescriptorPolicy(sd *windows.SECURITY_DESCRIPTOR) error {
 	// the user's session. Only the protected, SCM-verified owner binding can
 	// identify that same user as a legitimate existing Global mutex owner.
 	var boundOwner *windows.SID
-	if user.User.Sid.IsWellKnown(windows.WinLocalSystemSid) {
+	if user.User.Sid.IsWellKnown(windows.WinLocalSystemSid) && !owner.IsWellKnown(windows.WinLocalSystemSid) && !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
 		if binding, e := CurrentCoreBinding(); e == nil {
 			boundOwner, _ = windows.StringToSid(binding.OwnerSID)
 		}

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build the narrowly scoped private recovery tool; never patch public sources."""
+import argparse
 import hashlib
 import json
 import os
@@ -11,11 +12,16 @@ import zipfile
 
 root = Path(__file__).resolve().parents[2]
 source = Path(__file__).resolve().parent
-destination = root / '.local/deliverables/USB-Link-reinstall-0.9.5'
-installer = root / 'out/USB-Link-0.9.5-windows-x64.exe'
-assert (root / 'VERSION').read_text().strip() == '0.9.5'
+version = (root / 'VERSION').read_text().strip()
+assert version == '0.10.0'
+parser = argparse.ArgumentParser()
+parser.add_argument('--installer-sha', required=True, help='SHA256 of the reviewed release installer')
+args = parser.parse_args()
+assert len(args.installer_sha) == 64 and all(c in '0123456789abcdef' for c in args.installer_sha)
+destination = root / ('.local/deliverables/USB-Link-reinstall-' + version)
+installer = root / ('out/USB-Link-' + version + '-windows-x64.exe')
 digest = hashlib.sha256(installer.read_bytes()).hexdigest()
-assert digest == 'd28403f8ec540fcf62e9cb337a209ec057659d54f4b2ae3bf7ab4a71296efe46'
+assert digest == args.installer_sha
 destination.mkdir(parents=True, exist_ok=True)
 environment = os.environ.copy()
 environment.update(GOOS='windows', GOARCH='amd64', CGO_ENABLED='0', GOTOOLCHAIN='local')
@@ -26,13 +32,13 @@ with tempfile.TemporaryDirectory(prefix='usb-link-deleted-repair-') as tmp:
     assert not virtual.exists()
     overlay.write_text(json.dumps({'Replace': {str(virtual): str(source / 'connectioninstall_windows.go.txt')}}))
     subprocess.run([go, 'vet', '-tags=usblink_operator_repair', '-overlay', str(overlay), './scripts/windows-deleted-install-repair', './internal/app/connectioninstall'], cwd=root, env=environment, check=True)
-    subprocess.run([go, 'build', '-tags=usblink_operator_repair', '-overlay', str(overlay), '-trimpath', '-buildvcs=false', '-ldflags', '-s -w -X main.installerSHA=' + digest, '-o', str(destination / 'repair-deleted-install.exe'), './scripts/windows-deleted-install-repair'], cwd=root, env=environment, check=True)
+    subprocess.run([go, 'build', '-tags=usblink_operator_repair', '-overlay', str(overlay), '-trimpath', '-buildvcs=false', '-ldflags', '-s -w -X main.installerSHA=' + digest + ' -X main.installerVersion=' + version, '-o', str(destination / 'repair-deleted-install.exe'), './scripts/windows-deleted-install-repair'], cwd=root, env=environment, check=True)
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 shutil.copy2(installer, destination / installer.name)
 shutil.copytree(root / 'offline-components', destination / 'offline-components', dirs_exist_ok=True, ignore=shutil.ignore_patterns('logs', '__pycache__'))
-pins = {'@REPAIR_SHA@': sha(destination / 'repair-deleted-install.exe'), '@INSTALLER_SHA@': digest, '@COMPONENT_SHA@': sha(destination / 'offline-components/prepare-components.exe')}
+pins = {'@VERSION@': version, '@REPAIR_SHA@': sha(destination / 'repair-deleted-install.exe'), '@INSTALLER_SHA@': digest, '@COMPONENT_SHA@': sha(destination / 'offline-components/prepare-components.exe')}
 script = (source / 'repair-and-install.ps1.in').read_text()
 for placeholder, value in pins.items():
     script = script.replace(placeholder, value.upper())
@@ -50,9 +56,9 @@ pause
 exit /b %KIT_EXIT%
 '''
 (destination / 'repair-and-install.bat').write_bytes(batch.replace('\n', '\r\n').encode('ascii'))
-(destination / '使用说明.txt').write_bytes('''USB Link 0.9.5 删除安装目录后的专用修复包
+(destination / '使用说明.txt').write_bytes('''USB Link @VERSION@ 删除安装目录后的专用修复包
 
-1. 将整个 USB-Link-reinstall-0.9.5 文件夹复制到 Windows，或从 U 盘直接运行。
+1. 将整个 USB-Link-reinstall-@VERSION@ 文件夹复制到 Windows，或从 U 盘直接运行。
 2. 双击 repair-and-install.bat，允许管理员提示。不要单独运行目录内的 EXE。
 3. 已有效的组件会复用；缺少的组件使用离线包准备。若出现 Apple 官方安装向导，按向导完成。
 4. 工具只核对并处理已删除目录的 0.8.139 安装登记和停止的 0.9.3 服务，先保存备份。
@@ -63,11 +69,11 @@ exit /b %KIT_EXIT%
 如果目标状态已改变，工具会停止，不覆盖其他安装或运行中的服务。
 原始残留备份：ProgramData/USB Link/DeletedInstallRecovery/。
 这次手动删除的密码/权限凭据可能已丢失，因此不自动重置原 SMB 账户。
-'''.replace('\n', '\r\n').encode('utf-8-sig'))
+'''.replace('@VERSION@', version).replace('\n', '\r\n').encode('utf-8-sig'))
 receipt = {
     'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
     'source_dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).strip()),
-    'version': '0.9.5', 'expected_registration': '0.8.139', 'expected_stopped_service': '0.9.3',
+    'version': version, 'expected_registration': '0.8.139', 'expected_stopped_service': '0.9.3',
     'installer_sha256': digest, 'helper_sha256': pins['@REPAIR_SHA@'],
     'validation': 'Windows x64 cross-build and native vet passed; Windows execution and device acceptance pending',
     'private_build_tag': 'usblink_operator_repair',

@@ -29,11 +29,7 @@
 
 ## 当前目录规则
 
-- 核心：`Program Files/USB Link/<版本>/USB-Link.exe`，保留版本与文件摘要凭据，避免更新中覆盖正在运行的程序。
-- 界面：`Program Files/USB Link/Desktop/<版本>/`。
-- 私有组件及缓存：`ProgramData/USB Link/Dependencies/`。
-- 已有受保护恢复日志和用户资料沿用原路径；不在升级中整体搬动或强制删除。
-- 核心清理只在新版本实际核验完成、升级事务结束且没有仍被引用的启动文件时执行；保留上一经核验核心版本。
+0.10.0 使用固定 `Program Files/USB Link/App/`，界面位于其 `Desktop/`。配置与账户记录迁到 ProgramData，候选与前一程序仅在更新事务内保留；详见[安装规范](INSTALLATION-LIFECYCLE.zh-CN.md)。0.9.5 私有修复入口保持暂停，0.10.0 尚未在 Windows 上安装或验收。
 
 ## 安装与实机证据
 

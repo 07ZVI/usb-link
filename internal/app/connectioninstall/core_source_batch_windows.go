@@ -155,7 +155,7 @@ func (v *CoreSourceBatch) Refresh() error {
 	if e = protectedCoreSelfIdentity(windows.Handle(v.pin.file.Fd()), &held); e != nil || held.LastWriteTime != v.pin.identity.LastWriteTime {
 		return fmt.Errorf("CORE_BATCH_LASTWRITE_CHANGED")
 	}
-	root, e := Root()
+	root, e := coreStateDirectory()
 	if e != nil {
 		return e
 	}

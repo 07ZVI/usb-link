@@ -29,7 +29,16 @@ func maintenanceBase() (string, error) {
 	} else if !os.IsNotExist(e) {
 		return "", e
 	}
-	return protectedRoot(false)
+	root, e := Root()
+	if e != nil {
+		return "", e
+	}
+	if e = noReparse(filepath.Join(root, "Remote Maintenance")); e == nil {
+		return protectedRoot(false)
+	} else if !os.IsNotExist(e) {
+		return "", e
+	}
+	return StateDirectory()
 }
 
 // Migrate settings only. Keep existing user data and updater state in place.
@@ -99,7 +108,12 @@ func dataRoot(name string) (string, error) {
 		return "", e
 	}
 	if e = noReparse(filepath.Join(old, name)); os.IsNotExist(e) {
-		return root, nil
+		if e = noReparse(filepath.Join(root, name)); e == nil {
+			return root, nil
+		} else if !os.IsNotExist(e) {
+			return "", e
+		}
+		return MachineDataDirectory()
 	} else if e != nil {
 		return "", e
 	}

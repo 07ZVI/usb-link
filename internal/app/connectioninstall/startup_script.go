@@ -16,7 +16,7 @@ function Check-Owned($t){
  if($a.Arguments -cne '--resident' -or -not [string]::IsNullOrEmpty($a.WorkingDirectory) -or -not (([IO.Path]::GetDirectoryName($d) -ieq $env:SUHANG_ROOT -and [IO.Path]::GetFileName($p) -ceq 'USB-Link.exe') -or ([IO.Path]::GetDirectoryName($d) -ieq $env:SUHANG_LEGACY_ROOT -and [IO.Path]::GetFileName($p) -ceq 'Suhang-iPad-USB.exe'))){throw 'STARTUP_TASK_PATH_CHANGED'}
  foreach($q in @([IO.Path]::GetDirectoryName($d),$d,$p,(Join-Path $d 'ownership.json'))){if((Get-Item -LiteralPath $q -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'STARTUP_TASK_REPARSE'}}
  $r=Get-Content -Raw -LiteralPath (Join-Path $d 'ownership.json') -ErrorAction Stop|ConvertFrom-Json
- if($r.product -cne $env:SUHANG_PRODUCT -or $r.version -cne [IO.Path]::GetFileName($d) -or (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne $r.sha256){throw 'STARTUP_TASK_RECEIPT_CHANGED'}
+ if($r.product -cne $env:SUHANG_PRODUCT -or ($r.version -cnotmatch '^\d+\.\d+\.\d+$' -or ($r.version -cne [IO.Path]::GetFileName($d) -and [IO.Path]::GetFileName($d) -cne 'App')) -or (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne $r.sha256){throw 'STARTUP_TASK_RECEIPT_CHANGED'}
  $tr=@($t.Triggers);if($tr.Count -ne 1 -or $tr[0].CimClass.CimClassName -cne 'MSFT_TaskLogonTrigger' -or (Exact-Sid $tr[0].UserId) -cne $env:SUHANG_SID -or $tr[0].Delay -cne 'PT5S'){throw 'STARTUP_TASK_TRIGGER_CHANGED'}
  if([string]$t.State -cnotin @('Disabled','Ready','Running','Queued')){throw 'STARTUP_TASK_STATE_UNKNOWN'}
  return [bool]($t.Settings.Enabled -and $tr[0].Enabled -and [string]$t.State -cne 'Disabled')

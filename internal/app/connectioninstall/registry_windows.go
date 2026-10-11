@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"suhang/usbnet/internal/transport/ipadsession"
 )
@@ -142,6 +143,28 @@ func removeInstalledFiles(path string) (bool, error) {
 			dirs = append(dirs, dir)
 			continue
 		}
+		if entry.IsDir() && entry.Name() == CurrentApplicationDirectory {
+			dir := filepath.Join(root, entry.Name())
+			r, e := readReceipt(dir)
+			if e != nil {
+				return false, e
+			}
+			if hash, e := fileHash(filepath.Join(dir, BinaryName)); e != nil || hash != r.SHA {
+				return false, fmt.Errorf("changed active executable preserved")
+			}
+			t, ok, e := readInstallationTransaction()
+			if e != nil || !ok || t.Next != r || t.Phase != InstallComplete || verifyReleaseFiles(dir, t.NextFiles, false) != nil {
+				return false, fmt.Errorf("active uninstall inventory unproven")
+			}
+			for n := range t.NextFiles {
+				files = append(files, filepath.Join(dir, filepath.FromSlash(n)))
+			}
+			if _, e = os.Lstat(filepath.Join(dir, "Desktop")); e == nil {
+				dirs = append(dirs, filepath.Join(dir, "Desktop"))
+			}
+			dirs = append(dirs, dir)
+			continue
+		}
 		if !entry.IsDir() || !versionPattern.MatchString(entry.Name()) {
 			continue
 		}
@@ -188,6 +211,7 @@ func removeInstalledFiles(path string) (bool, error) {
 		reboot = true
 		return nil
 	}
+	sort.Strings(files)
 	for _, p := range files {
 		if e = remove(p); e != nil {
 			return reboot, e
@@ -212,4 +236,24 @@ func removeInstalledFiles(path string) (bool, error) {
 		os.Remove(root)
 	}
 	return reboot, nil
+}
+
+func removeExactRegistration(exe string) error {
+	if e := ownedRegistration(); e != nil {
+		return e
+	}
+	k, e := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKey, registry.QUERY_VALUE)
+	if e == windows.ERROR_FILE_NOT_FOUND {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	command, _, e := k.GetStringValue("UninstallString")
+	k.Close()
+	args, parse := windows.DecomposeCommandLine(command)
+	if e != nil || parse != nil || len(args) != 2 || args[1] != "--uninstall" || !strings.EqualFold(args[0], exe) {
+		return fmt.Errorf("INSTALL_REGISTRATION_CHANGED")
+	}
+	return registry.DeleteKey(registry.LOCAL_MACHINE, uninstallKey)
 }

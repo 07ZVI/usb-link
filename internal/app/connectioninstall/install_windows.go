@@ -13,16 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"unsafe"
 )
 
 const installACL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"
-
-type Receipt struct {
-	Product string `json:"product"`
-	Version string `json:"version"`
-	SHA     string `json:"sha256"`
-}
 
 func Root() (string, error) {
 	p, e := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
@@ -130,7 +125,7 @@ func readReceipt(dir string) (Receipt, error) {
 		return r, fmt.Errorf("unowned version directory")
 	}
 	b, e := os.ReadFile(filepath.Join(dir, "ownership.json"))
-	if e != nil || len(b) > 4096 || json.Unmarshal(b, &r) != nil || r.Product != ProductID || !versionPattern.MatchString(r.Version) || filepath.Base(dir) != r.Version {
+	if e != nil || len(b) > 4096 || json.Unmarshal(b, &r) != nil || r.Product != ProductID || !versionPattern.MatchString(r.Version) || !receiptDirectoryMatches(filepath.Base(dir), r.Version) {
 		return r, fmt.Errorf("invalid ownership receipt")
 	}
 	h, e := hex.DecodeString(r.SHA)
@@ -164,7 +159,7 @@ func fileHash(path string) (string, error) {
 }
 func Verify(path string) error {
 	dir := filepath.Dir(path)
-	root, e := Root()
+	root, e := trustedCoreDirectory(dir)
 	if e != nil {
 		return e
 	}
@@ -172,15 +167,14 @@ func Verify(path string) error {
 	if e != nil {
 		return e
 	}
-	parent := filepath.Dir(dir)
-	if !validInstallLocation(parent, filepath.Base(path), root, legacy) {
+	if filepath.Base(path) != BinaryName && !(strings.EqualFold(root, legacy) && filepath.Base(path) == LegacyBinaryName) {
 		return fmt.Errorf("unowned startup path")
-	}
-	if _, e = protectedRootAt(parent, false); e != nil {
-		return e
 	}
 	r, e := readReceipt(dir)
 	if e != nil {
+		return e
+	}
+	if e = verifyTransactionCoreReceipt(dir, r); e != nil {
 		return e
 	}
 	sum, e := fileHash(path)

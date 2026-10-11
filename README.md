@@ -71,3 +71,5 @@ Outputs in `out/` include an unsigned Windows launcher, Mac network helper tools
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 Original code is licensed under [GPL-3.0-only](LICENSE), with the narrowly scoped [official Wintun DLL linking exception](LICENSE-WINTUN-EXCEPTION). Third-party code retains its own licenses; see [notices](licenses/THIRD-PARTY.txt).
+
+Windows installation layout and lifecycle: [installation specification](docs/INSTALLATION-LIFECYCLE.zh-CN.md).

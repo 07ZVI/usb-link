@@ -12,7 +12,7 @@ import (
 // SecurityDirectory holds host policy intent/receipts. Normal USB cleanup does
 // not remove it. Its ACL excludes writes and reads by standard users.
 func SecurityDirectory() (string, error) {
-	root, err := protectedRoot(false)
+	root, err := StateDirectory()
 	if err != nil {
 		return "", err
 	}
