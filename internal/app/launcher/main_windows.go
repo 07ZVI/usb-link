@@ -641,6 +641,12 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		installationFailure(&r, recoveryError, "安裝程式尚未取得連線管理權。已嘗試正常結束可驗證的舊版，具體結果已保存於診斷。")
 		return
 	}
+	dependencies.Default.SetLocalSource(func(a dependencies.Asset) string {
+		if a.ID == "wintun" {
+			return macconnection.PinnedLegacyWintun(recoveryDir)
+		}
+		return ""
+	})
 	if service {
 		serviceDiagnosticDirectory.Store(recoveryDir)
 	}
@@ -798,12 +804,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	}
 	var pruned []string
 	defer ipadncm.StartStartupTimingEvidence(ctx, recoveryDir, version)()
-	dependencies.Default.SetLocalSource(func(a dependencies.Asset) string {
-		if a.ID == "wintun" {
-			return macconnection.PinnedLegacyWintun(recoveryDir)
-		}
-		return ""
-	})
+
 	// Optional task reconciliation shares the settings mutation lock but never
 	// blocks network preparation. Join before releasing the protected owner, so
 	// an old process cannot replace a newer version's task after its handoff.
