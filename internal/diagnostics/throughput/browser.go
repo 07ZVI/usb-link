@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"suhang/usbnet/internal/buildinfo"
 )
 
 //go:embed browser.html
@@ -39,6 +40,7 @@ func (s *Server) browserCommand() NativeCommand {
 func (s *Server) browserPage(w http.ResponseWriter) {
 	config, _ := json.Marshal(s.browserCommand())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-USB-Link-Version", buildinfo.Version)
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+s.token+"'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	page := strings.ReplaceAll(browserPage, "__NONCE__", s.token)
