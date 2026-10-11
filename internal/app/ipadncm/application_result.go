@@ -39,10 +39,8 @@ type ApplicationResult struct {
 	MacPeerResolved                                bool                    `json:"mac_arp_peer_resolved"`
 	MacEffectiveMTU                                int                     `json:"mac_effective_mtu,omitempty"`
 	MacPathMTUWarning                              string                  `json:"mac_path_mtu_warning,omitempty"`
-	FileReceiverReady                              bool                    `json:"file_receiver_ready"`
-	FilesReceived                                  uint64                  `json:"files_received"`
-	FileBytes                                      uint64                  `json:"file_bytes_received"`
-	FileError                                      string                  `json:"file_error,omitempty"`
+	ServicesReady                                  bool                    `json:"services_ready"`
+	ServicesError                                  string                  `json:"services_error,omitempty"`
 	MacBridgeDrops                                 uint64                  `json:"mac_bridge_drops_including_filtered_not_moonlight_loss"`
 	Performance                                    ipadsession.Performance `json:"performance"`
 	MTU                                            uint32                  `json:"usb_interface_mtu"`

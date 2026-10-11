@@ -637,10 +637,6 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 			http.Error(w, "Peer identity not verified", 403)
 			return
 		}
-		if shareServer != nil && (q.URL.Path == "/share" || strings.HasPrefix(q.URL.Path, "/share/")) {
-			shareServer.ServeHTTP(w, q)
-			return
-		}
 		if strings.HasPrefix(q.URL.Path, "/speed/") {
 			speedTest.ServeHTTP(w, q)
 			return

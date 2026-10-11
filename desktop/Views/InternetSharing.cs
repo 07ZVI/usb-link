@@ -9,10 +9,12 @@ public sealed partial class Dashboard
  readonly ComboBox internetUpstream=new(){MinWidth=200};
  readonly ComboBox dependencyChoice=new(){ItemsSource=new[]{"wintun","apple-support","apple-driver","zadig","dotnet"},SelectedIndex=0};
  List<uint> internetIndices=new(){0};
+ Border? internetSection;
  Control InternetSection()
  {
+  if(internetSection != null)return internetSection;
   internetUpstream.ItemsSource=new[]{"目前的非 USB 網際網路出口"};internetUpstream.SelectedIndex=0;
-  return Card(Column(10,Label("Windows → Mac 共享網際網路",16),internetState,
+  return internetSection = Card(Column(10,Label("Windows → Mac 共享網際網路",16),internetState,
    Label("預設關閉。啟用後請在 Mac 更新 USB 網路的 DHCP 租約；取得新網關及往返流量後才顯示可用。",12,key:"Muted"),
    internetUpstream,Column(8,Action("檢查出口",()=>SendInternet("internet-refresh")),Action("啟用共享",()=>SendInternet("internet-enable")),Action("關閉共享 / 重試清理",()=>SendInternet("internet-disable"))),
    dependencyState,dependencyChoice,Action("檢查 / 安裝所選元件",()=>{if(!preview)DesktopClient.Send(new{action="dependency-install",id=dependencyChoice.SelectedItem?.ToString()??""});})),new Thickness(14));

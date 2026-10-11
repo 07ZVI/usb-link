@@ -308,8 +308,6 @@ func (u *modernUI) action(a string) {
 		if u.state.Settings != nil {
 			go u.state.Settings()
 		}
-	case "received":
-		go OpenReceivedFiles()
 	case "retry", "retry-mac", "retry-ipad":
 		kind := map[string]string{"retry-mac": "Mac", "retry-ipad": "iPad"}[a]
 		retried := desktopRetryDevices(deviceDisplaySnapshots(), kind, func(device string) {
@@ -322,38 +320,7 @@ func (u *modernUI) action(a string) {
 		if !retried {
 			u.setNotice("目前無需重試；連線仍在運行或等候裝置。")
 		}
-	case "developer-on", "developer-off":
-		go func() {
-			if remoteEnable == nil {
-				detail := "開發者調試無法啟動。"
-				if remoteInfo != nil {
-					detail, _ = remoteInfo()
-				}
-				u.setNotice(detail)
-				return
-			}
-			if e := remoteEnable(a == "developer-on"); e != nil {
-				u.setNotice("開發者調試設定失敗：" + e.Error())
-			} else {
-				u.setNotice("開發者調試設定已更新。")
-			}
-		}()
-	case "auto-upgrade-on", "auto-upgrade-off":
-		go func() {
-			if remoteSetAutoUpgrade == nil {
-				u.setNotice("USB 自動升級暫時無法使用。")
-				return
-			}
-			if e := remoteSetAutoUpgrade(a == "auto-upgrade-on"); e != nil {
-				u.setNotice("自動升級設定未儲存：" + e.Error())
-				return
-			}
-			if a == "auto-upgrade-on" {
-				u.setNotice("已允許 USB 自動升級；收到新版和開始安裝時會顯示提示並播放提示音。")
-			} else {
-				u.setNotice("已關閉自動升級；每次安裝前會彈窗確認。")
-			}
-		}()
+
 	case "benchmark-start":
 		if e := throughput.DeviceCurrent("Mac").StartNative(); e != nil {
 			u.setNotice(e.Error())
@@ -420,15 +387,6 @@ func (u *modernUI) publishStatus(status any) {
 
 func (u *modernUI) desktopStatus() any {
 	r := u.state.snapshot()
-	autoUpgrade := remoteAutoUpgrade != nil && remoteAutoUpgrade()
-	developerEnabled := false
-	if remoteEnabled != nil {
-		developerEnabled = remoteEnabled()
-	}
-	remoteStatus, remoteInvite := "開發者調試未啟動", ""
-	if remoteInfo != nil {
-		remoteStatus, remoteInvite = remoteInfo()
-	}
 	stopping := u.ctx.Err() != nil
 	nativeShare := connectioninstall.NativeSMBStatus()
 	ipadPolicy := SimplifiedIPadNetworkSnapshot()
@@ -441,7 +399,7 @@ func (u *modernUI) desktopStatus() any {
 		u.notice = fmt.Sprintf("正在結束 USB 連線並恢復設定 · 已等候 %d 秒", int(time.Since(u.stopStarted).Seconds()))
 	}
 	status := desktopDeviceStatus(r, stopping)
-	for k, v := range map[string]any{"event": "status", "connections": deviceSummary(), "version": productVersion, "stopping": stopping, "share_url": connectioninstall.NativeSMBServerURL, "native_smb": true, "native_account": nativeShare.Username, "share_problem": nativeShare.Problem, "share_ready": nativeShare.Ready, "share_enabled": nativeShare.Enabled, "notice": u.notice, "startup": ConnectionStartupEnabled(), "startup_busy": u.startupBusy, "startup_requested": u.startupRequested, "startup_request_id": u.startupRequestID, "startup_rejected_id": u.startupRejectedID, "remote_auto_upgrade": autoUpgrade, "remote_enabled": developerEnabled, "remote_status": remoteStatus, "remote_invite": remoteInvite, "independent": connectionPreferences().IndependentUSB, "ipad_network_policy": ipadPolicy} {
+	for k, v := range map[string]any{"event": "status", "connections": deviceSummary(), "version": productVersion, "stopping": stopping, "share_url": connectioninstall.NativeSMBServerURL, "native_smb": true, "native_account": nativeShare.Username, "share_problem": nativeShare.Problem, "share_ready": nativeShare.Ready, "share_enabled": nativeShare.Enabled, "notice": u.notice, "startup": ConnectionStartupEnabled(), "startup_busy": u.startupBusy, "startup_requested": u.startupRequested, "startup_request_id": u.startupRequestID, "startup_rejected_id": u.startupRejectedID, "independent": connectionPreferences().IndependentUSB, "ipad_network_policy": ipadPolicy} {
 		status[k] = v
 	}
 	devices := make([]map[string]any, 0, 2)

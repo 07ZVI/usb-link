@@ -8,7 +8,7 @@ func startupNetworkReady(r ApplicationResult) bool {
 	}
 	switch r.DeviceKind {
 	case "Mac":
-		return r.Status == "MAC_RUNNING" && r.MacPeerResolved && r.FileReceiverReady && r.FileError == ""
+		return r.Status == "MAC_RUNNING" && r.MacPeerResolved && r.ServicesReady && r.ServicesError == ""
 	case "iPad":
 		return r.Status == "USB_APPLICATION_TRIAL_RUNNING" && r.DHCPStarted && r.PeerIPv4NeighborVerified
 	}

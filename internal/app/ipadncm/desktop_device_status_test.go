@@ -46,7 +46,7 @@ func TestDesktopCardRetryTargetsOnlyTheRequestedDevice(t *testing.T) {
 func TestDesktopDisplaysBothSessionsWithoutSelection(t *testing.T) {
 	displaySessions.Lock()
 	oldStates, oldSelected, oldManual := displaySessions.states, displaySessions.selected, displaySessions.manual
-	mac := &applicationState{r: ApplicationResult{DeviceKind: "Mac", Status: "MAC_RUNNING", ObservedTransmitMbps: 800, USBSpeed: "SuperSpeed", FileReceiverReady: true}}
+	mac := &applicationState{r: ApplicationResult{DeviceKind: "Mac", Status: "MAC_RUNNING", ObservedTransmitMbps: 800, USBSpeed: "SuperSpeed", ServicesReady: true}}
 	ipad := &applicationState{r: ApplicationResult{DeviceKind: "iPad", Status: "USB_APPLICATION_TRIAL_RUNNING", ObservedTransmitMbps: 160, BenchmarkURL: "http://10.6.9.1:1234/"}}
 	displaySessions.states = map[string]*applicationState{"Mac": mac, "iPad": ipad}
 	displaySessions.selected, displaySessions.manual = "iPad", true

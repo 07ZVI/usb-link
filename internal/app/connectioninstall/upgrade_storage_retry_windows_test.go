@@ -34,29 +34,20 @@ func TestGuardStorageRetentionNeverInfersUnlaunchedFromEmptyPID(t *testing.T) {
 
 // These exercise real manager error classification/API retention, without system
 // writes. Windows execution is required; portable Server fixtures do not claim it.
-func TestApplyFailurePreservesMemoryOwnerWhenStorageUnreadable(t *testing.T) {
+func TestRemovedApplyCannotTouchRetainedOwner(t *testing.T) {
 	id := strings.Repeat("a", 32)
 	m := &RemoteManager{root: t.TempDir()}
 	m.upgradeGuard.jobID = id
-	m.upgradeGuard.release = func() { t.Error("lost reservation") }
+	m.upgradeGuard.release = func() { t.Error("lost local recovery reservation") }
 	m.upgradeGuard.ownedJob = &UpdateJob{ID: id, Guarded: true, Status: "staged"}
-	m.closing.Store(true)
-	api := &remoteupdate.Server{}
-	api.ResumeOwned(id, false)
-	err := m.apply(api, id)
-	if !remoteupdate.IsRetainedJobError(err) || m.upgradeGuard.retry == nil || m.upgradeGuard.jobID != id {
-		t.Fatal("apply failure discarded unreadable storage owner's slot", err)
+	if err := m.apply(nil, id); err != errRemoteMaintenanceRemoved {
+		t.Fatal(err)
 	}
-	if !api.ResetOwned(id) {
-		t.Fatal("exact slot no longer available")
-	}
-	m.mu.Lock()
-	err = m.retryGuardTerminationLocked(id, "retry")
-	m.mu.Unlock()
-	if !remoteupdate.IsRetainedJobError(err) || m.upgradeGuard.release == nil {
-		t.Fatal("missing durable record allowed cancellation", err)
+	if m.upgradeGuard.jobID != id || m.upgradeGuard.release == nil || m.upgradeGuard.retry != nil {
+		t.Fatal("removed remote apply changed local recovery")
 	}
 }
+
 func TestTimerCancellationCannotDowngradeLaunchWinner(t *testing.T) {
 	id := strings.Repeat("a", 32)
 	for _, retained := range []bool{false, true} {

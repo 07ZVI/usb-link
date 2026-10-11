@@ -19,7 +19,6 @@
     "internal/hostsecurity": "internal/security/hostsecurity",
     "internal/securitypolicy": "internal/security/securitypolicy",
     "internal/usbgateway": "internal/security/usbgateway",
-    "internal/filedrop": "internal/sharing/filedrop",
     "internal/fileshare": "internal/sharing/fileshare",
     "internal/smbcore": "internal/sharing/smbcore",
     "internal/usbhttp": "internal/sharing/usbhttp",
@@ -56,8 +55,13 @@
     "internal/winusb": "internal/transport/winusb",
     "cmd/ipad-usb-easy": "internal/app/launcher",
     "cmd/suhang-usbnet": "internal/app/bridgeworker",
-    "cmd/mac-usbnet": "internal/app/macagent",
-    "cmd/suhang-update": "internal/app/updater"
+    "cmd/mac-usbnet": "internal/app/macagent"
   },
-  "baseline": "0.8.140"
+  "baseline": "0.8.140",
+  "removed": {
+    "internal/filedrop": "Temporary file upload receiver removed; maintenance discovery lives in internal/sharing/usbservice",
+    "cmd/usb-send": "Temporary file sender removed",
+    "cmd/webdav-check": "WebDAV file service and diagnostic client removed",
+    "cmd/suhang-update": "Developer remote release publisher removed from source and distribution"
+  }
 }

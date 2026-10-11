@@ -55,8 +55,8 @@ public sealed partial class Dashboard
             for (var attempt = 0; attempt < 3; attempt++)
             {
                 OpenDetails();
-                if (developerToggle.GetVisualRoot() != detailWindow || autoUpgrade.GetVisualRoot() != detailWindow || detailRows.GetVisualRoot() != detailWindow)
-                    throw new InvalidOperationException("diagnostic and developer controls must share the current window");
+                if (detailRows.GetVisualRoot() != detailWindow)
+                    throw new InvalidOperationException("diagnostic controls must share the current window");
                 if (attempt == 0) CaptureConnectionPreview(detailWindow!, "diagnostics");
                 var originalRows = detailRows.Children.ToArray();
                 RenderDetails();
@@ -68,9 +68,16 @@ public sealed partial class Dashboard
                     throw new InvalidOperationException("diagnostic value update must preserve row identity");
                 detailText = originalText; RenderDetails();
                 detailWindow!.Close();
-                if (detailWindow != null || developerToggle.Parent != null || autoUpgrade.Parent != null || detailRows.Parent != null)
+                if (detailWindow != null || detailRows.Parent != null)
                     throw new InvalidOperationException("diagnostics close must release reusable controls");
             }
+            SeedPreview();
+            OpenSMBManager();
+            using(var account = JsonDocument.Parse("""{"account":{"exists":true,"local_name":"USBLink","username":"EXAMPLE\\USBLink"},"guest":false}""")) UpdateSMBAccount(account.RootElement);
+            using(var folders = JsonDocument.Parse("""{"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Media","share_name":"USB-Media","path":"D:\\Media","smb_url":"smb://10.6.9.1/USB-Media","available":true,"native_shared":true,"account_access":"modify","guest_access":"none","guest_enabled":false}]}""")) UpdateShareFolders(folders.RootElement);
+            smbAccountWindow!.Height = 1160;
+            CaptureConnectionPreview(smbAccountWindow!, "smb");
+            smbAccountWindow!.Close();
             using var detached = JsonDocument.Parse("""
             {"devices":[{"device":"Mac","title":"Mac USB 已連接","connected":true,"peer_ipv4":"10.6.9.2","tx":800,"rx":8,"benchmark_available":true},{"device":"iPad","title":"等候 USB 接線","connected":false,"tx":0,"rx":0}]}
             """);

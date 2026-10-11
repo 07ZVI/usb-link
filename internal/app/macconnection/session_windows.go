@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,8 +31,9 @@ import (
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/usbgateway"
-	"suhang/usbnet/internal/sharing/filedrop"
 	"suhang/usbnet/internal/sharing/fileshare"
+	"suhang/usbnet/internal/sharing/usbhttp"
+	"suhang/usbnet/internal/sharing/usbservice"
 	"suhang/usbnet/internal/transport/bridge"
 	"suhang/usbnet/internal/transport/parentlifetime"
 	"suhang/usbnet/internal/transport/usbaddress"
@@ -42,9 +44,6 @@ import (
 	"time"
 	"unsafe"
 )
-
-// DeveloperConnection is assigned once before starting USB sessions.
-var DeveloperConnection func() string
 
 // Assigned before sessions start. Contains status only, never connection credentials.
 var DeveloperStatus func() any
@@ -295,8 +294,6 @@ func RetireLegacyForUpgrade() (retired bool, warning string, err error) {
 	return true, "", nil
 }
 
-func ReceivedDirectory() (string, error) { return connectioninstall.ReceivedDirectory() }
-
 func Run(ctx context.Context, parent string, payload, manifest []byte, consent func(string) bool, notify func(Result)) Result {
 	return RunArchive(ctx, parent, ArchiveBytes(payload), manifest, consent, notify)
 }
@@ -483,7 +480,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	cmd.Stdout = io.MultiWriter(l.Writer(), pipeW)
 	cmd.Stderr = cmd.Stdout
 	var mu sync.Mutex
-	var stopFiles func()
+	var stopServices func()
 	var firewallShadowOnce macFirewallShadowOnce
 	var speedTest *throughput.Server
 	defer func() {
@@ -697,7 +694,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	close(childBound)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	filesRetry := serviceRetry{}
+	servicesRetry := serviceRetry{}
 	lastEvidence := ""
 	loops := 0
 	timer := time.NewTicker(time.Second)
@@ -730,7 +727,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				mu.Lock()
 				state := out
 				mu.Unlock()
-				evidence := map[string]any{"stage": state.Stage, "parent_executable": boundedServiceText(parentExe), "bridge_executable": boundedServiceText(bridgeExe), "file_ready": state.FileReceiverReady, "file_error": state.FileError, "share_ready": state.ShareReady, "share_error": state.ShareError, "service_retry_failures": filesRetry.Failures, "gateway": boundedGatewayEvidence(usbgateway.Evidence()), "shared_host": usbhost.Details()}
+				evidence := map[string]any{"stage": state.Stage, "parent_executable": boundedServiceText(parentExe), "bridge_executable": boundedServiceText(bridgeExe), "services_ready": state.ServicesReady, "services_error": state.ServicesError, "share_ready": state.ShareReady, "share_error": state.ShareError, "service_retry_failures": servicesRetry.Failures, "gateway": boundedGatewayEvidence(usbgateway.Evidence()), "shared_host": usbhost.Details()}
 				proofs, proofError := gate.OwnedInterfaces()
 				if h, ok := usbhost.Proof(); ok {
 					proofs = append(proofs, h)
@@ -749,7 +746,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					}
 				}
 			}
-			if ready && filesRetry.due(time.Now()) {
+			if ready && servicesRetry.due(time.Now()) {
 				er := func() error {
 					j, er := record(dir)
 					if er != nil {
@@ -873,31 +870,26 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 							return fmt.Errorf("USB_CORE_PERMISSION_FAILED: %w", er)
 						}
 					}
-					receivedDir, er := ReceivedDirectory()
-					if er != nil {
-						return fmt.Errorf("FILE_RECEIVE_DIRECTORY_UNAVAILABLE: %w", er)
-					}
-					receiver := &filedrop.Receiver{Discovery: DeveloperConnection, Dir: receivedDir, LocalIP: "10.6.9.1", PeerIP: "10.6.9.2", Guard: func() bool { return ctx.Err() == nil && CurrentRoot() == root }, Received: func(v filedrop.Receipt) {
-						update(func(r *Result) { r.FilesReceived++; r.FileBytes += uint64(v.Bytes); r.LastFileSHA = v.SHA256 })
-					}}
-					test, er := throughput.New(ctx, "10.6.9.2", receiver.Guard, func(v throughput.Report) { update(func(r *Result) { r.Benchmark = v }) })
+					serviceGuard := func() bool { return ctx.Err() == nil && CurrentRoot() == root }
+					service := &usbservice.Handler{PeerIP: "10.6.9.2", Guard: serviceGuard}
+					test, er := throughput.New(ctx, "10.6.9.2", serviceGuard, func(v throughput.Report) { update(func(r *Result) { r.Benchmark = v }) })
 					if er != nil {
 						return fmt.Errorf("FILE_SPEED_PREPARATION_FAILED: %w", er)
 					}
-					receiver.Benchmark = test
+					service.Benchmark = test
 					catalog, shareErr := connectioninstall.ShareCatalog()
 					var share *fileshare.Server
 					if shareErr == nil {
-						share, shareErr = fileshare.NewMulti(catalog, "10.6.9.2", &fileshare.USB, receiver.Guard)
+						share, shareErr = fileshare.NewMulti(catalog, "10.6.9.2", &fileshare.USB, serviceGuard)
 					}
 					if shareErr != nil {
 						update(func(r *Result) { r.ShareError = "SHARE_DIRECTORY_UNAVAILABLE: " + boundedServiceText(shareErr.Error()) })
 					}
-					receiver.Share = share
+					var smbHandler func(context.Context, net.Conn)
 					if share != nil {
-						receiver.SMB = share.ServeSMB
+						smbHandler = share.ServeSMB
 					}
-					stop, er := receiver.Start(ctx)
+					stop, er := usbhttp.RegisterWithBinary(ctx, "10.6.9.1:10690", "10.6.9.2", service, smbHandler)
 					if er != nil {
 						test.Close()
 						if share != nil {
@@ -905,12 +897,12 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 						}
 						return fmt.Errorf("FILE_LISTENER_UNAVAILABLE: %w", er)
 					}
-					stopFiles, speedTest, shareServer = stop, test, share
+					stopServices, speedTest, shareServer = stop, test, share
 					throughput.SetDeviceCurrent("Mac", test)
 					update(func(r *Result) {
-						r.FileReceiverReady = true
+						r.ServicesReady = true
 						r.ShareReady = share != nil
-						r.FileError = ""
+						r.ServicesError = ""
 						if share != nil {
 							r.ShareError = ""
 						}
@@ -921,16 +913,16 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					})
 					return nil
 				}()
-				filesRetry.complete(time.Now(), er)
+				servicesRetry.complete(time.Now(), er)
 				if er != nil {
-					l.Printf("MAC_USB_SERVICES_RETRY attempt=%d error=%v", filesRetry.Failures, er)
-					update(func(r *Result) { r.FileError = string([]rune(er.Error())[:min(512, len([]rune(er.Error())))]) })
+					l.Printf("MAC_USB_SERVICES_RETRY attempt=%d error=%v", servicesRetry.Failures, er)
+					update(func(r *Result) { r.ServicesError = string([]rune(er.Error())[:min(512, len([]rune(er.Error())))]) })
 				}
 			}
 		}
 	}
-	if stopFiles != nil {
-		stopFiles()
+	if stopServices != nil {
+		stopServices()
 	}
 	pipeW.Close()
 	<-readerDone
@@ -955,7 +947,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		out.Error = "MAC_SOURCE_MTU_RESTORE_FAILED: " + er.Error()
 	}
 	out.Stage = "MAC_SESSION_ENDED"
-	out.FileReceiverReady = false
+	out.ServicesReady = false
 	out.ShareReady = false
 	return
 }

@@ -8,7 +8,7 @@ flowchart TD
     ui[Avalonia views and state] --> client[DesktopClient / authenticated IPC v1]
     client --> app
     app --> deps[Dependency manager / native progress]
-    app --> sharing[Files / native SMB / compatibility SMB]
+    app --> sharing[Native SMB / compatibility SMB]
     app --> security[Authorization / WFP / Internet policy]
     app --> transport[USB / NCM / DHCP / routing]
     app --> platform[Windows adapters and recovery]
@@ -23,14 +23,14 @@ flowchart TD
 | `internal/dependencies` | Pinned official catalog, detection, bounded downloads, verification, native progress and platform installation |
 | `internal/app` | Lifecycle, connection coordination, upgrades, installation and recovery orchestration |
 | `internal/transport` | WinUSB/Wintun, NCM packets, DHCP, point-to-point addresses and routing admission |
-| `internal/sharing` | File transfer, folder/account policy, compatibility SMB implementation and protocol helpers |
+| `internal/sharing` | SMB folder/account policy, compatibility SMB, network diagnostics and protocol helpers |
 | `internal/security` | Device/application authorization, USB WFP scope, native Internet backend |
 | `internal/platform/windows` | Native Windows APIs, network configuration, service/driver adaptation |
 | `internal/contracts` | Authenticated IPC v1 request/response contract |
 | `internal/diagnostics` | Bounded measurements and read-only evidence |
 | `desktop/App`, `Views`, `Models`, `Controls`, `Theme`, `Services`, `Tests` | Application entry, UI composition, typed snapshot state, components, style, service client/native read-only helpers, synthetic smoke checks |
 
-`architecture-map.json` records every original package path and its new owner. Package names remain stable; imports were updated together. Production commands for launcher, bridge worker, Mac agent and updater contain no business implementations. Their implementations now belong to application modules. The desktop's original single-file classes are separated without changing their controls; outbound intent goes through one synchronized `DesktopClient` writer.
+`architecture-map.json` records every original package path and its new owner. Package names remain stable; imports were updated together. Production commands for launcher, bridge worker, Mac agent contain no business implementations. Their implementations now belong to application modules. The desktop's original single-file classes are separated without changing their controls; outbound intent goes through one synchronized `DesktopClient` writer.
 
 Policy and native mutation have separate boundaries: `dependencies.Platform` controls detect/verify/install; `internet.Backend` controls preflight/journal/create/open/close/readback. Routing policy contains no system calls. Existing Windows implementations remain separated by build tags from pure policy/tests. Go's compiler rejects package cycles, and `scripts/check_architecture.py` checks ownership and lower-layer imports. Integration tests may import application fixtures without changing production dependencies.
 
@@ -49,3 +49,7 @@ Official installers that need visible license acceptance run in the authenticate
 Existing protected journals retain their format. Internet sharing adds a separate protected journal, a five-second session lease and bounded traffic observation. The journal precedes NAT or forwarding mutation. WFP keys are added to the existing gateway recovery journals before installation. On failure, shutdown or loss of identity, packet admission closes first, then DNS/WFP/NAT are removed and forwarding is restored. Unproven cleanup keeps its journal and blocks another enable attempt.
 
 The worker receives a parent-selected Mac attachment identity, reads only the product-owned protected lease and checks the expiry per packet. Lease expiry gives fail-closed behavior even if the core terminates before normal cleanup. Startup recovery removes the recorded NAT; it never restores a prior enabled-sharing preference.
+
+## Release scope
+
+Temporary file transfer and developer remote-upgrade entry points have been removed; see [release boundaries](RELEASE-SCOPE.md). Local installation and rollback compatibility retain their protected journals.

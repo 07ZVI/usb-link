@@ -162,7 +162,7 @@ func TestCatalogRetryRecoversOfflineRootButRejectsReplacement(t *testing.T) {
 	if !c.List()[0].Available {
 		t.Fatal("reconnected drive remained unavailable")
 	}
-	allowed := c.allowed("/share/" + f.ID)
+	allowed := c.allowed(f.ID)
 	if e := os.Rename(root, root+"-old"); e != nil {
 		t.Fatal(e)
 	}

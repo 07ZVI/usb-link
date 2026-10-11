@@ -34,16 +34,16 @@ type appWindowMessage struct {
 }
 type appWindowRect struct{ Left, Top, Right, Bottom int32 }
 type appWindow struct {
-	modern                                                                                                             *modernUI
-	ctx                                                                                                                context.Context
-	cancel                                                                                                             context.CancelFunc
-	state                                                                                                              *applicationState
-	hwnd, title, ip, details, copy, stream, retry, stop, notice, font, headingFont, valueFont, settings, files, tx, rx uintptr
-	scale                                                                                                              int
-	lastTitle, lastIP, lastDetail                                                                                      string
-	tray                                                                                                               bool
-	taskbarCreated                                                                                                     uint32
-	stopping                                                                                                           bool
+	modern                                                                                                      *modernUI
+	ctx                                                                                                         context.Context
+	cancel                                                                                                      context.CancelFunc
+	state                                                                                                       *applicationState
+	hwnd, title, ip, details, copy, stream, retry, stop, notice, font, headingFont, valueFont, settings, tx, rx uintptr
+	scale                                                                                                       int
+	lastTitle, lastIP, lastDetail                                                                               string
+	tray                                                                                                        bool
+	taskbarCreated                                                                                              uint32
+	stopping                                                                                                    bool
 }
 
 var appWindows = struct {
@@ -104,8 +104,6 @@ var appWindowProc = windows.NewCallback(func(hwnd uintptr, message uint32, wpara
 				w.state.update(func(r *ApplicationResult) { r.UserReportsStream = true })
 				appSetText(w.notice, "已記錄你的體驗；這項回報不代表獨立串流驗證。")
 				w.refresh()
-			case 106:
-				OpenReceivedFiles()
 			case 105:
 				if proxy := currentServiceUIProxy(); proxy != nil {
 					go func() { _, _ = proxy.Action(w.ctx, []byte(`{"action":"retry"}`)) }()
@@ -214,13 +212,9 @@ func (w *appWindow) refresh() {
 	}
 	appUser.NewProc("EnableWindow").Call(w.retry, retryEnabled)
 	appUser.NewProc("ShowWindow").Call(w.retry, showRetry)
-	showFiles := uintptr(0)
 	if r.DeviceKind == "Mac" && !paused {
 		showStream = 0
-		showFiles = 5
 	}
-	appUser.NewProc("ShowWindow").Call(w.files, showFiles)
-	appUser.NewProc("EnableWindow").Call(w.files, active)
 	appUser.NewProc("ShowWindow").Call(w.stream, showStream)
 	if r.WindowsIPv4 == "" {
 		active = 0
@@ -254,7 +248,6 @@ func (w *appWindow) layout() {
 	move(w.notice, gap, bottom+w.dip(6), width-2*gap, line)
 	move(w.settings, gap, height-gap-button, w.dip(85), button)
 	move(w.stream, gap+w.dip(97), height-gap-button, w.dip(205), button)
-	move(w.files, gap+w.dip(97), height-gap-button, w.dip(205), button)
 	move(w.retry, gap+w.dip(97), height-gap-button, w.dip(205), button)
 	move(w.stop, width-gap-w.dip(205), height-gap-button, w.dip(205), button)
 
@@ -398,14 +391,13 @@ func startApplicationUI(ctx context.Context, s *applicationState, cancel context
 		w.settings = child("BUTTON", "設定", 0x10000, 103)
 		w.notice = child("STATIC", "關閉視窗會留在背景；用「結束」退出並恢復設定。", 0, 0)
 		w.stream = child("BUTTON", "串流體驗正常", 0x10000, 102)
-		w.files = child("BUTTON", "接收的檔案", 0x10000, 106)
 		w.retry = child("BUTTON", "重試連線", 0x10000, 105)
 		w.stop = child("BUTTON", "結束程式", 0x10000, 101)
 		if currentServiceUIProxy() != nil {
 			appSetText(w.notice, "退出介面後，USB 連線繼續在背景運作。")
 			appSetText(w.stop, "退出介面")
 		}
-		if w.files == 0 || w.retry == 0 || w.settings == 0 || w.tx == 0 || w.rx == 0 || w.title == 0 || w.ip == 0 || w.copy == 0 || w.details == 0 || w.notice == 0 || w.stream == 0 || w.stop == 0 {
+		if w.retry == 0 || w.settings == 0 || w.tx == 0 || w.rx == 0 || w.title == 0 || w.ip == 0 || w.copy == 0 || w.details == 0 || w.notice == 0 || w.stream == 0 || w.stop == 0 {
 			ready <- opened{err: "STATUS_WINDOW_CONTROLS_FAILED"}
 			return
 		}

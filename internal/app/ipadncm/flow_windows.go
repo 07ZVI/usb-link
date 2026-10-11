@@ -14,7 +14,7 @@ var flowCapture struct {
 }
 
 func flowConnected(r ApplicationResult) bool {
-	return (r.DeviceKind == "Mac" && r.FileReceiverReady || r.DeviceKind == "iPad" && r.DHCPStarted) && r.Status != "MONITOR_WAITING" && r.Status != "MONITOR_PAUSED" && r.Status != "WAITING_SHARED_HOST"
+	return (r.DeviceKind == "Mac" && r.ServicesReady || r.DeviceKind == "iPad" && r.DHCPStarted) && r.Status != "MONITOR_WAITING" && r.Status != "MONITOR_PAUSED" && r.Status != "WAITING_SHARED_HOST"
 }
 func FlowSnapshot() ipadsession.FlowResult {
 	flowCapture.Lock()

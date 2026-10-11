@@ -2,7 +2,7 @@
 """Fail closed on external components, archives, private materials and local state."""
 import argparse,io,json,pathlib,re,subprocess,sys,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-FORBIDDEN=re.compile(r'(?i)(^|/)(wintun\.dll|zadig[^/]*\.exe|itunes[^/]*\.exe|apple[^/]*\.(msi|dll|sys|cat)|usbaapl[^/]*|dotnet\.exe|hostfxr\.dll|coreclr\.dll|.*\.(pfx|p12|pem|key|msi|cab))$')
+FORBIDDEN=re.compile(r'(?i)(^|/)(suhang-update\.exe|usb-send(?:\.exe)?|webdav-check(?:\.exe)?|wintun\.dll|zadig[^/]*\.exe|itunes[^/]*\.exe|apple[^/]*\.(msi|dll|sys|cat)|usbaapl[^/]*|dotnet\.exe|hostfxr\.dll|coreclr\.dll|.*\.(pfx|p12|pem|key|msi|cab))$')
 BINARY={'.exe','.dll','.sys','.zip','.tar','.gz','.7z','.dmg','.pkg','.app','.pfx','.p12','.cab','.msi'}
 SECRET=re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,}|/Users/[A-Za-z0-9][A-Za-z0-9._-]*/')
 errors=[];archives=0;entries=0

@@ -7,6 +7,9 @@
   <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   <NuGetAudit>true</NuGetAudit>
  </PropertyGroup>
+ <PropertyGroup Condition="'$(USBLinkDesignTools)' == 'true'">
+  <DefineConstants>$(DefineConstants);USBLINK_DESIGN_TOOLS</DefineConstants>
+ </PropertyGroup>
  <ItemGroup>
   <Compile Remove="obj/**/*.cs;bin/**/*.cs" />
   <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />

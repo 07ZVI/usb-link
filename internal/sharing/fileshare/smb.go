@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/webdav"
 	"suhang/usbnet/internal/sharing/smbcore/ntlmssp"
 	"suhang/usbnet/internal/sharing/smbcore/server"
 	"suhang/usbnet/internal/sharing/smbcore/vfs"
@@ -42,7 +41,7 @@ func (s *Server) prepareSMB() error {
 	return s.smbError
 }
 
-// ServeSMB shares the same catalog and consent as DAV. It never exports a local
+// ServeSMB uses the selected folder catalog and explicit sharing consent. It never exports a local
 // path directly, creates a Windows account, or opens a listener on other NICs.
 func (s *Server) ServeSMB(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
@@ -140,7 +139,7 @@ func (b *smbCatalog) resolve(n string) (string, func() bool, error) {
 			if sub != "" {
 				p += "/" + sub
 			}
-			folder := b.s.catalog.allowed("/share/" + p)
+			folder := b.s.catalog.allowed(p)
 			return p, func() bool { return b.s.smbAllowed(b.ctx) && folder() }, nil
 		}
 	}
@@ -206,7 +205,7 @@ func (b *smbCatalog) Open(ctx context.Context, opts vfs.OpenOptions) (vfs.Handle
 		}
 		flags = smbDirectoryOpenFlags(metadata)
 	}
-	var file webdav.File
+	var file shareFile
 	if p == "." {
 		// The catalog root has no mutable filesystem backing, even if the
 		// client asks for directory metadata access while browsing.
@@ -250,7 +249,7 @@ func (b *smbCatalog) Remove(ctx context.Context, name string) error {
 
 type smbFile struct {
 	mu       sync.Mutex
-	f        webdav.File
+	f        shareFile
 	b        *smbCatalog
 	path     string
 	display  string
@@ -357,7 +356,7 @@ func (h *smbFile) ResetEnumeration() error {
 	if err := h.check(context.Background()); err != nil {
 		return err
 	}
-	var next webdav.File
+	var next shareFile
 	if h.path == "." {
 		rows := []os.FileInfo{}
 		for name, folder := range h.b.names() {

@@ -100,7 +100,7 @@ func TestPausedMacRetainsRuntimePreparationDetail(t *testing.T) {
 
 func TestRecoveryUIIsNotPresentedAsWorkingNetwork(t *testing.T) {
 	for _, kind := range []string{"Mac", "iPad"} {
-		r := ApplicationResult{DeviceKind: kind, Status: "USB_RECOVERY_MAINTENANCE", Error: "RESTORE_PENDING", FileReceiverReady: true, DHCPStarted: true}
+		r := ApplicationResult{DeviceKind: kind, Status: "USB_RECOVERY_MAINTENANCE", Error: "RESTORE_PENDING", ServicesReady: true, DHCPStarted: true}
 		title, ip, detail := applicationView(r, false)
 		if title != "USB 恢復維護" || ip == "10.6.9.1" || strings.Contains(detail, "/upload") || !strings.Contains(detail, "RESTORE_PENDING") || !strings.Contains(connectionSubtitle(r), "恢復維護") {
 			t.Fatal(title, ip, detail)

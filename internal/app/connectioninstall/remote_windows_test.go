@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sys/windows"
 	"os"
 	"path/filepath"
+	"suhang/usbnet/internal/app/remoteupdate"
 	"testing"
 )
 
@@ -17,36 +18,38 @@ func TestLegacyRemoteConfigNeverGrantsAutomaticInstallation(t *testing.T) {
 	}
 }
 
-func TestLocalAutoUpgradePersistenceAndFailure(t *testing.T) {
-	m := &RemoteManager{root: t.TempDir(), config: remoteConfig{Enabled: true}}
-	err := m.SetAutoUpgrade(true)
-	if !windows.GetCurrentProcessToken().IsElevated() {
-		if err == nil || m.AutoUpgrade() {
-			t.Fatal("unelevated authorization allowed")
-		}
-		return
+func TestPublicBuildRejectsRemoteMaintenanceEvenWithOldConsent(t *testing.T) {
+	m := &RemoteManager{root: t.TempDir(), config: remoteConfig{Enabled: true, AutoUpgrade: true, Token: "old"}}
+	m.rawUSB.Store(true)
+	if m.Enabled() || m.AutoUpgrade() {
+		t.Fatal("old consent restored remote access")
 	}
-	if err != nil {
+	for _, err := range []error{m.Enable(true), m.SetAutoUpgrade(true), m.open()} {
+		if err != errRemoteMaintenanceRemoved {
+			t.Fatalf("remote entry not removed: %v", err)
+		}
+	}
+	if handler, config, err := m.RecoveryAPI(); handler != nil || config != nil || err != errRemoteMaintenanceRemoved {
+		t.Fatal("raw USB remote API exposed")
+	}
+	if invitation, err := m.RecoveryInvitation(); len(invitation) != 0 || err != errRemoteMaintenanceRemoved {
+		t.Fatal("raw invitation exposed")
+	}
+	if _, invitation := m.Info(); invitation != "" {
+		t.Fatal("network invitation exposed")
+	}
+	if _, err := m.stage(remoteupdate.Manifest{}, nil); err != errRemoteMaintenanceRemoved {
+		t.Fatal("remote staging accepted")
+	}
+	if err := m.apply(nil, "old-job"); err != errRemoteMaintenanceRemoved {
+		t.Fatal("remote apply accepted")
+	}
+	if err := m.Enable(false); err != nil {
 		t.Fatal(err)
 	}
-	var c remoteConfig
-	if e := readRemote(filepath.Join(m.root, "config.json"), &c); e != nil || !c.AutoUpgrade {
-		t.Fatal(c, e)
-	}
-	if e := m.SetAutoUpgrade(false); e != nil || m.AutoUpgrade() {
-		t.Fatal(e)
-	}
-	if e := readRemote(filepath.Join(m.root, "config.json"), &c); e != nil || c.AutoUpgrade {
-		t.Fatal(c, e)
-	}
-	m.config.Enabled = false
-	if e := m.SetAutoUpgrade(true); e == nil {
-		t.Fatal("debug off allowed automatic updates")
-	}
-	m.config.Enabled = true
-	m.root = filepath.Join(m.root, "missing-parent")
-	if e := m.SetAutoUpgrade(true); e == nil || m.AutoUpgrade() {
-		t.Fatal("failed write published authorization")
+	var saved remoteConfig
+	if err := readRemote(filepath.Join(m.root, "config.json"), &saved); err != nil || saved.Enabled || saved.AutoUpgrade || saved.Token != "" || len(saved.Key) != 0 {
+		t.Fatal("old credential retained", err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +41,7 @@ func startSMBTest(t *testing.T) (*Server, *Catalog, string, func() (*smbclient.S
 	}
 	address := probe.Addr().String()
 	probe.Close()
-	stop, err := usbhttp.RegisterWithBinary(ctx, address, "127.0.0.1", s, s.ServeSMB)
+	stop, err := usbhttp.RegisterWithBinary(ctx, address, "127.0.0.1", http.NotFoundHandler(), s.ServeSMB)
 	if err != nil {
 		t.Fatal(err)
 	}

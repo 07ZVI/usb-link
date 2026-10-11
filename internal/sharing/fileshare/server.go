@@ -1,23 +1,17 @@
-// Package fileshare exposes one explicitly enabled directory over USB WebDAV.
+// Package fileshare manages selected folders and the USB compatibility SMB service.
 package fileshare
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"os"
 	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	"golang.org/x/net/webdav"
 )
 
-// State belongs to the local UI. Sharing is off until explicitly enabled.
 type State struct {
 	Enabled atomic.Bool
 	Native  atomic.Bool
@@ -25,12 +19,17 @@ type State struct {
 
 var USB State
 
-const URL = "http://10.6.9.1:10690/share/"
+type shareFile interface {
+	io.Reader
+	io.Writer
+	io.Seeker
+	io.Closer
+	Readdir(int) ([]os.FileInfo, error)
+	Stat() (os.FileInfo, error)
+}
 
 type Server struct {
-	root      *os.Root
 	catalog   *Catalog
-	dav       *webdav.Handler
 	State     *State
 	Peer      string
 	Guard     func() bool
@@ -40,21 +39,11 @@ type Server struct {
 	smbError  error
 }
 
-func New(dir, peer string, state *State, guard func() bool) (*Server, error) {
-	r, e := os.OpenRoot(dir)
-	if e != nil {
-		return nil, e
-	}
-	s := &Server{root: r, State: state, Peer: peer, Guard: guard, slots: make(chan struct{}, 4)}
-	s.dav = &webdav.Handler{Prefix: "/share", FileSystem: rootFS{r}, LockSystem: webdav.NewMemLS()}
-	return s, nil
-}
 func NewMulti(c *Catalog, peer string, state *State, guard func() bool) (*Server, error) {
 	if c == nil {
 		return nil, fmt.Errorf("SHARE_CATALOG_UNAVAILABLE")
 	}
 	s := &Server{catalog: c, State: state, Peer: peer, Guard: guard, slots: make(chan struct{}, 4)}
-	s.dav = &webdav.Handler{Prefix: "/share", FileSystem: catalogFS{c}, LockSystem: webdav.NewMemLS()}
 	if state == nil || !state.Native.Load() {
 		if err := s.prepareSMB(); err != nil {
 			return nil, err
@@ -62,55 +51,9 @@ func NewMulti(c *Catalog, peer string, state *State, guard func() bool) (*Server
 	}
 	return s, nil
 }
-func (s *Server) Close() error {
-	if s.root != nil {
-		return s.root.Close()
-	}
-	return nil
-}
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if s.State != nil && s.State.Native.Load() {
-		http.Error(w, "Use Windows SMB on port 445", http.StatusGone)
-		return
-	}
-	peer, _, e := net.SplitHostPort(r.RemoteAddr)
-	if e != nil || peer != s.Peer || s.State == nil || !s.State.Enabled.Load() || s.Guard == nil || !s.Guard() {
-		http.Error(w, "USB sharing is not enabled", http.StatusForbidden)
-		return
-	}
-	if r.URL.Path != "/share" && !strings.HasPrefix(r.URL.Path, "/share/") {
-		http.NotFound(w, r)
-		return
-	}
-	// Finder uses OPTIONS, PROPFIND, LOCK, PUT, MOVE and related DAV methods.
-	// Restrict resources and concurrency without buffering file content in RAM.
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	default:
-		http.Error(w, "Share busy", 503)
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<30)
-	if r.Method == "PROPFIND" && r.Header.Get("Depth") == "" {
-		r.Header.Set("Depth", "1")
-	}
-	if r.Method == "PROPFIND" && r.Header.Get("Depth") == "infinity" {
-		http.Error(w, "Use depth zero or one", 403)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	controller := http.NewResponseController(w)
-	controller.SetReadDeadline(time.Now().Add(30 * time.Second))
-	controller.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	selected := func() bool { return true }
-	if s.catalog != nil {
-		selected = s.catalog.allowed(r.URL.Path)
-	}
-	allowed := func() bool { return s.State.Enabled.Load() && s.Guard() != false && selected() }
-	r.Body = &activeBody{ReadCloser: r.Body, controller: controller, allowed: allowed}
-	s.dav.ServeHTTP(&activeResponse{ResponseWriter: w, controller: controller, allowed: allowed}, r)
-}
+
+// The catalog is shared between device sessions and owned by the installer.
+func (s *Server) Close() error { return nil }
 
 type rootFS struct{ r *os.Root }
 
@@ -143,7 +86,7 @@ func (f rootFS) Mkdir(ctx context.Context, n string, p os.FileMode) error {
 	}
 	return f.r.Mkdir(n, p)
 }
-func (f rootFS) OpenFile(ctx context.Context, n string, flag int, p os.FileMode) (webdav.File, error) {
+func (f rootFS) OpenFile(ctx context.Context, n string, flag int, p os.FileMode) (shareFile, error) {
 	n, e := clean(n)
 	if e != nil {
 		return nil, e
@@ -196,34 +139,4 @@ func (f rootFS) Rename(ctx context.Context, old, new string) error {
 		return os.ErrPermission
 	}
 	return f.r.Rename(a, b)
-}
-
-// Progress-based deadlines allow large files without permitting a stalled peer
-// to retain a file descriptor forever. Revocation interrupts active transfers.
-type activeBody struct {
-	io.ReadCloser
-	controller *http.ResponseController
-	allowed    func() bool
-}
-
-func (b *activeBody) Read(p []byte) (int, error) {
-	if !b.allowed() {
-		return 0, os.ErrPermission
-	}
-	b.controller.SetReadDeadline(time.Now().Add(30 * time.Second))
-	return b.ReadCloser.Read(p)
-}
-
-type activeResponse struct {
-	http.ResponseWriter
-	controller *http.ResponseController
-	allowed    func() bool
-}
-
-func (w *activeResponse) Write(p []byte) (int, error) {
-	if !w.allowed() {
-		return 0, os.ErrPermission
-	}
-	w.controller.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	return w.ResponseWriter.Write(p)
 }

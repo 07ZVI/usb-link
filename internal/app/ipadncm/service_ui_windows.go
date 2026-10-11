@@ -122,7 +122,7 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 		return fmt.Errorf("CORE_ACTION_INVALID")
 	}
 	switch request.Action {
-	case "select-mac", "select-ipad", "share-on", "share-off", "ipad-revoke-trust", "startup-on", "startup-off", "retry", "retry-mac", "retry-ipad", "developer-on", "developer-off", "auto-upgrade-on", "auto-upgrade-off", "benchmark-start", "benchmark-cancel", "security-refresh", "firewall-upsert", "firewall-delete", "firewall-discard-pending", "settings":
+	case "select-mac", "select-ipad", "share-on", "share-off", "ipad-revoke-trust", "startup-on", "startup-off", "retry", "retry-mac", "retry-ipad", "benchmark-start", "benchmark-cancel", "security-refresh", "firewall-upsert", "firewall-delete", "firewall-discard-pending", "settings":
 	default:
 		if !serviceAdditionalAction(request.Action) {
 			return fmt.Errorf("CORE_ACTION_UNSUPPORTED")
@@ -203,7 +203,7 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 		return false
 	}
 	switch v.Action {
-	case "open-share", "received", "share-folder-open", "windows-smb-manage", "stop":
+	case "open-share", "share-folder-open", "windows-smb-manage", "stop":
 		if !u.shareFoldersAction(v) {
 			u.action(v.Action)
 		}

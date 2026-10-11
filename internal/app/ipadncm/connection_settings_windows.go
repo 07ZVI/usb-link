@@ -418,28 +418,16 @@ func UpdateMacMonitor(m macconnection.Result) {
 			r.ObservedReceiveMbps = m.Traffic.ReceiveMbps
 			r.ElapsedSeconds = m.HeldSeconds
 			r.MacBridgeDrops = m.BridgeDrops
-			r.FileReceiverReady = m.FileReceiverReady
+			r.ServicesReady = m.ServicesReady
 			r.Benchmark = m.Benchmark
 			r.ShareReady = m.ShareReady
 			r.ShareError = m.ShareError
-			r.FilesReceived = m.FilesReceived
-			r.FileBytes = m.FileBytes
-			r.FileError = m.FileError
+			r.ServicesError = m.ServicesError
 			r.Error = m.Error
 			r.RuntimePreparationError = m.PreparationError
 		})
 	}
 }
-func OpenReceivedFiles() {
-	dir, e := macconnection.ReceivedDirectory()
-	if e != nil {
-		NativePanel("接收資料夾尚未就緒", "請先完成 Mac USB 連線。", "知道了", nil)
-		return
-	}
-	windows.ShellExecute(0, windows.StringToUTF16Ptr("open"), windows.StringToUTF16Ptr(dir), nil, nil, 1)
-}
-
-// Remote diagnostics omit device identifiers and pairing material.
 func ConnectionRuntimeStatus() (string, string) {
 	if s := selectedDeviceMonitor(); s != nil {
 		r := s.snapshot()
@@ -455,7 +443,7 @@ func RemoteUSBConnectionHealthy() bool {
 			return false
 		}
 		if r.Status == "MAC_RUNNING" {
-			return macconnection.RemoteReady(r.MacPeerResolved, r.FileReceiverReady, r.FileError)
+			return macconnection.RemoteReady(r.MacPeerResolved, r.ServicesReady, r.ServicesError)
 		}
 		return r.Status == "USB_APPLICATION_TRIAL_RUNNING" && r.PeerIPv4NeighborVerified
 	}

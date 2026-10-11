@@ -43,11 +43,8 @@ type Result struct {
 	BridgeDrops                uint64                                `json:"bridge_drops_including_filtered_packets_not_moonlight_loss"`
 	LegacyServiceMigrated      bool                                  `json:"owned_legacy_service_suspended"`
 	CleanupConfirmed           bool                                  `json:"owned_network_cleanup_confirmed"`
-	FileReceiverReady          bool                                  `json:"file_receiver_ready"`
-	FilesReceived              uint64                                `json:"files_received"`
-	FileBytes                  uint64                                `json:"file_bytes_received"`
-	FileError                  string                                `json:"file_error,omitempty"`
-	LastFileSHA                string                                `json:"last_file_sha256,omitempty"`
+	ServicesReady              bool                                  `json:"services_ready"`
+	ServicesError              string                                `json:"services_error,omitempty"`
 	Error                      string                                `json:"error,omitempty"`
 }
 

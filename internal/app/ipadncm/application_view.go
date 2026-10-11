@@ -171,15 +171,11 @@ func macApplicationView(r ApplicationResult, stopping bool) (title, ip, detail s
 	if stopping {
 		title = "正在結束並清理 Mac USB 連線…"
 	}
-	files := "尚未就緒"
-	if r.FileReceiverReady {
-		files = "已開放；只接收這條 USB 的 Mac，接收後不會執行檔案"
-	}
 	proof := "尚未觀察到 Mac 經 USB 連到 Sunshine"
 	if r.MacSunshineTCPObserved {
 		proof = "已觀察到 Mac 經 USB 連到 Sunshine；串流品質仍須實測"
 	}
-	detail = fmt.Sprintf("設備授權：%s\r\nWindows：10.6.9.1 / Mac：10.6.9.2\r\n自動分配：請求 %d / 提供 %d / 確認 %d（確認不代表已套用）\r\n應用連接：%s\r\n\r\n目前電腦 → Mac：%.1f Mbps\r\n目前 Mac → 電腦：%.1f Mbps\r\n峰值：傳送 %.1f / 接收 %.1f Mbps\r\n累計：傳送 %s / 接收 %s\r\nUSB 橋接丟棄／過濾計數：%d（不是 Moonlight 丟包率）\r\n流量取樣每 5 秒；尚未測量本輪最高頻寬或端到端延遲。\r\n\r\n檔案接收：%s\r\n接收入口：http://10.6.9.1:10690/upload\r\n已接收：%d 個檔案，共 %s；點「接收的檔案」查看。\r\n每個檔案會驗證 SHA256，不覆蓋既有檔案，不自動安裝或執行。\r\n\r\nMac 與 iPad 共用 Windows 10.6.9.1；Mac 10.6.9.2，iPad 10.6.9.3。Mac 可用 Moonlight 連接上方 Windows IP。", r.DeviceAuthorization, r.MacDHCPDiscoveries, r.MacDHCPOffers, r.MacDHCPACKs, proof, r.ObservedTransmitMbps, r.ObservedReceiveMbps, r.Traffic.PeakTransmitMbps, r.Traffic.PeakReceiveMbps, formatTransfer(r.Traffic.SentBytes), formatTransfer(r.Traffic.ReceivedBytes), r.MacBridgeDrops, files, r.FilesReceived, formatTransfer(r.FileBytes))
+	detail = fmt.Sprintf("設備授權：%s\r\nWindows：10.6.9.1 / Mac：10.6.9.2\r\n自動分配：請求 %d / 提供 %d / 確認 %d（確認不代表已套用）\r\n應用連接：%s\r\n\r\n目前電腦 → Mac：%.1f Mbps\r\n目前 Mac → 電腦：%.1f Mbps\r\n峰值：傳送 %.1f / 接收 %.1f Mbps\r\n累計：傳送 %s / 接收 %s\r\nUSB 橋接丟棄／過濾計數：%d（不是 Moonlight 丟包率）\r\n流量取樣每 5 秒；尚未測量本輪最高頻寬或端到端延遲。\r\n\r\nMac 與 iPad 共用 Windows 10.6.9.1；Mac 10.6.9.2，iPad 10.6.9.3。Mac 可用 Moonlight 連接上方 Windows IP。", r.DeviceAuthorization, r.MacDHCPDiscoveries, r.MacDHCPOffers, r.MacDHCPACKs, proof, r.ObservedTransmitMbps, r.ObservedReceiveMbps, r.Traffic.PeakTransmitMbps, r.Traffic.PeakReceiveMbps, formatTransfer(r.Traffic.SentBytes), formatTransfer(r.Traffic.ReceivedBytes), r.MacBridgeDrops)
 	if r.Status == "MONITOR_PAUSED" || r.Status == "MONITOR_WAITING" {
 		detail = "目前未執行 USB 初始化。下方保留上一輪結果。\r\n\r\n" + detail
 	}
@@ -189,8 +185,8 @@ func macApplicationView(r ApplicationResult, stopping bool) (title, ip, detail s
 	if r.RuntimePreparationError != "" {
 		detail += "\r\n元件準備詳情：" + r.RuntimePreparationError
 	}
-	if r.FileError != "" {
-		detail += "\r\n檔案接收狀態：" + r.FileError
+	if r.ServicesError != "" {
+		detail += "\r\nUSB 服務狀態：" + r.ServicesError
 	}
 	if r.MacPathMTUWarning != "" {
 		if r.Status == "MAC_RUNNING" {
@@ -221,7 +217,7 @@ func connectionSubtitle(r ApplicationResult) string {
 	if r.Status == "USB_APPLICATION_TRIAL_RUNNING" && (r.PeerIPv4NeighborVerified || r.HTTPVerified || r.SunshineClientTCPObserved) {
 		return kind + " · USB 已連接"
 	}
-	if r.DHCPStarted || r.FileReceiverReady {
+	if r.DHCPStarted || r.ServicesReady {
 		return kind + " · USB 網路已啟動"
 	}
 	return kind + " · 已識別，正在準備"

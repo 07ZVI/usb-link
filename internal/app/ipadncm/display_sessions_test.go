@@ -33,14 +33,14 @@ func TestIndependentDeviceSessionsAndSelection(t *testing.T) {
 		go func(s *applicationState) {
 			defer wg.Done()
 			for i := 0; i < 500; i++ {
-				s.update(func(r *ApplicationResult) { r.FilesReceived++ })
+				s.update(func(r *ApplicationResult) { r.MacDHCPACKs++ })
 				_ = facade.snapshot()
 				_ = deviceSummary()
 			}
 		}(s)
 	}
 	wg.Wait()
-	if mac.snapshot().FilesReceived != 500 || ipad.snapshot().FilesReceived != 500 {
+	if mac.snapshot().MacDHCPACKs != 500 || ipad.snapshot().MacDHCPACKs != 500 {
 		t.Fatal("sessions overwrite each other")
 	}
 	mac.update(func(r *ApplicationResult) { r.Status = "MAC_RUNNING" })

@@ -2,13 +2,11 @@ package fileshare
 
 import (
 	"context"
-	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestNativeModeDoesNotBypassWindowsAuthenticationThroughLegacyDAVOrSMB(t *testing.T) {
+func TestNativeModeDoesNotBypassWindowsAuthenticationThroughCompatibilitySMB(t *testing.T) {
 	var state State
 	state.Native.Store(true)
 	state.Enabled.Store(true)
@@ -29,15 +27,6 @@ func TestNativeModeDoesNotBypassWindowsAuthenticationThroughLegacyDAVOrSMB(t *te
 	defer s.Close()
 	if s.smbEngine != nil || s.smbAllowed(context.Background()) {
 		t.Fatal("embedded unauthenticated SMB still available")
-	}
-	for _, method := range []string{"GET", "PROPFIND", "PUT"} {
-		r := httptest.NewRequest(method, "http://10.6.9.1:10690/share/", strings.NewReader("test"))
-		r.RemoteAddr = "10.6.9.3:1234"
-		w := httptest.NewRecorder()
-		s.ServeHTTP(w, r)
-		if w.Code != 410 {
-			t.Fatal(method, w.Code)
-		}
 	}
 }
 

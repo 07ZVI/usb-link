@@ -53,7 +53,7 @@ func desktopDeviceStatus(r ApplicationResult, stopping bool) map[string]any {
 		"tx": r.ObservedTransmitMbps, "rx": r.ObservedReceiveMbps, "speed": speed, "health": health,
 		"latency": latencyText, "benchmark_url": r.BenchmarkURL, "benchmark_summary": measurement,
 		"benchmark_ready":     nativeReady,
-		"benchmark_available": r.DeviceKind == "Mac" && r.FileReceiverReady && r.Status == "MAC_RUNNING",
+		"benchmark_available": r.DeviceKind == "Mac" && r.ServicesReady && r.Status == "MAC_RUNNING",
 		"measurement_busy":    measuring, "measurement_progress": progress,
 		"benchmark_visible": r.DeviceKind != "iPad",
 	}

@@ -3,7 +3,7 @@ package ipadncm
 import "testing"
 
 func TestStartupReadinessRequiresCurrentNetworkProof(t *testing.T) {
-	mac := ApplicationResult{DeviceKind: "Mac", Status: "MAC_RUNNING", WindowsIPv4: "10.6.9.1", MacPeerResolved: true, FileReceiverReady: true}
+	mac := ApplicationResult{DeviceKind: "Mac", Status: "MAC_RUNNING", WindowsIPv4: "10.6.9.1", MacPeerResolved: true, ServicesReady: true}
 	ipad := ApplicationResult{DeviceKind: "iPad", Status: "USB_APPLICATION_TRIAL_RUNNING", WindowsIPv4: "10.6.9.1", DHCPStarted: true, PeerIPv4NeighborVerified: true}
 	for _, valid := range []ApplicationResult{mac, ipad} {
 		if !startupNetworkReady(valid) {

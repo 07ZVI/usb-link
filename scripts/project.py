@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Single public build entry: python3 scripts/project.py check|build|package|verify."""
-import argparse,hashlib,json,os,pathlib,shutil,subprocess,sys,zipfile
+import argparse,hashlib,json,os,pathlib,shutil,subprocess,sys,tempfile,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 VERSION=(ROOT/'VERSION').read_text().strip()
 OUT=ROOT/'out'
@@ -21,6 +21,18 @@ def zipped(path,files):
 def go_build(target,path,windows=True,extra=''):
  env={**ENV,'GOOS':'windows' if windows else 'darwin','GOARCH':'amd64','CGO_ENABLED':'0'}
  run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION} '+extra,'-o',path,target],env)
+def verify_release_surface(bridge):
+ # Inspect a symbol-bearing twin built from the same source/assets/linker values.
+ # The distributed launcher is then built with symbol stripping enabled.
+ env={**ENV,'GOOS':'windows','GOARCH':'amd64','CGO_ENABLED':'0'}
+ forbidden=['remoteupdate.(*Server).ServeHTTP','connectioninstall.RunUpdateWorker','usbrecovery.Run','filedrop.','webdav.(*Handler).ServeHTTP']
+ with tempfile.TemporaryDirectory(prefix='usb-link-release-check-') as directory:
+  candidate=pathlib.Path(directory)/'launcher.exe'
+  run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-H windowsgui -X suhang/usbnet/internal/buildinfo.Version={VERSION} -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA={bridge}','-o',candidate,'./cmd/ipad-usb-easy'],env)
+  symbols=subprocess.check_output([GO,'tool','nm',str(candidate)],cwd=ROOT,env=env,text=True)
+  found=[name for name in forbidden if name in symbols]
+  if found:raise RuntimeError('Forbidden release functionality linked: '+', '.join(found))
+ print('Release surface check passed: remote servers/workers and temporary file-transfer handlers absent.',flush=True)
 def notices():
  parts=[(ROOT/'LICENSE').read_text()+'\n'+(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(),'USB Link '+VERSION+'\nGPL-3.0-only with the official Wintun DLL linking exception. See LICENSE and LICENSE-WINTUN-EXCEPTION.\n']
  for f in sorted((ROOT/'licenses').rglob('*')):
@@ -37,7 +49,7 @@ def prepare():
  bridge=sha(OUT/'suhang-usbnet.exe')
  (ASSETS/'mac-sources.json').write_text(json.dumps({'version':VERSION,'files':{'suhang-usbnet.exe':bridge},'payload_sha256':sha(ASSETS/'mac-payload.zip')},indent=2)+'\n')
  run([DOTNET,'restore','desktop/Suhang.Desktop.csproj','--locked-mode','-r','win-x64','-p:NuGetAudit=false'])
- run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',OUT/'desktop'])
+ run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',OUT/'desktop'])
  files={f.relative_to(OUT/'desktop').as_posix():f for f in (OUT/'desktop').rglob('*') if f.is_file() and f.suffix!='.pdb'}
  zipped(ASSETS/'desktop.zip',files);notices()
  return bridge
@@ -54,15 +66,15 @@ def setup():
  print('Commit/push checks enabled; pulls require a fast-forward.')
 def build():
  bridge=prepare()
+ verify_release_surface(bridge)
  go_build('./cmd/ipad-usb-easy',OUT/f'USB-Link-{VERSION}-windows-x64.exe',True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge)
- go_build('./cmd/suhang-update',OUT/'suhang-update.exe')
  go_build('./cmd/mac-usbnet',OUT/'usb-link-mac-x64',False)
  env={**ENV,'GOOS':'darwin','GOARCH':'arm64','CGO_ENABLED':'0'}
  run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION}','-o',OUT/'usb-link-mac-arm64','./cmd/mac-usbnet'],env)
  run([GO,'vet','./...'],{**ENV,'GOOS':'windows','GOARCH':'amd64','CGO_ENABLED':'0'})
 def package():
  build();release=OUT/f'USB-Link-{VERSION}';release.mkdir(exist_ok=True)
- for name in [f'USB-Link-{VERSION}-windows-x64.exe','usb-link-mac-x64','usb-link-mac-arm64','suhang-update.exe']:
+ for name in [f'USB-Link-{VERSION}-windows-x64.exe','usb-link-mac-x64','usb-link-mac-arm64']:
   shutil.copyfile(OUT/name,release/name)
  shutil.copytree(ROOT/'licenses',release/'licenses',dirs_exist_ok=True)
  for name in ['LICENSE','LICENSE-WINTUN-EXCEPTION','README.md','README.zh-CN.md','VERSION']:

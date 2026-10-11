@@ -2,10 +2,9 @@ package fileshare
 
 import (
 	"context"
-	"net/http/httptest"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -21,58 +20,59 @@ func TestCatalogMountIsolationAndRevocation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	state := &State{}
-	state.Enabled.Store(true)
-	s, e := NewMulti(c, "10.6.9.2", state, func() bool { return true })
-	if e != nil {
-		t.Fatal(e)
-	}
-	call := func(method, path, body string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(method, "http://10.6.9.1:10690/share/"+path, strings.NewReader(body))
-		r.RemoteAddr = "10.6.9.2:5000"
-		r.Header.Set("Depth", "1")
-		w := httptest.NewRecorder()
-		s.ServeHTTP(w, r)
-		return w
-	}
-	if w := call("PUT", a.ID+"/hello", "one"); w.Code != 201 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	if w := call("PUT", b.ID+"/hello", "two"); w.Code != 201 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	if w := call("GET", a.ID+"/hello", ""); w.Code != 200 || w.Body.String() != "one" {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	if w := call("GET", b.ID+"/hello", ""); w.Code != 200 || w.Body.String() != "two" {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	if w := call("PROPFIND", "", ""); w.Code != 207 || !strings.Contains(w.Body.String(), a.ID) || !strings.Contains(w.Body.String(), b.ID) {
-		t.Fatal(w.Code, w.Body.String())
-	}
 	f := catalogFS{c}
+	ctx := context.Background()
+	write := func(path, body string) {
+		h, err := f.OpenFile(ctx, path, os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = h.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+		h.Close()
+	}
+	read := func(path string) string {
+		h, err := f.OpenFile(ctx, path, os.O_RDONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer h.Close()
+		data, err := io.ReadAll(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	write(a.ID+"/hello", "one")
+	write(b.ID+"/hello", "two")
+	if read(a.ID+"/hello") != "one" || read(b.ID+"/hello") != "two" {
+		t.Fatal("mounts mixed")
+	}
 	if e = f.Rename(context.Background(), a.ID+"/hello", b.ID+"/stolen"); e == nil {
 		t.Fatal("cross-root rename allowed")
 	}
 	if e = f.RemoveAll(context.Background(), a.ID); e == nil {
 		t.Fatal("mount root deleted")
 	}
-	allowed := c.allowed("/share/" + a.ID + "/hello")
+	allowed := c.allowed(a.ID + "/hello")
 	if e = c.Remove(a.ID); e != nil {
 		t.Fatal(e)
 	}
 	if allowed() {
 		t.Fatal("inflight access not revoked")
 	}
-	if w := call("GET", a.ID+"/hello", ""); w.Code == 200 {
+	if h, err := f.OpenFile(ctx, a.ID+"/hello", os.O_RDONLY, 0); err == nil {
+		h.Close()
 		t.Fatal("removed share accessible")
 	}
 	if data, e := os.ReadFile(filepath.Join(aDir, "hello")); e != nil || string(data) != "one" {
 		t.Fatal("local data removed", e)
 	}
-	if w := call("GET", b.ID+"/hello", ""); w.Code != 200 {
+	if read(b.ID+"/hello") != "two" {
 		t.Fatal("other mount broken")
 	}
+
 }
 func TestCatalogRejectsRedirectedRootAndDuplicate(t *testing.T) {
 	c := NewCatalog(nil)
@@ -146,7 +146,7 @@ func TestUnavailableFolderDoesNotBreakOtherShares(t *testing.T) {
 	if len(c.List()) != 2 {
 		t.Fatal("missing item hidden")
 	}
-	if c.allowed("/share/" + b.ID + "/data")() {
+	if c.allowed(b.ID + "/data")() {
 		t.Fatal("unavailable share exported")
 	}
 	if _, e = c.Path(a.ID); e != nil {

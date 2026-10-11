@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"golang.org/x/net/webdav"
 	"io"
 	"net/url"
 	"os"
@@ -22,7 +21,7 @@ type Folder struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	Path               string `json:"path"`
-	URL                string `json:"url"`
+	URL                string `json:"url"` // Legacy storage field; no HTTP file service.
 	SMBURL             string `json:"smb_url"`
 	Available          bool   `json:"available"`
 	NativeShared       bool   `json:"native_shared,omitempty"`
@@ -113,7 +112,7 @@ func (c *Catalog) add(id, dir, identity string) (Folder, error) {
 	if name == "." || name == string(filepath.Separator) {
 		name = "共享資料夾"
 	}
-	m := &mountedFolder{Folder: Folder{ID: id, Name: name, Path: dir, URL: URL + id + "/", Available: true, Identity: actual}, root: root}
+	m := &mountedFolder{Folder: Folder{ID: id, Name: name, Path: dir, Available: true, Identity: actual}, root: root}
 	if c.metadataOnly {
 		root.Close()
 		m.root = nil
@@ -246,8 +245,8 @@ func (c *Catalog) Close() {
 	}
 }
 func (c *Catalog) allowed(urlPath string) func() bool {
-	parts := strings.Split(strings.TrimPrefix(urlPath, "/share/"), "/")
-	if urlPath == "/share" || urlPath == "/share/" {
+	parts := strings.Split(strings.TrimPrefix(urlPath, "/"), "/")
+	if urlPath == "." || urlPath == "/" {
 		return func() bool { return true }
 	}
 	c.mu.RLock()
@@ -277,7 +276,7 @@ func (c *Catalog) lookup(n string) (*mountedFolder, string, error) {
 	return m, sub, nil
 }
 
-// The mount namespace is immutable to DAV clients. MOVE/COPY across two roots
+// The mount namespace is immutable to SMB clients. Moving across two roots
 // is refused; removing a share never removes the selected local directory.
 type catalogFS struct{ c *Catalog }
 
@@ -293,7 +292,7 @@ func (f catalogFS) Mkdir(ctx context.Context, n string, p os.FileMode) error {
 	}
 	return f.c.user(func() error { return (rootFS{m.root}).Mkdir(ctx, sub, p) })
 }
-func (f catalogFS) OpenFile(ctx context.Context, n string, flags int, p os.FileMode) (out webdav.File, err error) {
+func (f catalogFS) OpenFile(ctx context.Context, n string, flags int, p os.FileMode) (out shareFile, err error) {
 	f.c.mu.RLock()
 	defer f.c.mu.RUnlock()
 	m, sub, e := f.c.lookup(n)
@@ -446,7 +445,7 @@ func (c *Catalog) RestoreIdentity(id, dir, identity string) (Folder, error) {
 	if len(c.folders) >= 32 {
 		return Folder{}, e
 	}
-	f = Folder{ID: id, Name: filepath.Base(dir), Path: filepath.Clean(dir), URL: URL + id + "/", Available: false, Identity: identity, Problem: e.Error()}
+	f = Folder{ID: id, Name: filepath.Base(dir), Path: filepath.Clean(dir), Available: false, Identity: identity, Problem: e.Error()}
 	c.folders[id] = &mountedFolder{Folder: f}
 	return f, nil
 }

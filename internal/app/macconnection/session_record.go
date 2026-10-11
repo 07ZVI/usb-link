@@ -50,6 +50,6 @@ func parseSessionRecord(b []byte) (sessionRecord, error) {
 
 // RemoteReady requires the listener used for USB upgrade discovery as well as
 // the resolved USB peer. A working bridge alone cannot acknowledge an upgrade.
-func RemoteReady(peerResolved, receiverReady bool, fileError string) bool {
-	return peerResolved && receiverReady && fileError == ""
+func RemoteReady(peerResolved, servicesReady bool, servicesError string) bool {
+	return peerResolved && servicesReady && servicesError == ""
 }

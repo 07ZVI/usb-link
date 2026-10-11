@@ -2,26 +2,44 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-USB Link connects Windows to an authorized Mac or iPad over the existing USB channel. It provides file transfer, native Windows SMB (445), a separate compatibility SMB service (10690), device/application authorization, and recoverable installation and network changes.
+**Connect an Apple Mac or iPad to Windows over a USB Type-C data cable, without an Ethernet cable.**
 
-Version: see [VERSION](VERSION). This public source tree starts from the 0.8.140 implementation. The internal Go module name and Windows installation identity remain unchanged so existing receipts, upgrades and rollback paths keep their meaning.
+USB Link turns the USB connection into a usable network. Once connected, devices can use SMB file sharing and other configured, authorized LAN applications over that network.
 
-The 0.9.0 candidate adds dependency downloads and opt-in Windows → Mac Internet sharing. **Windows/Mac/iPad hardware acceptance is pending.** Do not interpret cross-compilation or policy tests as hardware acceptance. See [validation](docs/VALIDATION.md).
+## Features
 
-## Use
+- **Direct USB networking**: connect supported Macs and iPads to Windows and prepare the network interface and addresses.
+- **SMB management**: manage shared folders, accounts and access permissions on Windows. Connect using Finder on Mac or the built-in Files app on iPad.
+- **Connection management**: view devices, authorization and traffic, and clean up network settings owned by USB Link on disconnect.
 
-Run the Windows x64 launcher with administrator permission and follow its dependency and device authorization prompts. The launcher itself is native Go and does not need .NET. Desktop rendering uses an existing compatible .NET 10 runtime or a separately downloaded private runtime. Existing functions with satisfied dependencies remain available; missing components show their names and affected features.
+For choosing files and sending them to another device, use a tool such as LocalSend on both devices. USB Link does not include a standalone file-transfer client.
 
-In “連線診斷與開發者調試”, inspect external components and Internet sharing. Sharing starts off, needs a currently authorized Mac, and stops on authorization/interface loss. After preparation, renew the Mac USB DHCP lease and generate Internet traffic. “Prepared / waiting” is distinct from “available”. IPv4 Internet sharing is the first supported scope; IPv6 forwarding remains blocked. Upstream LAN and other USB peers remain isolated. Exit selection is constrained by Windows' effective default route; USB Link does not rewrite other applications' route configuration.
+## Screenshot
 
-Apple packages, Wintun, Zadig/libwdi, and the .NET runtime are **not included** in source, installation archives, or release attachments. Their official URLs, versions, checksums and requirements live in [the dependency catalog](internal/dependencies/catalog.json). Libraries linked into Go/Avalonia are distributed with their original notices.
+![USB Link dashboard showing Mac and iPad USB connections and SMB sharing](docs/images/dashboard.png)
 
-## Build
+Current application UI preview. Devices, traffic and speeds use example data; this is not a hardware benchmark.
 
-This checkout is also the daily development repository. Keep private materials
-under the Git-ignored `.local/` directory. See [workspace and synchronization](docs/WORKSPACE.md).
+## Getting started
 
-Install Go 1.26, .NET SDK 10.0.100 and Python 3.9 or newer. On a clean checkout:
+1. Connect your Mac or iPad to Windows with a USB Type-C cable that supports data transfer.
+2. Run USB Link as administrator on Windows. Follow the prompts to prepare required components and authorize the device.
+3. Wait for the connected device and its network address to appear. Device and USB interface support depends on the actual hardware detected.
+4. To share files, add folders and configure accounts and permissions in “SMB 共享” (SMB sharing), then use the connection address shown:
+   - **Mac**: Finder → Go → Connect to Server (⌘K).
+   - **iPad**: Files → Browse → More (…) → Connect to Server.
+
+SMB and other applications still need their services, accounts and firewall permissions configured. A direct USB network does not automatically share Internet access; Windows → Mac Internet sharing is a separate, optional feature and starts off.
+
+## Status and updates
+
+See [VERSION](VERSION). This is a preview: **Windows/Mac/iPad hardware acceptance is still pending**. Successful builds and automated tests do not establish support for every device. See [validation](docs/VALIDATION.md).
+
+End-user builds do not provide developer remote debugging, remotely pushed upgrades or automatic USB upgrade acceptance. To update, run the new installer locally on Windows. Previous remote authorization cannot reactivate these entry points.
+
+## Build from source
+
+Install Go 1.26, .NET SDK 10.0.100 and Python 3.9 or newer:
 
 ```sh
 python3 scripts/project.py setup
@@ -29,13 +47,15 @@ python3 scripts/project.py check
 python3 scripts/project.py package
 ```
 
-Outputs are under `out/`, including an unsigned native Windows launcher, Mac tools, a source archive and `SHA256SUMS`. Build-time network access restores locked Go/NuGet packages; build does not download any external end-user driver, Apple installer, Wintun DLL or .NET runtime. See [build details](docs/BUILDING.md).
+Outputs in `out/` include an unsigned Windows launcher, Mac network helper tools, a source archive and checksums. Building requires network access to restore Go/NuGet dependencies. External drivers, Apple installers and the .NET runtime are not bundled with source or release packages; see [dependencies](docs/DEPENDENCIES.md).
 
-## Project
+## More information
 
-- [Architecture and migration map](docs/ARCHITECTURE.md)
-- [External dependencies and licenses](docs/DEPENDENCIES.md)
-- [Gateway, recovery and reverse-sharing comparison](docs/INTERNET-SHARING.md)
+- [Building](docs/BUILDING.md)
+- [Workspace and GitHub synchronization](docs/WORKSPACE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Internet sharing](docs/INTERNET-SHARING.md)
+- [Release feature boundaries](docs/RELEASE-SCOPE.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-USB Link's original code is licensed under GPL-3.0-only with the narrowly scoped [official Wintun DLL linking exception](LICENSE-WINTUN-EXCEPTION). Imported code and third-party libraries retain their own licenses; see [notices](licenses/THIRD-PARTY.txt) and [library inventory](licenses/libraries.json).
+Original code is licensed under [GPL-3.0-only](LICENSE), with the narrowly scoped [official Wintun DLL linking exception](LICENSE-WINTUN-EXCEPTION). Third-party code retains its own licenses; see [notices](licenses/THIRD-PARTY.txt).

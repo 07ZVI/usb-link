@@ -293,31 +293,3 @@ func SetStartup(enabled bool, path string) error {
 	_, err := runStartupTaskMode(context.Background(), mode, path)
 	return err
 }
-
-// Keep received data outside sealed version folders. Normal users can read it;
-// only administrators/System can write, so the elevated receiver cannot follow
-// a user-replaced parent directory. Uninstall deliberately preserves data.
-
-func ReceivedDirectory() (string, error) {
-	root, e := dataRoot("Received Files")
-	if e != nil {
-		return "", e
-	}
-	dir := filepath.Join(root, "Received Files")
-	sd, e := windows.SecurityDescriptorFromString(installACL)
-	if e != nil {
-		return "", e
-	}
-	sa := windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}
-	if e = windows.CreateDirectory(windows.StringToUTF16Ptr(dir), &sa); e != nil && e != windows.ERROR_ALREADY_EXISTS {
-		return "", e
-	}
-	if e = noReparse(dir); e != nil {
-		return "", e
-	}
-	actual, e := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
-	if e != nil || !sameACL(actual, sd) {
-		return "", fmt.Errorf("received ACL unexpected")
-	}
-	return dir, nil
-}

@@ -496,18 +496,6 @@ func Main() {
 func runApplication(ctx context.Context, cancel context.CancelFunc, service bool) {
 	memorydiag.RecordStage("parent_main_enter")
 	ipadncm.SetProductVersion(version)
-	if len(os.Args) == 4 && os.Args[1] == "--update-worker" {
-		if e := connectioninstall.RunUpdateWorker(os.Args[2], os.Args[3], version); e != nil {
-			fmt.Fprintln(os.Stderr, e)
-		}
-		return
-	}
-	if len(os.Args) == 3 && os.Args[1] == "--remote-install" {
-		remoteInstallID = os.Args[2]
-		if !windows.GetCurrentProcessToken().IsElevated() || connectioninstall.ValidateRemoteLaunch(remoteInstallID, version) != nil {
-			return
-		}
-	}
 
 	if len(os.Args) == 2 && os.Args[1] == "--licenses" {
 		dir, e := os.Getwd()
@@ -844,8 +832,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		return yes
 	})
 	if e != nil {
-		remoteError := e.Error()
-		ipadncm.SetRemoteMaintenance(func() (string, string) { return "開發者調試未啟動：" + remoteError, "" }, nil, nil)
+		fmt.Fprintln(os.Stderr, "LOCAL_UPDATE_JOURNAL_UNAVAILABLE:", e)
 	} else {
 		defer developerRemote.Close()
 		if service {
@@ -943,7 +930,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}, func() bool {
 			return ipadncm.UnpairedExperimentBusy() || ipadncm.AMDSModeDiagnosticActive() || ipadncm.IPadCandidateBusy() || ipadncm.NetworkOnlySnapshot().Busy || ipadncm.IPadSoftwareReconnectBusy()
 		})
-		ipadncm.SetAutomaticUSBUpdates(developerRemote.SetAutoUpgrade, developerRemote.AutoUpgrade)
 		developerRemote.SetRecoveryTest(func() error {
 			if !ipadncm.RemoteUSBConnectionHealthy() {
 				return fmt.Errorf("healthy Mac USB connection required")
@@ -988,9 +974,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		developerRemote.SetRuntimeDetails(func() any {
 			return map[string]any{"intentional_candidate_failure": intentionalCandidateFailure, "wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(), "firewall_shadow": netconfig.FirewallShadowDiagnostics(), "resident_firewall_failures": netconfig.ResidentFirewallFailureDiagnostics(), "ipad_address_projection": netconfig.IPadAddressProjectionSnapshot(), "owned_dad_observations": ownedDADDiagnostics(recoveryDir), "connections": ipadncm.ConnectionRuntimeDetails(), "mac_native_failure": macconnection.NativeStartupFailureDetails(), "recovery": lastRecovery.Load(), "startup_timing": startuptelemetry.Snapshot(), "startup_task": connectioninstall.LastStartupTaskObservation(), "startup_trigger_details": connectioninstall.NativeStartupTriggerDetails(), "core_service": connectioninstall.CoreServiceStatus(), "startup_options": startupopt.Snapshot(), "connection_measurement": ipadncm.ConnectionMonitorDiagnostics(), "native_firewall_schema": nativeFirewallSchema.Load(), "native_interface_schema": nativeInterfaceSchema.Load(), "native_read_compatibility": nativeReadCompatibility.Load(), "network_operation_timings": netconfig.NativeOperationTimingsSnapshot(), "interface_operation_timings": interfaceconfig.ObservationsSnapshot(), "shared_host_startup": sharedHostStartupDiagnostics(recoveryDir), "ui_events": ipadncm.UIEvents(), "ui_open_timings": uistartup.Snapshot(), "device_guard_watch": ipadncm.DeviceWatchDetails(), "ipad_network": ipadncm.SimplifiedIPadNetworkSnapshot(), "ipad_candidate": ipadncm.IPadCandidateSnapshot(), "ipad_unpaired_experiment": ipadncm.UnpairedExperimentSnapshot(), "ipad_software_reconnect": ipadncm.IPadSoftwareReconnectSnapshot()}
 		})
-		macconnection.DeveloperConnection = func() string { _, invite := developerRemote.Info(); return invite }
 		macconnection.DeveloperStatus = func() any { return developerRemote.ListenerStatus() }
-		ipadncm.SetRemoteMaintenance(developerRemote.Info, developerRemote.Enable, developerRemote.Enabled)
 	}
 	if remoteInstallID != "" {
 		_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "START_CONNECTION_MONITOR", "")

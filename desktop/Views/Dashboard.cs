@@ -26,10 +26,9 @@ public sealed partial class Dashboard : Window
         chipDot = new() { Width = 8, Height = 8, CornerRadius = new CornerRadius(4) },
         noticeBar = new() { CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6), IsVisible = false };
     DeviceStatusView macStatus = null!, ipadStatus = null!;
-    readonly ToggleSwitch shareToggle = Switch(), startup = Switch(), developerToggle=Switch();
+    readonly ToggleSwitch shareToggle = Switch(), startup = Switch();
     string startupPendingID = "";
     bool startupRequested;
-    readonly CheckBox autoUpgrade = new() { Content = "透過 USB 自動升級" };
     readonly StackPanel detailRows = new() { Spacing = 0 };
     readonly Grid root = new();
     readonly Grid body = new();
@@ -37,7 +36,6 @@ public sealed partial class Dashboard : Window
     Control connectionCard = null!, shareCard = null!, settingsCard = null!, footerControl = null!;
     bool? compactLayout;
     Window? detailWindow;
- readonly TextBlock remoteStatus=Label("開發者調試未啟動",14);
     string detailText = "";
     bool shareEnabled, shareReady, nativeSMB;
  string nativeAccount="", shareProblem="";
@@ -146,7 +144,6 @@ public sealed partial class Dashboard : Window
         noticeBar.Res(Border.BackgroundProperty, "AccentSoft");
         Avalonia.Automation.AutomationProperties.SetName(shareToggle, "檔案共享");
         Avalonia.Automation.AutomationProperties.SetName(startup, "登入 Windows 後自動啟動");
-        Avalonia.Automation.AutomationProperties.SetName(developerToggle, "允許透過 USB 接收已簽署的升級");
         noticeBar.Child = Row(8, Icons.Make(Icons.Info, 16, "Accent"), notice);
 
         root.RowDefinitions = new RowDefinitions("Auto,16,*,12,Auto");
@@ -166,8 +163,6 @@ public sealed partial class Dashboard : Window
         SizeChanged += (_, _) => UpdateResponsiveLayout();
 
         shareToggle.Click += (_, _) => { Send(shareEnabled ? "share-off" : "share-on"); shareToggle.IsChecked = shareEnabled; };
-        developerToggle.Click+=(_,_)=>Send(developerToggle.IsChecked==true?"developer-on":"developer-off");
-        autoUpgrade.Click += (_, _) => Send(autoUpgrade.IsChecked == true ? "auto-upgrade-on" : "auto-upgrade-off");
         startup.Click += (_, _) => {
             if (preview) { Send("startup-on"); return; }
             if (startupPendingID != "") return;
@@ -264,7 +259,7 @@ public sealed partial class Dashboard : Window
         shareToggle.HorizontalAlignment = HorizontalAlignment.Right;
         var head = Columns("Auto,*,Auto",
             Tile(Icons.Folder, "Accent", "AccentSoft", 36),
-            Column(1, Label("檔案共享", 15, FontWeight.SemiBold), shareStatus),
+            Column(1, Label("SMB 共享", 15, FontWeight.SemiBold), shareStatus),
             shareToggle);
         ((Control)head.Children[1]).Margin = new Thickness(12, 0, 8, 0);
         ((Control)head.Children[1]).VerticalAlignment = VerticalAlignment.Center;
@@ -278,17 +273,15 @@ public sealed partial class Dashboard : Window
         }.Res(Border.BackgroundProperty, "Field").Res(Border.BorderBrushProperty, "Stroke");
 
         var open = Action("SMB 共享", OpenSMBManager, Icons.Folder);
-        var received = Action("已接收檔案", () => Send("received"), Icons.Inbox);
-        var buttons = Columns("*,8,*", open, Gap(), received);
-        open.HorizontalAlignment = received.HorizontalAlignment = HorizontalAlignment.Stretch;
-        open.HorizontalContentAlignment = received.HorizontalContentAlignment = HorizontalAlignment.Center;
+        open.HorizontalAlignment = HorizontalAlignment.Stretch;
+        open.HorizontalContentAlignment = HorizontalAlignment.Center;
 
         var help = Label("Mac：Finder ⌘K · iPad：文件 → 連接伺服器", 12, key: "Muted");
         var scope = Label("選「註冊使用者」並登入專用帳戶，可選擇共享資料夾。訪客請從「SMB 共享」複製完整地址。", 11, key: "Subtle");
         scope.TextWrapping = TextWrapping.Wrap; scope.MaxLines = 2;
         ToolTip.SetTip(scope, scope.Text);
 
-        return Card(Column(12, head, field, buttons, help,scope));
+        return Card(Column(12, head, field, open, help,scope));
     }
 
     static T WithMargin<T>(T c, Thickness m) where T : Control { c.Margin = m; return c; }
@@ -300,7 +293,7 @@ public sealed partial class Dashboard : Window
         Add(SettingRow(Icons.Clock, "登入 Windows 後自動啟動", "開機登入後在背景準備連線", startup, null));
         Add(SettingRow(Icons.Shield, "安全管理", "應用程式防火牆、連線與 USB 裝置", null, OpenSecurity));
         Add(SettingRow(Icons.Pulse, "工作管理員", "執行中的程式、資源用量與簽署憑證", null, OpenTaskManager));
-        Add(SettingRow(Icons.Pulse, "連線診斷與開發者調試", "連線細節、USB 升級與調試設定", null, OpenDetails));
+        Add(SettingRow(Icons.Pulse, "連線診斷", "連線細節、網際網路共享與元件狀態", null, OpenDetails));
         var title = WithMargin(Label("設定與維護", 15, FontWeight.SemiBold), new Thickness(8, 0, 0, 6));
         return Card(Column(0, title, list), new Thickness(12, 16, 12, 8));
     }
@@ -360,37 +353,25 @@ public sealed partial class Dashboard : Window
 
     // ---------- diagnostics window ----------
 
-    Control DeveloperSection()
-    {
-        remoteStatus.TextWrapping = TextWrapping.Wrap; remoteStatus.TextTrimming = TextTrimming.None;
-        var help = WithWrap(Label("只接受 USB 線上的已簽署新版推送。Mac 開發端會透過 USB 自動取得連線資訊。", 13, key: "Muted"), 680);
-        var buttons = Columns("*,Auto", Label("允許透過 USB 接收已簽署的升級", 14), developerToggle);
-        return Card(Column(12, Label("開發者調試", 16, FontWeight.SemiBold), help, buttons, autoUpgrade,
-            WithWrap(Label("未勾選自動升級時，每次安裝前會彈窗確認。收到新版和開始安裝時會顯示提示並播放系統提示音。隨時取消勾選可恢復逐次確認；關閉調試也會清除此授權。升級會短暫中斷 USB 連線。", 12, key: "Muted"), 680), remoteStatus));
-    }
-
     void OpenDetails()
     {
         if (detailWindow != null) { detailWindow.Activate(); return; }
         var copy = Action("複製全部", () => Copy(detailText, "診斷內容"), Icons.Copy);
-        var head = Columns("*,Auto", Column(2, Label("連線診斷與開發者調試", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
-        var developer = DeveloperSection();
+        var head = Columns("*,Auto", Column(2, Label("連線診斷", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
         var diagnostics = Card(detailRows, new Thickness(4));
-        var content = Column(16, InternetSection(), developer, diagnostics, Gap(4));
+        var content = Column(16, InternetSection(), diagnostics, Gap(4));
         var scroll = new ScrollViewer { Content = content, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var body = scroll;
         var layout = Rows("Auto,14,*", head, Gap(), body);
         layout.Margin = new Thickness(20);
         detailWindow = new Window
         {
-            Title = "連線診斷與開發者調試 · USB Link", Width = 800, Height = 720, MinWidth = 520, MinHeight = 360,
+            Title = "連線診斷 · USB Link", Width = 800, Height = 720, MinWidth = 520, MinHeight = 360,
             FontFamily = FontFamily, Content = layout,
         }.Res(BackgroundProperty, "Window");
         detailWindow.Closed += (_, _) =>
         {
             scroll.Content = null; diagnostics.Child = null;
-            if (developerToggle.Parent is Panel parent) parent.Children.Remove(developerToggle);
-            ((StackPanel)((Border)developer).Child!).Children.Clear();
             content.Children.Clear(); detailWindow = null;
         };
         RenderDetails();
@@ -450,7 +431,7 @@ public sealed partial class Dashboard : Window
         {"event":"status","windows_ipv4":"10.6.9.1","devices":[
           {"device":"Mac","title":"Mac USB 已連接","connected":true,"peer_ipv4":"10.6.9.2","peer_address_state":"已確認","tx":1027.2,"rx":25.6,"speed":"USB 協商速率：SuperSpeed","latency":"HTTP 往返 · 1.2 ms","benchmark_available":true,"benchmark_summary":"Mac 測速端已就緒"},
           {"device":"iPad","title":"iPad 的 USB IPv4 通信已驗證","connected":true,"peer_ipv4":"10.6.9.3","peer_address_state":"已確認","tx":512,"rx":12.8,"speed":"USB 協商速率：SuperSpeed","latency":"HTTP 往返 · 2.4 ms","benchmark_url":"http://10.6.9.1:58723/"}
-        ],"detail":"Mac USB\n通信驗證：已驗證 IPv4 往返\n\niPad USB\n通信驗證：已驗證 IPv4 往返","share_ready":true,"remote_status":"開發者調試未啟動"}
+        ],"detail":"Mac USB\n通信驗證：已驗證 IPv4 往返\n\niPad USB\n通信驗證：已驗證 IPv4 往返","share_ready":true}
         """);
         Update(json.RootElement);
         macStatus.SeedTraffic(128, 3); ipadStatus.SeedTraffic(64, 1.6);
@@ -484,8 +465,6 @@ public sealed partial class Dashboard : Window
         bodyScroll.IsEnabled = footerControl.IsEnabled = !B("stopping");
         if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
 
-        autoUpgrade.IsChecked=B("remote_auto_upgrade");autoUpgrade.IsEnabled=B("remote_enabled") && !B("stopping");
-        developerToggle.IsChecked=B("remote_enabled");remoteStatus.Text=S("remote_status");
         if (S("windows_ipv4") != "") { WindowsHostIp = S("windows_ipv4"); ShareUrl = S("share_url") != "" ? S("share_url") : "smb://" + WindowsHostIp; addressValue.Text = WindowsHostIp; shareUrlValue.Text = ShareUrl; }
         JsonElement mac = default, ipad = default;
         var connected = 0; var connecting = 0; var connectionError = false;

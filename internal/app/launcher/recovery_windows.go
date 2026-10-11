@@ -4,35 +4,15 @@ package launcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/macconnection"
 	"suhang/usbnet/internal/app/startuptelemetry"
 	"suhang/usbnet/internal/app/usbhost"
 	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/transport/usbrecovery"
-	"sync"
 	"time"
 )
-
-type recoveryLog struct {
-	mu   sync.Mutex
-	tail []byte
-}
-
-func (b *recoveryLog) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.tail = append(b.tail, p...)
-	if len(b.tail) > 32768 {
-		b.tail = append([]byte(nil), b.tail[len(b.tail)-32768:]...)
-	}
-	return len(p), nil
-}
-func (b *recoveryLog) String() string { b.mu.Lock(); defer b.mu.Unlock(); return string(b.tail) }
 
 // This snapshot contains recovery proofs and error codes, never pairing tokens,
 // USB instance IDs, arbitrary files or executable commands.
@@ -91,8 +71,6 @@ func runRecoveryMaintenance(r Result, recoveryDir, installed string, resident bo
 	developerRemote.SetRuntimeDetails(func() any {
 		return map[string]any{"startup_recovery": summary, "ipad_network": ipadncm.SimplifiedIPadNetworkSnapshot(), "ipad_software_reconnect": ipadncm.IPadSoftwareReconnectSnapshot()}
 	})
-	ipadncm.SetRemoteMaintenance(developerRemote.Info, developerRemote.Enable, developerRemote.Enabled)
-	ipadncm.SetAutomaticUSBUpdates(developerRemote.SetAutoUpgrade, developerRemote.AutoUpgrade)
 	var closeUI func()
 	var problem string
 	if coreProcessMode {
@@ -172,47 +150,12 @@ func runHostWaitingUSBRecovery(ctx context.Context, _ string, m *connectioninsta
 	}
 }
 
+// Local recovery is performed before this fallback by RecoverIPadSoftwareReconnect,
+// RecoverApplicationSession and macconnection.RecoverWithReport. This fallback
+// previously served developer upgrades/diagnostics over raw USB; it never repaired
+// local installation or rollback journals. Preserve the local error display.
 func runUSBRecoveryMode(parent context.Context, root, problem string, m *connectioninstall.RemoteManager, summary any, recoveryDir string, waitingHost bool) {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	auth := &ipadncm.ConnectionAuthorization{}
-	auth.BeginSecurityAttempt(ctx, cancel)
-	defer auth.FinishSecurityAttempt()
-	if !auth.AllowUSB("Mac", root, "1903", "ncm-first-pair-0-1-v1", macconnection.CurrentRoot) {
-		return
-	}
-	if macconnection.CurrentRoot() != root || ctx.Err() != nil {
-		return
-	}
-	var logs recoveryLog
-	m.SetRecoveryAttached(false)
-	defer m.SetRecoveryAttached(false)
-	finished := make(chan struct{})
-	defer func() { cancel(); <-finished }()
-	go func() {
-		defer close(finished)
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if macconnection.CurrentRoot() != root || !m.Enabled() || ipadncm.MacRecoveryRetryRequested() {
-					cancel()
-					return
-				}
-			}
-		}
-	}()
-	if !waitingHost {
-		ipadncm.UpdateMacMonitor(macconnection.Result{Stage: "USB_RECOVERY_MAINTENANCE", Error: problem})
-	}
-	diagnostic := func(nonce string) ([]byte, error) {
-		return json.Marshal(map[string]any{"protocol": "SUHANG-USB-PROBE/1", "version": version, "group": 0, "nonce": nonce, "recovery": summary, "shared_host_startup": sharedHostStartupDiagnostics(recoveryDir), "logs": map[string]string{"installer.log": "USB recovery maintenance: " + problem, "ncm-probe.log": logs.String()}})
-	}
-	e := usbrecovery.Run(ctx, log.New(&logs, "USB recovery: ", 0), m.Enabled, m.SetRecoveryAttached, m.RecoveryInvitation, m.RecoveryAPI, diagnostic)
-	if e != nil && parent.Err() == nil && !waitingHost {
-		ipadncm.UpdateMacMonitor(macconnection.Result{Stage: "USB_RECOVERY_WAITING", Error: fmt.Sprintf("%s; USB recovery: %v", problem, e)})
+	if parent.Err() == nil && !waitingHost {
+		ipadncm.UpdateMacMonitor(macconnection.Result{Stage: "USB_RECOVERY_WAITING", Error: problem})
 	}
 }
