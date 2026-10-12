@@ -11,11 +11,40 @@ import (
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/setupwizard"
 	"suhang/usbnet/internal/dependencies"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
+type setupAttemptEvent struct {
+	Stage   string `json:"stage"`
+	State   string `json:"state"`
+	Time    string `json:"time"`
+	Problem string `json:"problem,omitempty"`
+}
+type setupAttemptReport struct {
+	Before        connectioninstall.InstallationInspection `json:"before"`
+	Events        []setupAttemptEvent                      `json:"events"`
+	CleanupBackup string                                   `json:"cleanupBackup,omitempty"`
+	Finished      bool                                     `json:"finished"`
+	Problem       string                                   `json:"problem,omitempty"`
+}
+
 func runSetupWizard(ctx context.Context) {
+	var attemptMu sync.Mutex
+	var attempt *setupAttemptReport
+	record := func(stage, state string, err error) {
+		event := setupAttemptEvent{Stage: stage, State: state, Time: time.Now().UTC().Format(time.RFC3339Nano)}
+		if err != nil {
+			event.Problem = err.Error()
+		}
+		attemptMu.Lock()
+		defer attemptMu.Unlock()
+		if attempt != nil {
+			attempt.Events = append(attempt.Events, event)
+		}
+	}
+
 	root, err := connectioninstall.Root()
 	if err != nil {
 		dialog("无法读取安装位置。\n"+err.Error(), 0x10)
@@ -30,7 +59,13 @@ func runSetupWizard(ctx context.Context) {
 		Version: version,
 		Inspect: func() (string, []byte) {
 			report := connectioninstall.InspectInstallation()
-			data, err := json.MarshalIndent(report, "", "  ")
+			attemptMu.Lock()
+			data, err := json.MarshalIndent(struct {
+				connectioninstall.InstallationInspection
+				Attempt    *setupAttemptReport   `json:"attempt,omitempty"`
+				Components []dependencies.Status `json:"components"`
+			}{report, attempt, dependencies.Default.Snapshot()}, "", "  ")
+			attemptMu.Unlock()
 			if err != nil {
 				return "检查报告无法生成：" + err.Error(), nil
 			}
@@ -38,7 +73,19 @@ func runSetupWizard(ctx context.Context) {
 		},
 		Directory: filepath.Join(root, connectioninstall.CurrentApplicationDirectory),
 		License:   "USB Link 使用 GPL-3.0-only 与官方 Wintun DLL 链接例外。\r\nWintun 使用随包附带的官方预编译二进制许可。\r\nApple 等外部组件须在各自官方安装向导中单独同意条款。\r\n\r\n" + string(terms),
-		Work: func(work context.Context, options setupwizard.Options, progress func(string)) (string, error) {
+		Work: func(work context.Context, options setupwizard.Options, progress func(string)) (path string, result error) {
+			before := connectioninstall.InspectInstallation()
+			attemptMu.Lock()
+			attempt = &setupAttemptReport{Before: before}
+			attemptMu.Unlock()
+			defer func() {
+				attemptMu.Lock()
+				defer attemptMu.Unlock()
+				attempt.Finished = true
+				if result != nil {
+					attempt.Problem = result.Error()
+				}
+			}()
 			var preparing atomic.Bool
 			preparing.Store(true)
 			unsubscribe := dependencies.Default.ObserveProgress(func(s dependencies.Status) {
@@ -55,11 +102,15 @@ func runSetupWizard(ctx context.Context) {
 			})
 			defer unsubscribe()
 			return setupwizard.Install(work, options, setupwizard.InstallationActions{
-				Check:   func() (bool, error) { return connectioninstall.PlanLocalInstallationForSetup(version) },
+				Check:   checkBundledInstallation,
+				Record:  record,
 				Prepare: func(ctx context.Context, id string) error { _, e := dependencies.Ensure(ctx, id); return e },
 				Cleanup: func(ctx context.Context) error {
 					preparing.Store(false)
 					backup, e := connectioninstall.RepairDeletedInstallation(ctx)
+					attemptMu.Lock()
+					attempt.CleanupBackup = backup
+					attemptMu.Unlock()
 					if e != nil && backup != "" {
 						return fmt.Errorf("%w\n残留记录备份：%s", e, backup)
 					}

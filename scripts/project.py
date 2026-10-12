@@ -73,9 +73,21 @@ def prepare():
  bridge=sha(OUT/'suhang-usbnet.exe')
  (ASSETS/'mac-sources.json').write_text(json.dumps({'version':VERSION,'files':{'suhang-usbnet.exe':bridge},'payload_sha256':sha(ASSETS/'mac-payload.zip')},indent=2)+'\n')
  run([DOTNET,'restore','desktop/Suhang.Desktop.csproj','--locked-mode','-r','win-x64','-p:NuGetAudit=false'])
- run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',OUT/'desktop'])
- files={f.relative_to(OUT/'desktop').as_posix():f for f in (OUT/'desktop').rglob('*') if f.is_file() and f.suffix!='.pdb'}
- zipped(ASSETS/'desktop.zip',files);notices()
+ # Publish into a fresh directory: stale DLLs from an earlier release must not
+ # silently become authorized content in the next publisher inventory.
+ with tempfile.TemporaryDirectory(prefix='desktop-publish-',dir=OUT) as directory:
+  published=pathlib.Path(directory)
+  run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',published])
+  files={f.relative_to(published).as_posix():f for f in published.rglob('*') if f.is_file() and f.suffix!='.pdb'}
+  product=re.search(r'const ProductID = "([^"]+)"',(ROOT/'internal/app/connectioninstall/task.go').read_text()).group(1)
+  manifest=published/'desktop-ownership.json'
+  manifest.write_text(json.dumps({'product':product,'files':{n:sha(f) for n,f in sorted(files.items())}},sort_keys=True,separators=(',',':'))+'\n')
+  files[manifest.name]=manifest
+  zipped(ASSETS/'desktop.zip',files)
+ # Mandatory production-consumer verification; a missing index used to pass
+ # every ordinary unit test because the shipped-archive test was skipped.
+ run([GO,'test','./internal/app/connectioninstall','-run','Test(IndexedDesktopShipped|InstallationShipped)','-count=1','-v'],{**ENV,'SUHANG_DESKTOP_BENCH_ARCHIVE':str(ASSETS/'desktop.zip'),'USBLINK_TEST_VERSION':VERSION})
+ notices()
  return bridge
 def check():
  run([sys.executable,'scripts/test_publication.py'])
@@ -96,6 +108,7 @@ def build():
   verify_release_surface(bridge)
   go_build('./cmd/ipad-usb-easy',OUT/f'USB-Link-{VERSION}-windows-x64.exe',True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge)
   verify_manifest(OUT/f'USB-Link-{VERSION}-windows-x64.exe',(ROOT/'cmd/ipad-usb-easy/setup.manifest').read_bytes())
+  run([GO,'test','./internal/app/connectioninstall','-run','TestInstallationShipped','-count=1','-v'],{**ENV,'SUHANG_DESKTOP_BENCH_ARCHIVE':str(ASSETS/'desktop.zip'),'USBLINK_TEST_VERSION':VERSION,'USBLINK_TEST_INSTALLER':str(OUT/f'USB-Link-{VERSION}-windows-x64.exe')})
  finally:
   resource.unlink(missing_ok=True)
  go_build('./cmd/mac-usbnet',OUT/'usb-link-mac-x64',False)

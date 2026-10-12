@@ -72,3 +72,23 @@ func TestFailedOrCancelledPreparationPreservesResiduals(t *testing.T) {
 		}
 	}
 }
+
+func TestPayloadPreflightFailureRecordsCauseBeforeAnyMutation(t *testing.T) {
+	var events []string
+	mutations := 0
+	_, err := Install(context.Background(), Options{}, InstallationActions{
+		Check:   func() (bool, error) { return true, errors.New("INSTALL_PUBLISHER_DESKTOP_INDEX_REQUIRED") },
+		Prepare: func(context.Context, string) error { mutations++; return nil },
+		Cleanup: func(context.Context) error { mutations++; return nil },
+		Install: func(context.Context) (string, error) { mutations++; return "", nil },
+		Record: func(stage, state string, err error) {
+			events = append(events, stage+":"+state)
+			if state == "failed" && err == nil {
+				t.Fatal("failure cause omitted")
+			}
+		},
+	})
+	if err == nil || mutations != 0 || !reflect.DeepEqual(events, []string{"preflight:started", "preflight:failed"}) {
+		t.Fatal(err, mutations, events)
+	}
+}

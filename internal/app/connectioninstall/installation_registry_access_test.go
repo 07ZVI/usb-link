@@ -23,13 +23,34 @@ func TestOnlyExactPrivilegedRegistryWritersAreAllowed(t *testing.T) {
 			t.Fatal(sid)
 		}
 	}
-	for _, sid := range []string{"S-1-5-32-545", "S-1-1-0", "S-1-5-11", "S-1-5-21-10-20-30-1002", "S-1-5-80-123", ""} {
+	for _, sid := range []string{"S-1-5-13", "S-1-5-32-545", "S-1-1-0", "S-1-5-11", "S-1-5-21-10-20-30-1002", "S-1-5-80-123", ""} {
 		if trustedDeletedRegistryWriter(sid, admin) {
 			t.Fatal("unrelated writer accepted", sid)
 		}
 	}
 	if trustedDeletedRegistryWriter(admin, "") {
 		t.Fatal("user accepted without elevated-token proof")
+	}
+}
+
+func TestReportedTerminalServerACEOnlyAllowsLegacyDiscard(t *testing.T) {
+	if !removableLegacyRegistryACE("S-1-5-13", "", 0x3001f, 0x10) {
+		t.Fatal("reported inherited legacy compatibility ACE blocks cleanup")
+	}
+	for _, sid := range []string{"S-1-1-0", "S-1-5-11", "S-1-5-32-545", "S-1-5-13-1", ""} {
+		if removableLegacyRegistryACE(sid, "", 0x3001f, 0x10) {
+			t.Fatalf("unreviewed principal accepted: %s", sid)
+		}
+	}
+	for _, flags := range []byte{0, 1, 2, 8, 0x12, 0x18, 0x90} {
+		if removableLegacyRegistryACE("S-1-5-13", "", 0x3001f, flags) {
+			t.Fatalf("unreviewed ACE flags accepted: %02x", flags)
+		}
+	}
+	for _, mask := range []uint32{0xf003f, 0x3003f, 0x7001f, 0xb001f, 0x4003001f, 0x1003001f} {
+		if removableLegacyRegistryACE("S-1-5-13", "", mask, 0x10) {
+			t.Fatalf("additional privileges accepted: %08x", mask)
+		}
 	}
 }
 

@@ -6,8 +6,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +70,9 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		return "", e
 	}
 	defer func() { result = errors.Join(result, unlock()) }()
+	if e := ValidateInstallationPayload(version, archive, size); e != nil {
+		return "", e
+	}
 	ops, e := installationPaths()
 	if e != nil {
 		return "", e
@@ -90,8 +91,12 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		return "", e
 	}
 	if present && t.Phase != InstallComplete && t.Phase != InstallRolledBack {
-		if t.OwnerSID != u.User.Sid.String() || t.Next != next {
+		rollbackOnly := canFinishInstallationRollback(t, u.User.Sid.String(), version)
+		if t.OwnerSID != u.User.Sid.String() || (t.Next != next && !rollbackOnly) {
 			return "", fmt.Errorf("INSTALL_PENDING_USE_ORIGINAL_SETUP")
+		}
+		if e = repairOrphanInstallationIntegrations(); e != nil {
+			return "", e
 		}
 		if t.Phase == InstallStaged {
 			if e = stageInstallationRelease(ops, t, self, archive, size); e != nil {
@@ -99,14 +104,21 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 			}
 		}
 		completed, runError := ExecuteInstallation(ctx, t, ops)
-		if runError == nil {
-			runError = installationOutcomeError(completed)
+		// Deletion-only recovery consumes the old journal/inventory unchanged.
+		// Only after durable rolled-back state may this setup start its OWN plan.
+		if runError == nil && completed.Phase == InstallRolledBack && t.Previous == nil {
+			t = completed
+		} else {
+			if runError == nil {
+				runError = installationOutcomeError(completed)
+			}
+			if runError != nil && completed.Phase == InstallStaged && ctx.Err() != nil {
+				runError = errors.Join(runError, discardStagedInstallation(ops, t, self, archive, size))
+			}
+			return filepath.Join(ops.app, BinaryName), runError
 		}
-		if runError != nil && completed.Phase == InstallStaged && ctx.Err() != nil {
-			runError = errors.Join(runError, discardStagedInstallation(ops, t, self, archive, size))
-		}
-		return filepath.Join(ops.app, BinaryName), runError
 	}
+
 	if accepted, repair, err := inspectMissingAcceptedInstallation(version); err != nil {
 		return "", err
 	} else if repair {
@@ -116,6 +128,9 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		return filepath.Join(ops.app, BinaryName), ensureCompletedInstallationReady(ctx, ops, accepted)
 	}
 	if e = PreflightLocalInstallation(); e != nil {
+		return "", e
+	}
+	if e = repairOrphanInstallationIntegrations(); e != nil {
 		return "", e
 	}
 	if e = recoverCoreServiceTransition(); e != nil {
@@ -545,10 +560,7 @@ func (o *nativeInstallation) Restore(t InstallationTransaction) error {
 		}
 		exe := filepath.Join(o.app, BinaryName)
 		if Verify(exe) == nil {
-			if e = UpdateShortcut(exe, true); e != nil {
-				return e
-			}
-			if e = SetStartupContext(context.Background(), false, exe); e != nil {
+			if e = removeFailedInstallationIntegrations(exe); e != nil {
 				return e
 			}
 			if e = removeExactRegistration(exe); e != nil {
@@ -731,57 +743,8 @@ func migrateInstallationSecurity(state string) error {
 	return windows.MoveFileEx(windows.StringToUTF16Ptr(old), windows.StringToUTF16Ptr(next), windows.MOVEFILE_WRITE_THROUGH)
 }
 
-func plannedInstallationInventory(next Receipt, archive io.ReaderAt, size int64) (map[string]string, error) {
-	z, e := zip.NewReader(archive, size)
-	if e != nil {
-		return nil, e
-	}
-	index, present, e := embeddedDesktopIndex(z)
-	if e != nil || !present {
-		return nil, fmt.Errorf("INSTALL_PUBLISHER_DESKTOP_INDEX_REQUIRED: %v", e)
-	}
-	receipt, _ := json.Marshal(next)
-	h := sha256.Sum256(receipt)
-	inv := map[string]string{BinaryName: next.SHA, "ownership.json": hex.EncodeToString(h[:])}
-	for name, h := range index {
-		inv["Desktop/"+name] = hex.EncodeToString(h[:])
-	}
-	return inv, nil
-}
 func stageInstallationRelease(o *nativeInstallation, t InstallationTransaction, self string, archive io.ReaderAt, size int64) error {
-	want, e := plannedInstallationInventory(t.Next, archive, size)
-	if e != nil || !reflect.DeepEqual(want, t.NextFiles) {
-		return fmt.Errorf("INSTALL_STAGED_PAYLOAD_CHANGED")
-	}
-	if e = osMkdirRelease(o.candidate); e != nil {
-		return e
-	}
-	if e = writeInstallationContent(filepath.Join(o.candidate, BinaryName), t.Next.SHA, func() (io.ReadCloser, error) {
-		if e := noReparse(self); e != nil {
-			return nil, e
-		}
-		return os.Open(self)
-	}); e != nil {
-		return e
-	}
-	receipt, _ := json.Marshal(t.Next)
-	if e = writeInstallationContent(filepath.Join(o.candidate, "ownership.json"), t.NextFiles["ownership.json"], func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(receipt)), nil }); e != nil {
-		return e
-	}
-	dir := filepath.Join(o.candidate, "Desktop")
-	if e = osMkdirRelease(dir); e != nil {
-		return e
-	}
-	z, e := zip.NewReader(archive, size)
-	if e != nil {
-		return e
-	}
-	for _, entry := range z.File {
-		if e = writeInstallationContent(filepath.Join(dir, entry.Name), t.NextFiles["Desktop/"+entry.Name], entry.Open); e != nil {
-			return e
-		}
-	}
-	return verifyReleaseFiles(o.candidate, t.NextFiles, false)
+	return stageInstallationPayload(installationReleaseFiles, o.candidate, t, self, archive, size, noReparse)
 }
 
 func installationReadyProcess(r installationReady) bool {

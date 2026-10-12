@@ -310,26 +310,27 @@ func coreServiceSecurity(s *mgr.Service) error {
 // Unknown dependencies, restricted SID modes and recovery commands can change
 // what runs as SYSTEM. They are not repaired or treated as our owned service.
 func coreServiceExecutionPolicy(s *mgr.Service, c mgr.Config) error {
+	var problems []error
 	if c.SidType != windows.SERVICE_SID_TYPE_NONE || c.ErrorControl != 0 || c.TagId != 0 || c.LoadOrderGroup != "" || len(c.Dependencies) != 0 {
-		return fmt.Errorf("CORE_SERVICE_EXECUTION_CONFIG_CHANGED")
+		problems = append(problems, fmt.Errorf("CORE_SERVICE_EXECUTION_CONFIG_CHANGED: sidType=%d errorControl=%d tag=%d group=%q dependencies=%q", c.SidType, c.ErrorControl, c.TagId, c.LoadOrderGroup, c.Dependencies))
 	}
 	actions, e := s.RecoveryActions()
 	if e != nil || len(actions) != 0 {
-		return fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED")
+		problems = append(problems, fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED: actions=%v query=%v", actions, e))
 	}
 	command, e := s.RecoveryCommand()
 	if e != nil || command != "" {
-		return fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED")
+		problems = append(problems, fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED: command present=%t query=%v", command != "", e))
 	}
 	message, e := s.RebootMessage()
 	if e != nil || message != "" {
-		return fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED")
+		problems = append(problems, fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED: reboot message present=%t query=%v", message != "", e))
 	}
 	flag, e := s.RecoveryActionsOnNonCrashFailures()
 	if e != nil || flag {
-		return fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED")
+		problems = append(problems, fmt.Errorf("CORE_SERVICE_RECOVERY_CHANGED: nonCrash=%t query=%v", flag, e))
 	}
-	return nil
+	return errors.Join(problems...)
 }
 func stopCore(s *mgr.Service) error {
 	if coreServiceSecurity(s) != nil {

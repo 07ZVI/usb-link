@@ -5,24 +5,30 @@ import "strings"
 // InstallationInspection records observations only. It does not prove ownership
 // or authorize repair. Unknown values are never represented as absent.
 type InstallationInspection struct {
-	InspectedAt                 string   `json:"inspectedAt"`
-	ChangesMade                 bool     `json:"changesMade"`
-	ProgramDirectory            string   `json:"programDirectory"`
-	ProgramDirectoryPresent     *bool    `json:"programDirectoryPresent"`
-	RegistrationPresent         *bool    `json:"registrationPresent"`
-	RegistrationSecurity        string   `json:"registrationSecurity,omitempty"`
-	RegisteredVersion           string   `json:"registeredVersion,omitempty"`
-	RegisteredExecutable        string   `json:"registeredExecutable,omitempty"`
-	RegisteredExecutablePresent *bool    `json:"registeredExecutablePresent"`
-	ServiceSecurity             string   `json:"serviceSecurity,omitempty"`
-	ServicePresent              *bool    `json:"servicePresent"`
-	ServiceState                string   `json:"serviceState,omitempty"`
-	ServicePID                  uint32   `json:"servicePID"`
-	ServiceExecutable           string   `json:"serviceExecutable,omitempty"`
-	ServiceExecutablePresent    *bool    `json:"serviceExecutablePresent"`
-	BindingPresent              *bool    `json:"bindingPresent"`
-	LegacyBindingPresent        *bool    `json:"legacyBindingPresent"`
-	Errors                      []string `json:"errors,omitempty"`
+	Integrations                []installationIntegration `json:"integrations,omitempty"`
+	InspectedAt                 string                    `json:"inspectedAt"`
+	InspectionReadOnly          bool                      `json:"inspectionReadOnly"`
+	ServiceConfiguration        map[string]any            `json:"serviceConfiguration,omitempty"`
+	ServiceStatus               map[string]uint32         `json:"serviceStatus,omitempty"`
+	ServiceRecovery             map[string]any            `json:"serviceRecovery,omitempty"`
+	Transaction                 map[string]any            `json:"transaction,omitempty"`
+	Checks                      map[string]string         `json:"checks"`
+	ProgramDirectory            string                    `json:"programDirectory"`
+	ProgramDirectoryPresent     *bool                     `json:"programDirectoryPresent"`
+	RegistrationPresent         *bool                     `json:"registrationPresent"`
+	RegistrationSecurity        string                    `json:"registrationSecurity,omitempty"`
+	RegisteredVersion           string                    `json:"registeredVersion,omitempty"`
+	RegisteredExecutable        string                    `json:"registeredExecutable,omitempty"`
+	RegisteredExecutablePresent *bool                     `json:"registeredExecutablePresent"`
+	ServiceSecurity             string                    `json:"serviceSecurity,omitempty"`
+	ServicePresent              *bool                     `json:"servicePresent"`
+	ServiceState                string                    `json:"serviceState,omitempty"`
+	ServicePID                  uint32                    `json:"servicePID"`
+	ServiceExecutable           string                    `json:"serviceExecutable,omitempty"`
+	ServiceExecutablePresent    *bool                     `json:"serviceExecutablePresent"`
+	BindingPresent              *bool                     `json:"bindingPresent"`
+	LegacyBindingPresent        *bool                     `json:"legacyBindingPresent"`
+	Errors                      []string                  `json:"errors,omitempty"`
 }
 
 func inspectionPresence(v *bool) string {

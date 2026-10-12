@@ -72,6 +72,9 @@ func PreflightLocalInstallationForSetup(version string) error {
 	if ok && t.Phase != InstallComplete && t.Phase != InstallRolledBack {
 		sum, e := fileHash(self)
 		u, ue := windows.GetCurrentProcessToken().GetTokenUser()
+		if e == nil && ue == nil && canFinishInstallationRollback(t, u.User.Sid.String(), version) {
+			return nil
+		}
 		if e != nil || ue != nil || t.Next.Version != version || t.Next.SHA != sum || u.User.Sid.String() != t.OwnerSID {
 			return fmt.Errorf("INSTALL_PENDING_USE_ORIGINAL_SETUP")
 		}

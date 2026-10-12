@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,6 +156,10 @@ func nativeProductTasks(folder *wincom.Dispatch, name, sid string) ([]nativeStar
 	return nativeProductTasksVerified(folder, name, sid, Verify, true)
 }
 func nativeProductTasksVerified(folder *wincom.Dispatch, name, sid string, verify func(string) error, recordObservation bool) ([]nativeStartupTask, error) {
+	return nativeProductTasksInspected(folder, name, sid, verify, recordObservation, false)
+}
+
+func nativeProductTasksInspected(folder *wincom.Dispatch, name, sid string, verify func(string) error, recordObservation, collectErrors bool) ([]nativeStartupTask, error) {
 	c, e := nativeObject(folder, "GetTasks", true, wincom.Int(1))
 	if e != nil {
 		return nil, e
@@ -169,6 +174,7 @@ func nativeProductTasksVerified(folder *wincom.Dispatch, name, sid string, verif
 	}
 	legacy := strings.Replace(name, "USB-Link-", "Suhang-iPad-USB-", 1)
 	out := []nativeStartupTask{}
+	var problems []error
 	for i := int32(1); i <= count; i++ {
 		item, e := nativeObject(c, "Item", false, wincom.Int(i))
 		if e != nil {
@@ -212,7 +218,15 @@ func nativeProductTasksVerified(folder *wincom.Dispatch, name, sid string, verif
 			return parsed, err
 		}()
 		if e != nil {
-			return nil, e
+			// Inspection may retain the failed object's identity for diagnostics;
+			// operational callers must still reject the non-nil error.
+			t.InspectionProblem = e.Error()
+			if !collectErrors {
+				return append(out, t), e
+			}
+			out = append(out, t)
+			problems = append(problems, fmt.Errorf("%s: %w", t.Name, e))
+			continue
 		}
 		if strings.EqualFold(t.Name, name) || strings.EqualFold(t.Name, legacy) {
 			for _, old := range out {
@@ -223,7 +237,7 @@ func nativeProductTasksVerified(folder *wincom.Dispatch, name, sid string, verif
 			out = append(out, t)
 		}
 	}
-	return out, nil
+	return out, errors.Join(problems...)
 }
 
 func runNativeStartupTask(ctx context.Context, mode, path, name, sid, xmlText string) (result StartupTaskObservation, err error) {

@@ -16,6 +16,20 @@ func trustedDeletedRegistryWriter(sid, elevatedAdministrator string) bool {
 	return sid == "S-1-5-18" || sid == "S-1-5-32-544" || elevatedAdministrator != "" && sid == elevatedAdministrator
 }
 
+// This is permission to discard an exact, backed-up legacy leaf, NOT proof
+// that its values are trusted. The reported machine inherits this Terminal
+// Server Users compatibility ACE. It permits data changes/deletion but not
+// changing ownership/DACL or creating registry links. Never use this exception
+// for service authorization, executing UninstallString, or adopting an install.
+// deletedRegistration separately requires the fixed nine values, no children,
+// privileged owner, absent program root and no modern installation records.
+func removableLegacyRegistryACE(sid, elevatedAdministrator string, mask uint32, flags byte) bool {
+	if !registryAccessCanMutate(mask) || trustedDeletedRegistryWriter(sid, elevatedAdministrator) {
+		return true
+	}
+	return sid == "S-1-5-13" && mask == 0x0003001f && flags == 0x10
+}
+
 // Services differ from registry keys: GENERIC_EXECUTE includes starting and
 // stopping a service. Preserve the core's existing control/configuration gate,
 // but do not reject GENERIC_READ, which only grants inspection rights.

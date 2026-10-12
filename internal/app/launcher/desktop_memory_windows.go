@@ -5,8 +5,18 @@ package launcher
 import (
 	"bytes"
 	"context"
+	"errors"
 	"suhang/usbnet/internal/app/connectioninstall"
 )
+
+func checkBundledInstallation() (bool, error) {
+	archive, payloadError := macArchive(bundledDesktopAsset)
+	if payloadError == nil {
+		payloadError = connectioninstall.ValidateInstallationPayload(version, archive.Reader, archive.Size)
+	}
+	cleanup, stateError := connectioninstall.PlanLocalInstallationForSetup(version)
+	return cleanup, errors.Join(payloadError, stateError)
+}
 
 // Embedded bytes remain the verification authority. Release numbers select
 // readable folders only; they cannot authorize changed or foreign UI files.

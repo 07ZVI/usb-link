@@ -8,6 +8,7 @@ package connectioninstall
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -144,7 +145,7 @@ func deletedRegistration(root, old string) (map[string]string, string, error) {
 		if a.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
 			continue
 		}
-		if registryAccessCanMutate(uint32(a.Mask)) && !trustedDeletedRegistryWriter(sid.String(), elevatedSID) {
+		if !removableLegacyRegistryACE(sid.String(), elevatedSID, uint32(a.Mask), a.Header.AceFlags) {
 			return nil, "", fmt.Errorf("REPAIR_REGISTRY_FOREIGN_WRITE: SID=%s, access=0x%08x, flags=0x%02x", sid.String(), uint32(a.Mask), a.Header.AceFlags)
 		}
 	}
@@ -152,26 +153,29 @@ func deletedRegistration(root, old string) (map[string]string, string, error) {
 }
 
 func deletedService(s *mgr.Service, root, old string) (*mgr.Config, string, error) {
-	if e := coreServiceSecurity(s); e != nil {
-		return nil, "", e
-	}
+	var problems []error
+	problems = append(problems, coreServiceSecurity(s))
 	c, e := s.Config()
 	if e != nil {
 		return nil, "", e
 	}
 	args, parse := windows.DecomposeCommandLine(c.BinaryPathName)
-	if parse != nil || validateCoreServiceConfig(filepath.Join(root, old, BinaryName), c.ServiceStartName, c.ServiceType, c.StartType, c.DelayedAutoStart, args) != nil || c.DisplayName != "USB Link" || c.Description != "USB Link core: owned USB networking, local UI IPC; no interactive Session0 UI." || c.Password != "" {
-		return nil, "", fmt.Errorf("REPAIR_SERVICE_CONFIG_CHANGED")
+	if parse != nil {
+		problems = append(problems, fmt.Errorf("REPAIR_SERVICE_CONFIG_CHANGED: command parse: %w", parse))
 	}
-	if e = coreServiceExecutionPolicy(s, c); e != nil {
-		return nil, "", e
+	if validateCoreServiceConfig(filepath.Join(root, old, BinaryName), c.ServiceStartName, c.ServiceType, c.StartType, c.DelayedAutoStart, args) != nil {
+		problems = append(problems, fmt.Errorf("REPAIR_SERVICE_CONFIG_CHANGED: command=%q, account=%q, serviceType=%d, startType=%d, delayed=%t", c.BinaryPathName, c.ServiceStartName, c.ServiceType, c.StartType, c.DelayedAutoStart))
 	}
+	problems = append(problems, validateDeletedServiceMetadata(c.DisplayName, c.Description, c.Password), coreServiceExecutionPolicy(s, c))
 	status, e := s.Query()
 	if e != nil || status.State != svc.Stopped || status.ProcessId != 0 {
-		return nil, "", fmt.Errorf("REPAIR_SERVICE_NOT_STOPPED")
+		problems = append(problems, fmt.Errorf("REPAIR_SERVICE_NOT_STOPPED: state=%d pid=%d query=%v", status.State, status.ProcessId, e))
 	}
 	sd, e := windows.GetSecurityInfo(s.Handle, windows.SE_SERVICE, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if e != nil {
+		problems = append(problems, e)
+	}
+	if e := errors.Join(problems...); e != nil {
 		return nil, "", e
 	}
 	return &c, sd.String(), nil
@@ -202,31 +206,30 @@ func noDeletedInstallProcesses() error {
 // Read-only gate before preparing components. Repair repeats every proof while
 // holding the lifecycle mutex immediately before its own mutations.
 func InspectReportedDeletedInstallation() error {
-	root, e := missingInstallRoot()
+	root, e := Root()
 	if e != nil {
 		return e
 	}
-	if e = noDeletedInstallProcesses(); e != nil {
-		return e
-	}
-	if _, _, e = deletedRegistration(root, "0.8.139"); e != nil {
-		return e
-	}
+	// Independent read-only probes all run; mutation still requires all to pass.
+	_, rootError := missingInstallRoot()
+	processError := noDeletedInstallProcesses()
+	_, _, registrationError := deletedRegistration(root, "0.8.139")
+	prior := errors.Join(rootError, processError, registrationError)
 	m, e := deletedInstallSCM()
 	if e != nil {
-		return e
+		return errors.Join(prior, e)
 	}
 	defer m.Disconnect()
 	s, e := deletedInstallService(m, false)
 	if e == windows.ERROR_SERVICE_DOES_NOT_EXIST {
-		return nil
+		return prior
 	}
 	if e != nil {
-		return e
+		return errors.Join(prior, e)
 	}
 	defer s.Close()
 	_, _, e = deletedService(s, root, "0.9.3")
-	return e
+	return errors.Join(prior, e)
 }
 
 // Operator recovery of this specific deleted installation. No caller can
@@ -452,15 +455,16 @@ func deletedInstallService(m *mgr.Mgr, remove bool) (*mgr.Service, error) {
 // Normal installs, authenticated fixed-layout repair and interrupted updates
 // retain their existing gates. Mutation repeats the legacy proof under a lease.
 func PlanLocalInstallationForSetup(version string) (cleanup bool, err error) {
+	_, integrationError := inspectInstallationIntegrations()
 	normal := PreflightLocalInstallationForSetup(version)
 	if normal == nil {
-		return false, nil
+		return false, integrationError
 	}
 	if e := pendingInstallationRemoval(); e != nil {
 		return false, e
 	}
 	if e := InspectReportedDeletedInstallation(); e != nil {
-		return false, fmt.Errorf("%w\n旧安装记录无法自动清理：%v", normal, e)
+		return false, errors.Join(integrationError, fmt.Errorf("%w\n旧安装记录无法自动清理：%v", normal, e))
 	}
-	return true, nil
+	return true, integrationError
 }

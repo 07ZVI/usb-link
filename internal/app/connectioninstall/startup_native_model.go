@@ -58,6 +58,7 @@ type nativeStartupTask struct {
 	State                    int32
 	Enabled                  bool
 	TriggerObservation       *NativeStartupTriggerObservation
+	InspectionProblem        string
 }
 
 // Fixed sanitized observation only. The producer attaches it after description,
@@ -138,10 +139,10 @@ func parseNativeStartupTask(t nativeStartupTask, sid string, resolve func(string
 	if a.XMLName.Local != "Exec" || a.XMLName.Space != taskNamespace || a.Arguments != "--resident" || a.WorkingDirectory != "" || a.Command == "" {
 		return fail("STARTUP_TASK_ACTION_CHANGED")
 	}
+	t.Command = a.Command
 	if verify(a.Command) != nil {
 		return fail("STARTUP_TASK_RECEIPT_CHANGED")
 	}
-	t.Command = a.Command
 	observation := &NativeStartupTriggerObservation{
 		ObservationOnly: true, Available: true, TriggerCount: len(d.Triggers.Items),
 		SettingsEnabledPresent: d.Settings.Enabled != nil,
