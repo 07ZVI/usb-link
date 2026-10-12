@@ -10,9 +10,11 @@ type InstallationInspection struct {
 	ProgramDirectory            string   `json:"programDirectory"`
 	ProgramDirectoryPresent     *bool    `json:"programDirectoryPresent"`
 	RegistrationPresent         *bool    `json:"registrationPresent"`
+	RegistrationSecurity        string   `json:"registrationSecurity,omitempty"`
 	RegisteredVersion           string   `json:"registeredVersion,omitempty"`
 	RegisteredExecutable        string   `json:"registeredExecutable,omitempty"`
 	RegisteredExecutablePresent *bool    `json:"registeredExecutablePresent"`
+	ServiceSecurity             string   `json:"serviceSecurity,omitempty"`
 	ServicePresent              *bool    `json:"servicePresent"`
 	ServiceState                string   `json:"serviceState,omitempty"`
 	ServicePID                  uint32   `json:"servicePID"`

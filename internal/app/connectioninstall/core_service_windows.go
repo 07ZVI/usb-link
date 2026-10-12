@@ -300,8 +300,8 @@ func coreServiceSecurity(s *mgr.Service) error {
 		if uint32(a.Header.AceSize) != 16+4*uint32(count) || !sid.IsValid() {
 			return fmt.Errorf("CORE_SCM_ACL_UNPROVEN")
 		}
-		if !sid.Equals(ba) && !sid.Equals(sy) && uint32(a.Mask)&uint32(0xf0000000|windows.SERVICE_CHANGE_CONFIG|windows.SERVICE_START|windows.SERVICE_STOP|windows.DELETE|windows.WRITE_DAC|windows.WRITE_OWNER) != 0 {
-			return fmt.Errorf("CORE_SCM_FOREIGN_WRITE")
+		if !sid.Equals(ba) && !sid.Equals(sy) && serviceAccessCanChangeCore(uint32(a.Mask)) {
+			return fmt.Errorf("CORE_SCM_FOREIGN_WRITE: SID=%s, access=0x%08x, flags=0x%02x", sid.String(), uint32(a.Mask), a.Header.AceFlags)
 		}
 	}
 	return nil

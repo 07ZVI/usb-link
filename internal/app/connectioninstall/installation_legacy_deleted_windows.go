@@ -121,6 +121,16 @@ func deletedRegistration(root, old string) (map[string]string, string, error) {
 	if e != nil || acl == nil || acl.AceCount > 32 {
 		return nil, "", fmt.Errorf("REPAIR_REGISTRY_ACL_UNPROVEN")
 	}
+	elevatedSID := ""
+	token := windows.GetCurrentProcessToken()
+	session, sessionError := shareTokenDWORD(token, windows.TokenSessionId)
+	if token.IsElevated() && sessionError == nil && session != 0 {
+		user, e := token.GetTokenUser()
+		if e != nil {
+			return nil, "", e
+		}
+		elevatedSID = user.User.Sid.String()
+	}
 	for i := uint32(0); i < uint32(acl.AceCount); i++ {
 		var a *windows.ACCESS_ALLOWED_ACE
 		if windows.GetAce(acl, i, &a) != nil || a == nil || a.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || a.Header.AceSize < 20 || a.Header.AceSize > 68 {
@@ -134,8 +144,8 @@ func deletedRegistration(root, old string) (map[string]string, string, error) {
 		if a.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
 			continue
 		}
-		if !sid.IsWellKnown(windows.WinBuiltinAdministratorsSid) && !sid.IsWellKnown(windows.WinLocalSystemSid) && uint32(a.Mask)&uint32(0xf0000000|windows.KEY_SET_VALUE|windows.KEY_CREATE_SUB_KEY|windows.DELETE|windows.WRITE_DAC|windows.WRITE_OWNER) != 0 {
-			return nil, "", fmt.Errorf("REPAIR_REGISTRY_FOREIGN_WRITE")
+		if registryAccessCanMutate(uint32(a.Mask)) && !trustedDeletedRegistryWriter(sid.String(), elevatedSID) {
+			return nil, "", fmt.Errorf("REPAIR_REGISTRY_FOREIGN_WRITE: SID=%s, access=0x%08x, flags=0x%02x", sid.String(), uint32(a.Mask), a.Header.AceFlags)
 		}
 	}
 	return got, sd.String(), nil

@@ -59,6 +59,21 @@ func InspectInstallation() InstallationInspection {
 		defer k.Close()
 		v := true
 		r.RegistrationPresent = &v
+		// Open a separate read-control handle so an ACL-query denial does not hide
+		// the registration values that were otherwise readable.
+		securityKey, securityError := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKey, windows.READ_CONTROL|registry.WOW64_64KEY)
+		if securityError != nil {
+			problem("卸载登记权限", securityError)
+		} else {
+			sd, e := windows.GetSecurityInfo(windows.Handle(securityKey), windows.SE_REGISTRY_KEY, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+			securityKey.Close()
+			if e != nil || sd == nil {
+				problem("卸载登记权限", fmt.Errorf("无法读取安全描述符：%v", e))
+			} else {
+				r.RegistrationSecurity = sd.String()
+			}
+		}
+
 		r.RegisteredVersion, _, e = k.GetStringValue("DisplayVersion")
 		if e != nil {
 			problem("登记版本", e)
@@ -93,6 +108,18 @@ func InspectInstallation() InstallationInspection {
 	defer s.Close()
 	v := true
 	r.ServicePresent = &v
+	securityHandle, securityError := windows.OpenService(scm, windows.StringToUTF16Ptr(CoreServiceName), windows.READ_CONTROL)
+	if securityError != nil {
+		problem("核心服务权限", securityError)
+	} else {
+		sd, e := windows.GetSecurityInfo(securityHandle, windows.SE_SERVICE, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+		windows.CloseServiceHandle(securityHandle)
+		if e != nil || sd == nil {
+			problem("核心服务权限", fmt.Errorf("无法读取安全描述符：%v", e))
+		} else {
+			r.ServiceSecurity = sd.String()
+		}
+	}
 	status, e := s.Query()
 	if e != nil {
 		problem("服务状态", e)
