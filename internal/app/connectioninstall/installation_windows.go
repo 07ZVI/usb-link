@@ -99,6 +99,9 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 			}
 		}
 		completed, runError := ExecuteInstallation(ctx, t, ops)
+		if runError == nil {
+			runError = installationOutcomeError(completed)
+		}
 		if runError != nil && completed.Phase == InstallStaged && ctx.Err() != nil {
 			runError = errors.Join(runError, discardStagedInstallation(ops, t, self, archive, size))
 		}
@@ -110,7 +113,7 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		if err = repairMissingAcceptedInstallation(ops, accepted, self, archive, size); err != nil {
 			return "", err
 		}
-		return filepath.Join(ops.app, BinaryName), nil
+		return filepath.Join(ops.app, BinaryName), ensureCompletedInstallationReady(ctx, ops, accepted)
 	}
 	if e = PreflightLocalInstallation(); e != nil {
 		return "", e
@@ -141,7 +144,11 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 			return "", planError
 		}
 		if previous.SHA256 == sum && strings.EqualFold(filepath.Dir(previous.Executable), ops.app) && verifyReleaseFiles(ops.app, want, false) == nil {
-			return previous.Executable, VerifyCoreExecutable(previous.Executable)
+			if present && t.Phase == InstallComplete && t.Next == next {
+				return previous.Executable, ensureCompletedInstallationReady(ctx, ops, t)
+			}
+			// A rollback journal may describe a different failed release. Reinstall
+			// through a new transaction so its acceptance proves the requested bytes.
 		}
 	}
 	// Seal the planned inventory before materializing any candidate file. An
@@ -196,6 +203,9 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		return "", e
 	}
 	completed, runError := ExecuteInstallation(ctx, t, ops)
+	if runError == nil {
+		runError = installationOutcomeError(completed)
+	}
 	if runError != nil && completed.Phase == InstallStaged && ctx.Err() != nil {
 		runError = errors.Join(runError, discardStagedInstallation(ops, t, self, archive, size))
 	}
@@ -653,7 +663,7 @@ func AcceptInstallationReady() error {
 	if e != nil || !present {
 		return e
 	}
-	if t.Phase != InstallPublished && t.Phase != InstallStarted {
+	if t.Phase != InstallPublished && t.Phase != InstallStarted && t.Phase != InstallComplete {
 		return nil
 	}
 	self, e := os.Executable()
@@ -661,7 +671,7 @@ func AcceptInstallationReady() error {
 		return e
 	}
 	b, e := CurrentCoreBinding()
-	if e != nil || !strings.EqualFold(b.Executable, self) || b.SHA256 != t.Next.SHA {
+	if e != nil || !strings.EqualFold(b.Executable, self) || b.SHA256 != t.Next.SHA || b.OwnerSID != t.OwnerSID {
 		return fmt.Errorf("INSTALL_ACCEPT_SOURCE_CHANGED")
 	}
 	if e = VerifyCoreServiceProcess(uint32(os.Getpid())); e != nil {
@@ -853,4 +863,27 @@ func cleanInstallationPartialsForPayload(dir string, t InstallationTransaction, 
 		}
 	}
 	return nil
+}
+
+// Re-running/repairing an accepted package still requires a live authenticated
+// initialization acknowledgement. SCM Running or matching files alone do not
+// mean that USB/network recovery and connection settings initialization finished.
+func ensureCompletedInstallationReady(ctx context.Context, o *nativeInstallation, t InstallationTransaction) error {
+	return confirmCompletedReinstall(ctx, t.Phase, completedReinstallActions{
+		Verify: func() error {
+			if e := o.Verify(t); e != nil {
+				return e
+			}
+			return verifyReleaseFiles(o.app, t.NextFiles, false)
+		},
+		Metadata: func() error {
+			exe := filepath.Join(o.app, BinaryName)
+			if e := Register(exe, t.Next.Version); e != nil {
+				return e
+			}
+			return UpdateShortcut(exe, false)
+		},
+		Start: StartCoreService,
+		Await: func(ctx context.Context) error { return o.AwaitAcceptance(ctx, t) },
+	})
 }

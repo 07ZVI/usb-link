@@ -51,6 +51,13 @@ func inspectMissingAcceptedInstallation(version string) (InstallationTransaction
 	} else if !os.IsNotExist(err) {
 		return t, false, err
 	}
+	clean, e := completedUninstallAbsence(t, current)
+	if e != nil {
+		return t, false, e
+	}
+	if clean {
+		return t, false, nil
+	}
 	u, e := windows.GetCurrentProcessToken().GetTokenUser()
 	if e != nil || u.User.Sid.String() != t.OwnerSID || !windows.GetCurrentProcessToken().IsElevated() {
 		return t, false, fmt.Errorf("INSTALL_REPAIR_OWNER_CHANGED")
@@ -137,4 +144,51 @@ func repairMissingAcceptedInstallation(ops *nativeInstallation, t InstallationTr
 		return e
 	}
 	return VerifyCoreExecutable(filepath.Join(ops.app, BinaryName))
+}
+
+// Historical completion is retained after uninstall. Prove that all four active
+// objects are absent before classifying the same original setup as a new install.
+func completedUninstallAbsence(t InstallationTransaction, current string) (bool, error) {
+	base, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if e != nil {
+		return false, e
+	}
+	filePresent := func(path string) (bool, error) {
+		_, e := os.Lstat(path)
+		if os.IsNotExist(e) {
+			return false, nil
+		}
+		return e == nil, e
+	}
+	return cleanCompletedUninstall(t.Phase, cleanUninstallProbes{
+		Source:  func() (bool, error) { return filePresent(current) },
+		Binding: func() (bool, error) { return filePresent(filepath.Join(base, "USB Link", "State", coreBindingFile)) },
+		Registration: func() (bool, error) {
+			k, e := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKey, registry.QUERY_VALUE)
+			if e == registry.ErrNotExist {
+				return false, nil
+			}
+			if e != nil {
+				return false, e
+			}
+			k.Close()
+			return true, nil
+		},
+		Service: func() (bool, error) {
+			m, e := deletedInstallSCM()
+			if e != nil {
+				return false, e
+			}
+			defer m.Disconnect()
+			s, e := deletedInstallService(m, false)
+			if e == windows.ERROR_SERVICE_DOES_NOT_EXIST {
+				return false, nil
+			}
+			if e != nil {
+				return false, e
+			}
+			s.Close()
+			return true, nil
+		},
+	})
 }

@@ -3,6 +3,7 @@
 package connectioninstall
 
 import (
+	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -40,23 +41,43 @@ func ownedRegistration() error {
 	}
 	return nil
 }
-func Register(path, version string) error {
+func Register(path, version string) (result error) {
 	if Verify(path) != nil || ownedRegistration() != nil {
 		return fmt.Errorf("installation registration ownership failed")
 	}
-	k, _, e := registry.CreateKey(registry.LOCAL_MACHINE, uninstallKey, registry.SET_VALUE)
+	receipt, e := readReceipt(filepath.Dir(path))
+	if e != nil || receipt.Version != version {
+		return fmt.Errorf("INSTALL_REGISTRATION_RELEASE_CHANGED")
+	}
+	k, existed, e := registry.CreateKey(registry.LOCAL_MACHINE, uninstallKey, registry.SET_VALUE|registry.QUERY_VALUE)
 	if e != nil {
 		return e
 	}
 	defer k.Close()
-	for n, v := range map[string]string{"ProductID": ProductID, "DisplayName": "USB Link", "DisplayVersion": version, "Publisher": "USB Link", "InstallLocation": filepath.Dir(path), "DisplayIcon": path, "UninstallString": windows.ComposeCommandLine([]string{path, "--uninstall"})} {
-		if e = k.SetStringValue(n, v); e != nil {
-			return e
+	defer func() {
+		if result == nil || existed {
+			return
 		}
+		info, e := k.Stat()
+		if e != nil {
+			result = errors.Join(result, e)
+			return
+		}
+		if info.ValueCount != 0 || info.SubKeyCount != 0 {
+			return
+		} // Unknown contents are retained.
+		e = registry.DeleteKey(registry.LOCAL_MACHINE, uninstallKey)
+		if e != nil && e != registry.ErrNotExist {
+			result = errors.Join(result, e)
+		}
+	}()
+	want := map[string]registrationValue{}
+	for n, v := range map[string]string{"ProductID": ProductID, "DisplayName": "USB Link", "DisplayVersion": version, "Publisher": "USB Link", "InstallLocation": filepath.Dir(path), "DisplayIcon": path, "UninstallString": windows.ComposeCommandLine([]string{path, "--uninstall"})} {
+		want[n] = registrationString(v)
 	}
-	k.SetDWordValue("NoModify", 1)
-	k.SetDWordValue("NoRepair", 1)
-	return nil
+	want["NoModify"] = registrationDWORD(1)
+	want["NoRepair"] = registrationDWORD(1)
+	return writeInstallationRegistration(nativeRegistrationStore{k}, want)
 }
 func RemoveInstalled(path string) (bool, error) {
 	if Verify(path) != nil || ownedRegistration() != nil {
