@@ -1,5 +1,3 @@
-//go:build usblink_local_remote
-
 package ipadncm
 
 import (
@@ -64,6 +62,8 @@ type localPhotoController struct {
 	backend             localPhotoBackend
 	savePreference      func(bool) error
 	readPreference      func() (bool, error)
+	policyBlocked       func() bool
+	runtimeAllowed      func() bool
 	wake                chan struct{}
 }
 
@@ -115,7 +115,16 @@ func (c *localPhotoController) set(on bool, id string) error {
 	if len(id) != 32 || strings.Trim(id, "0123456789abcdefABCDEF") != "" {
 		return errors.New("PHOTO_REQUEST_INVALID")
 	}
+	localPhotoStrategyMutex.Lock()
+	defer localPhotoStrategyMutex.Unlock()
+	blocked := on && c.policyBlocked != nil && c.policyBlocked()
 	c.mu.Lock()
+	if blocked {
+		c.state.RejectedID = id
+		c.state.RejectedError = "PHOTO_POLICY_STRATEGY_CONFLICT"
+		c.mu.Unlock()
+		return errors.New("PHOTO_POLICY_STRATEGY_CONFLICT")
+	}
 	if on && !c.master {
 		c.state.RejectedID = id
 		c.state.RejectedError = "PHOTO_DEBUG_REQUIRED"
@@ -164,6 +173,9 @@ func (c *localPhotoController) persist(rev uint64, restore, on bool, read func()
 			err = save(on)
 		}
 	}
+	localPhotoStrategyMutex.Lock()
+	defer localPhotoStrategyMutex.Unlock()
+	blocked := on && c.policyBlocked != nil && c.policyBlocked()
 	c.mu.Lock()
 	if err == nil {
 		c.state.SavedEnabled = on
@@ -177,18 +189,46 @@ func (c *localPhotoController) persist(rev uint64, restore, on bool, read func()
 		} else {
 			c.state.Persistence = "saved"
 			if c.revision == rev {
-				c.state.Requested = on && c.master
+				c.state.Requested = on && c.master && !blocked
 			}
 			c.state.Error = ""
+			if blocked {
+				c.state.Error = "PHOTO_POLICY_STRATEGY_CONFLICT"
+				c.state.Phase = "policy_conflict"
+			}
 		}
 	}
 	c.mu.Unlock()
 	c.signal()
 }
+
+// A policy preference that resolves to off releases a classic startup restore
+// which was deliberately held while the policy journal was still unknown.
+func (c *localPhotoController) resumeAfterPolicy() {
+	_ = WithLocalPhotoStrategySelection(func() error {
+		if c.policyBlocked != nil && c.policyBlocked() {
+			return nil
+		}
+		c.mu.Lock()
+		if !c.master || !c.state.SavedEnabled || c.state.Error != "PHOTO_POLICY_STRATEGY_CONFLICT" || c.state.Busy {
+			c.mu.Unlock()
+			return nil
+		}
+		c.revision++
+		rev := c.revision
+		c.persistenceRevision = rev
+		c.state.Persistence = "loading"
+		c.state.Busy = true
+		read := c.readPreference
+		c.mu.Unlock()
+		go c.persist(rev, true, false, read, nil)
+		return nil
+	})
+}
 func (c *localPhotoController) authorized(rev uint64, root string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return (c.context == nil || c.context.Err() == nil) && c.master && c.state.Requested && c.state.Persistence == "saved" && c.revision == rev && c.root == root
+	return (c.runtimeAllowed == nil || c.runtimeAllowed()) && (c.context == nil || c.context.Err() == nil) && c.master && c.state.Requested && c.state.Persistence == "saved" && c.revision == rev && c.root == root
 }
 func (c *localPhotoController) publish(phase string, err error) {
 	utc, run, ms := c.sample()
@@ -205,7 +245,7 @@ func (c *localPhotoController) publish(phase string, err error) {
 	if err != nil {
 		c.state.CauseCode, c.state.NativeKind, c.state.NativeCode = photoFailureDetails(err)
 		c.state.Error = err.Error()
-	} else if c.state.Persistence != "failed" {
+	} else if c.state.Persistence != "failed" && c.state.Error != "PHOTO_POLICY_STRATEGY_CONFLICT" {
 		c.state.Error = ""
 		c.state.CauseCode, c.state.NativeKind, c.state.NativeCode = "", "", 0
 	}
@@ -236,6 +276,9 @@ func (c *localPhotoController) step() {
 	defer c.operation.Unlock()
 	if c.backend == nil {
 		c.publish("unavailable", errors.New("PHOTO_NOT_STARTED"))
+		return
+	}
+	if c.awaitingSessionCleanup() {
 		return
 	}
 	if !c.initialized {
@@ -340,6 +383,9 @@ func (c *localPhotoController) step() {
 		}
 	}
 	if !c.authorized(rev, root) {
+		if c.awaitingSessionCleanup() {
+			return
+		}
 		if err := c.recoverOwned(); err != nil {
 			c.publish("recovery_pending", err)
 		} else {

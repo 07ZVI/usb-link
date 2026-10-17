@@ -23,8 +23,10 @@ import (
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/usbhost"
 	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/diagnostics/exitrecord"
 	"suhang/usbnet/internal/diagnostics/logfile"
 	"suhang/usbnet/internal/diagnostics/probecontrol"
+	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/diagnostics/throughput"
 	"suhang/usbnet/internal/platform/windows/background"
 	"suhang/usbnet/internal/platform/windows/installer"
@@ -54,6 +56,13 @@ var RuntimeNetworkEvidence func() any
 var TrustEvidence func() any
 var TimingEvidence func() any
 var PhotoEvidence func() any
+var WPDTraceEvidence func() any
+var PhotoPolicyEvidence func() any
+var NCMDirectEvidence func() any
+var AMDSHoldEvidence func() any
+var ConnectionArchiveEvidence func() any
+var NativeUSBEvidence func() any
+var NativePnPEvidence func() any
 
 func safeExisting(path string) bool {
 	v, e := os.Lstat(path)
@@ -232,7 +241,10 @@ func recoverDirectoryWithDrain(dir string, l *log.Logger, drain *uninstallRuntim
 	if e != nil {
 		return e
 	}
-	if e = netconfig.RunLegacyRoleContext(context.Background(), "mac_recovery", script, l); e != nil {
+	endRecoveryScript := shutdowntrace.Begin(shutdowntrace.PhaseMacRecoveryScript)
+	e = netconfig.RunLegacyRoleContext(context.Background(), "mac_recovery", script, l)
+	endRecoveryScript()
+	if e != nil {
 		return fmt.Errorf("MAC_ADAPTER_RECOVERY_UNCONFIRMED: %w", e)
 	}
 
@@ -447,6 +459,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	defer func() {
 		if gateStop != nil && out.CleanupConfirmed {
 			if e := gateStop(); e != nil {
+				out.CleanupConfirmed = false
 				out.Error = "MAC_GATEWAY_CLEANUP_FAILED: " + e.Error()
 			}
 		}
@@ -708,6 +721,13 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	lastTrustEvidence := connectionEvidenceLogState{}
 	lastTimingEvidence := connectionEvidenceLogState{}
 	lastPhotoEvidence := connectionEvidenceLogState{}
+	lastWPDTraceEvidence := connectionEvidenceLogState{}
+	lastPhotoPolicyEvidence := connectionEvidenceLogState{}
+	lastNCMDirectEvidence := connectionEvidenceLogState{}
+	lastAMDSHoldEvidence := connectionEvidenceLogState{}
+	lastConnectionArchiveEvidence := connectionEvidenceLogState{}
+	lastNativeUSBEvidence := connectionEvidenceLogState{}
+	lastNativePnPEvidence := connectionEvidenceLogState{}
 	loops := 0
 	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
@@ -717,8 +737,10 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		case e = <-done:
 			finished = true
 		case <-ctx.Done():
+			endStop := shutdowntrace.Begin(shutdowntrace.PhaseMacBridgeStop)
 			windows.SetEvent(event)
 			e = <-done
+			endStop()
 			finished = true
 		case <-timer.C:
 			if CurrentRoot() != root {
@@ -750,6 +772,17 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				}
 				if PhotoEvidence != nil {
 					_ = appendChangedConnectionEvidence(dir, PhotoEvidence(), &lastPhotoEvidence, time.Now())
+				}
+				for _, item := range []struct {
+					evidence func() any
+					state    *connectionEvidenceLogState
+				}{
+					{WPDTraceEvidence, &lastWPDTraceEvidence}, {PhotoPolicyEvidence, &lastPhotoPolicyEvidence}, {NCMDirectEvidence, &lastNCMDirectEvidence}, {AMDSHoldEvidence, &lastAMDSHoldEvidence}, {ConnectionArchiveEvidence, &lastConnectionArchiveEvidence},
+					{NativeUSBEvidence, &lastNativeUSBEvidence}, {NativePnPEvidence, &lastNativePnPEvidence},
+				} {
+					if item.evidence != nil {
+						_ = appendChangedConnectionEvidence(dir, item.evidence(), item.state, time.Now())
+					}
 				}
 				mu.Lock()
 				state := out
@@ -950,7 +983,9 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		}
 	}
 	if stopServices != nil {
+		endServices := shutdowntrace.Begin(shutdowntrace.PhaseMacServicesStop)
 		stopServices()
+		endServices()
 	}
 	pipeW.Close()
 	<-readerDone
@@ -959,21 +994,26 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	if e != nil && out.Error == "" {
 		out.Error = "MAC_BRIDGE_ENDED_WITH_ERROR"
 	}
-	if er := Recover(parent); er != nil {
+	cleanup := runMacCleanup(func() error {
+		defer shutdowntrace.Begin(shutdowntrace.PhaseMacSessionRecovery)()
+		return Recover(parent)
+	}, func() error {
+		// Detach cancels the session, so restoration owns its bounded lifetime.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		defer shutdowntrace.Begin(shutdowntrace.PhaseMacMTURestore)()
+		return usbhost.ResetMacMTU(cleanupCtx)
+	})
+	if er := cleanup.RecoveryError; er != nil {
 		if nativeBindingValid {
 			recordMacCleanupFailure(nativeAttempt, nativeBinding, er)
 		}
 		out.Error = er.Error()
-	} else {
-		out.CleanupConfirmed = true
 	}
-	// The session context is commonly cancelled during detach. Cleanup owns a
-	// separate bounded context so it can still restore the surviving iPad path.
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cleanupCancel()
-	if er := usbhost.ResetMacMTU(cleanupCtx); er != nil {
+	if er := cleanup.MTUError; er != nil {
 		out.Error = "MAC_SOURCE_MTU_RESTORE_FAILED: " + er.Error()
 	}
+	out.CleanupConfirmed = cleanup.confirmed()
 	out.Stage = "MAC_SESSION_ENDED"
 	out.ServicesReady = false
 	out.ShareReady = false
@@ -992,13 +1032,23 @@ func MaintenanceGUID(parent string) string {
 // RecordUpgradeEvidence writes bounded classifications to a separate fixed log.
 // Legacy USB diagnostics append service.log, while installer.log may rotate.
 func RecordUpgradeEvidence(parent, version, stage, problem string) error {
-	names, e := recoveryRuntimeNames(parent)
-	if e != nil {
-		return e
-	}
 	b, e := json.Marshal(map[string]string{"version": version, "stage": stage, "error": problem})
 	if e != nil || len(b) > 8192 {
 		return fmt.Errorf("upgrade evidence exceeds bound")
+	}
+	return recordRuntimeEvidence(parent, b)
+}
+
+// Keep the last verified exit stage available after the next launch, including
+// when ordinary log prefixes are dropped by the bounded USB transport.
+func RecordProgramExitEvidence(parent, version, stage string) error {
+	return recordProgramExitForRuntime(parent, runtimeName, version, stage, exitrecord.Write, appendUpgradeEvidence)
+}
+
+func recordRuntimeEvidence(parent string, b []byte) error {
+	names, e := recoveryRuntimeNames(parent)
+	if e != nil {
+		return e
 	}
 	for _, name := range names {
 		dir := filepath.Join(parent, name)

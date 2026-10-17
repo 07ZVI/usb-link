@@ -13,7 +13,14 @@ import (
 // periodic ticker can reach this descriptor read; a global event requests an
 // actual same-target recheck instead of itself proving a device replacement.
 func watchUSBDescriptorAttachment(ctx context.Context, before Snapshot, refuse func()) (func(), string) {
-	if !networkOnlyUSBEligible(before) || refuse == nil {
+	return watchUSBDescriptorAttachmentWithProof(ctx, before, refuse, nil)
+}
+func watchUSBDescriptorAttachmentWithProof(ctx context.Context, before Snapshot, refuse func(), proof func(Snapshot) bool) (func(), string) {
+	baseline := networkOnlyUSBEligible(before)
+	if proof != nil {
+		baseline = proof(before)
+	}
+	if !baseline || refuse == nil {
 		return nil, "USB_DESCRIPTOR_WATCH_BASELINE_UNCONFIRMED"
 	}
 	events, unsubscribe, err := deviceguard.SubscribeChanges()
@@ -28,8 +35,13 @@ func watchUSBDescriptorAttachment(ctx context.Context, before Snapshot, refuse f
 	checkCancel()
 	diagnostic := descriptorRecheckSummary("application_watch_baseline", before, current)
 	diagnostic.QueryDurationMS = time.Since(started).Milliseconds()
+	currentTarget := sameRootInstance(before, current)
+	if proof != nil {
+		currentTarget = proof(before) && proof(current)
+	}
+	diagnostic.SameRoot = currentTarget
 	recordUSBDescriptorRecheck(diagnostic)
-	if ctx.Err() != nil || !sameRootInstance(before, current) || !HasActiveNCM(current) {
+	if ctx.Err() != nil || !currentTarget || !HasActiveNCM(current) {
 		unsubscribe()
 		return nil, "USB_DESCRIPTOR_WATCH_CURRENT_TARGET_UNCONFIRMED"
 	}
@@ -51,11 +63,16 @@ func watchUSBDescriptorAttachment(ctx context.Context, before Snapshot, refuse f
 				cancel()
 				diagnostic := descriptorRecheckSummary("application_device_event", before, current)
 				diagnostic.QueryDurationMS = time.Since(started).Milliseconds()
-				recordUSBDescriptorRecheck(diagnostic)
 				if watchCtx.Err() != nil {
 					return
 				}
-				if !sameRootInstance(before, current) || !HasActiveNCM(current) {
+				currentTarget := sameRootInstance(before, current)
+				if proof != nil {
+					currentTarget = proof(before) && proof(current)
+				}
+				diagnostic.SameRoot = currentTarget
+				recordUSBDescriptorRecheck(diagnostic)
+				if !currentTarget || !HasActiveNCM(current) {
 					refuse()
 					return
 				}

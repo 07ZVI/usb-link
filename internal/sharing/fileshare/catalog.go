@@ -33,6 +33,7 @@ type Folder struct {
 	GuestEnabled       bool   `json:"guest_enabled,omitempty"`
 	ExternalShare      bool   `json:"external_share,omitempty"`
 	AccessRecovery     bool   `json:"access_recovery,omitempty"`
+	MigrationPending   bool   `json:"migration_pending,omitempty"`
 	Identity           string `json:"-"`
 	Problem            string `json:"folder_problem,omitempty"`
 }

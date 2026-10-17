@@ -14,8 +14,6 @@ import (
 	"unsafe"
 )
 
-type nativeSMBAccessSetting struct{ ID, Path, FileID, Account, Guest string }
-
 func nativeShareSD(s nativeSMBShare) (*windows.SECURITY_DESCRIPTOR, error) {
 	text := "D:P"
 	for _, principal := range []struct{ sid, access string }{{s.SID, s.AccountAccess}, {s.GuestSID, s.GuestAccess}} {
@@ -76,6 +74,9 @@ func UpdateNativeSMBAccess(id, accountAccess, guestAccess string) error {
 	for i, s := range c.Shares {
 		if s.ID != id {
 			continue
+		}
+		if s.MigrationName != "" {
+			return fmt.Errorf("NATIVE_SMB_MIGRATION_RECOVERY_REQUIRED")
 		}
 		if s.GuestUpdate {
 			return fmt.Errorf("NATIVE_SMB_GUEST_RECOVERY_REQUIRED")
@@ -318,6 +319,12 @@ func NativeSMBManagerFolders() ([]fileshare.Folder, error) {
 	}
 	for _, s := range published {
 		found := false
+		for _, receipt := range c.Shares {
+			if receipt.MigrationName != "" && (strings.EqualFold(receipt.Name, s.Name) || strings.EqualFold(receipt.MigrationName, s.Name)) {
+				found = true
+				break
+			}
+		}
 		for _, r := range rows {
 			if strings.EqualFold(r.ShareName, s.Name) {
 				found = true

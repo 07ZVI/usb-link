@@ -19,8 +19,11 @@ public sealed partial class Dashboard
     string connectionTimingMode = "normal";
     string connectionTimingMessage = "目前未啟用時序對照。";
     bool photoIsolationAvailable, photoIsolationRequested, photoIsolationEffective, photoIsolationBusy, photoIsolationNeedsAttention;
-    bool photoIsolationPendingEnabled;
     string photoIsolationPendingID = "", photoIsolationMessage = "照片介面隔離尚未就緒。";
+    bool connectionArchiveActive, connectionArchiveNeedsAttention;
+    string connectionArchiveMessage = "等待本輪檔案狀態。";
+    bool localUSBTracePresent, localUSBTraceNeedsAttention;
+    string localUSBTraceMessage = "";
     System.Action? localDiagnosticsRefresh;
 
     Control LocalDiagnosticsSection()
@@ -30,6 +33,7 @@ public sealed partial class Dashboard
         Avalonia.Automation.AutomationProperties.SetName(toggle, "開發者調試");
         var status = Label("", 12, key: "Muted");
         status.TextWrapping = TextWrapping.Wrap;
+        Avalonia.Automation.AutomationProperties.SetName(status, "開發者調試狀態");
         var text = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 120, MaxHeight = 300 };
         Avalonia.Automation.AutomationProperties.SetName(text, "完整診斷文字");
         var copy = Action("複製診斷", async () =>
@@ -69,103 +73,28 @@ public sealed partial class Dashboard
             }
             catch { status.Text = "匯出失敗，請確認目的資料夾可寫入後重試。"; }
         });
-        var markerStatus = Label("", 12, key: "Muted");
-        markerStatus.TextWrapping = TextWrapping.Wrap;
-        Avalonia.Automation.AutomationProperties.SetName(markerStatus, "信任提示人工標記狀態");
-        Button Marker(int ordinal)
-        {
-            var title = $"標記第 {ordinal} 次信任提示";
-            var button = Action(title, () =>
-            {
-                if (preview) { markerStatus.Text = "介面預覽，未傳送人工標記。"; return; }
-                try
-                {
-                    SendManualTrustPrompt(ordinal);
-                    markerStatus.Text = $"已傳送第 {ordinal} 次提示的人工標記（點擊時間 {DateTimeOffset.Now:HH:mm:ss.fff zzz}）。";
-                }
-                catch { markerStatus.Text = "人工標記未能傳送，請重試。"; }
-            });
-            Avalonia.Automation.AutomationProperties.SetName(button, title);
-            return button;
-        }
-        var trialStatus = Label("", 12, key: "Muted");
-        trialStatus.TextWrapping = TextWrapping.Wrap;
-        Avalonia.Automation.AutomationProperties.SetName(trialStatus, "Apple 服務臨時對照請求狀態");
-        Button ServiceTrial(bool cancel)
-        {
-            var title = cancel ? "取消並恢復 Apple 服務" : "開始 Apple 服務臨時對照";
-            var button = Action(title, () =>
-            {
-                if (preview) { trialStatus.Text = "介面預覽，未傳送服務對照請求。"; return; }
-                try
-                {
-                    SendTrustServiceTrial(cancel);
-                    trialStatus.Text = cancel
-                        ? "已傳送取消並恢復請求；實際恢復結果請查看診斷提示。"
-                        : "已傳送開始請求；請等待診斷提示，再依提示先拔下、再插入 iPad。";
-                }
-                catch { trialStatus.Text = "服務對照請求未能傳送，請重試。"; }
-            });
-            Avalonia.Automation.AutomationProperties.SetName(button, title);
-            return button;
-        }
-        var timingStatus = Label("", 12, key: "Muted");
-        timingStatus.TextWrapping = TextWrapping.Wrap;
-        Avalonia.Automation.AutomationProperties.SetName(timingStatus, "信任提示時序對照狀態");
-        var fastTiming = Switch();
-        var delayedTiming = Switch();
-        Avalonia.Automation.AutomationProperties.SetName(fastTiming, "快速偵測");
-        Avalonia.Automation.AutomationProperties.SetName(delayedTiming, "延遲切換對照（12 秒）");
-        void SetTiming(string mode)
-        {
-            if (preview)
-            {
-                connectionTimingMode = mode;
-                connectionTimingMessage = "介面預覽，未傳送時序對照請求。";
-                localDiagnosticsRefresh?.Invoke();
-                return;
-            }
-            try
-            {
-                SendConnectionTimingTrial(mode);
-                timingStatus.Text = "正在儲存時序對照設定，等待背景回報。";
-            }
-            catch { timingStatus.Text = "時序對照設定未能傳送，請重試。"; }
-        }
-        fastTiming.Click += (_, _) => SetTiming(fastTiming.IsChecked == true ? "fast" : "normal");
-        delayedTiming.Click += (_, _) => SetTiming(delayedTiming.IsChecked == true ? "delayed" : "fast");
-        var photoIsolation = Switch();
-        Avalonia.Automation.AutomationProperties.SetName(photoIsolation, "照片介面隔離");
-        var photoStatus = Label("", 12, key: "Muted");
-        photoStatus.TextWrapping = TextWrapping.Wrap;
-        Avalonia.Automation.AutomationProperties.SetName(photoStatus, "照片介面隔離狀態");
         var photoRecoveryStatus = Label("", 12, key: "Muted");
         photoRecoveryStatus.TextWrapping = TextWrapping.Wrap;
         Avalonia.Automation.AutomationProperties.SetName(photoRecoveryStatus, "照片介面恢復狀態");
-        photoIsolation.Click += (_, _) =>
+        var experiments = new Expander
         {
-            var enabled = photoIsolation.IsChecked == true;
-            if (preview) { photoIsolationRequested = enabled; photoIsolationMessage = "介面預覽，未傳送照片介面隔離請求。"; localDiagnosticsRefresh?.Invoke(); return; }
-            var id = Guid.NewGuid().ToString("N");
-            photoIsolationPendingID = id;
-            photoIsolationDeliveryFailureID = "";
-            photoIsolationPendingEnabled = enabled;
-            photoIsolationMessage = enabled ? "正在儲存照片介面隔離設定…" : "正在關閉照片介面隔離，等待恢復結果…";
-            localDiagnosticsRefresh?.Invoke();
-            try { SendPhotoIsolation(enabled, id); }
-            catch { photoIsolationPendingID = ""; photoIsolationMessage = "照片介面隔離設定未能傳送，請重試。"; localDiagnosticsRefresh?.Invoke(); }
+            Header = "連線實驗", IsExpanded = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            Content = Column(10,
+                WithWrap(Label("NCM Direct 為進階對照功能，預設不啟用。日常網路所需的 Apple 服務與照片介面策略由程式自動管理。", 12, key: "Muted"), 680),
+                TrustExperimentControls()),
         };
-        var tools = Column(10,
-            WithWrap(Label("看到 iPad「信任此電腦」提示時，點擊對應按鈕，用於粗略對齊時序。這是人工標記；反應與傳送有延遲，點擊時間不等於系統彈窗時間。", 12, key: "Muted"), 680),
-            Row(8, Marker(1), Marker(2)), markerStatus,
-            WithWrap(Label("信任提示時序對照不更改 Apple 服務。快速偵測開啟後使用 1 秒兜底檢查；再開啟延遲對照，每次接入會額外等待 12 秒。設定會保存並持續生效，直到手動關閉。關閉開發者調試會停用對照，重新開啟時恢復已保存的選擇。", 12, key: "Muted"), 680),
-            Columns("*,Auto", Label("快速偵測", 13), fastTiming),
-            Columns("*,Auto", Label("延遲切換對照（12 秒）", 13), delayedTiming), timingStatus,
-            Columns("*,Auto", Label("照片介面隔離", 13), photoIsolation),
-            WithWrap(Label("開啟後暫停這台 iPad 的 Windows USB 照片匯入，設定會保存；只在開發者調試開啟時生效。關閉此開關或開發者調試會恢復照片介面。不能保證消除所有信任提示。", 12, key: "Muted"), 680), photoStatus,
-            WithWrap(Label("臨時停止 Apple Mobile Device Service，會暫停或中斷 iTunes／Apple Devices 的同步與備份，不更改啟動類型；請先結束同步與備份。對照及恢復預算共 120 秒；若恢復失敗，將保留恢復記錄並暫停 iPad 連線，以診斷結果為準。開始後等待診斷提示，再先拔下、後插入 iPad。", 12, key: "Muted"), 680),
-            Row(8, ServiceTrial(false), ServiceTrial(true)), trialStatus,
-            text, Row(8, copy, export));
+        var tools = Column(10, experiments,
+            new Expander { Header = "完整診斷文字", IsExpanded = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, Content = Column(8, text, Row(8, copy, export)) });
+        var experimentRecoveryStatus = TrustExperimentRecoveryStatus();
+        var wpdStatus = Label("", 12, key: "Muted");
+        wpdStatus.TextWrapping = TextWrapping.Wrap;
+        Avalonia.Automation.AutomationProperties.SetName(wpdStatus, "WPD 自動診斷狀態");
+        var archiveStatus = Label("", 12, key: "Muted");
+        archiveStatus.TextWrapping = TextWrapping.Wrap;
+        Avalonia.Automation.AutomationProperties.SetName(archiveStatus, "連線檔案採集狀態");
+        var usbStatus = Label("", 12, key: "Muted");
+        usbStatus.TextWrapping = TextWrapping.Wrap;
+        Avalonia.Automation.AutomationProperties.SetName(usbStatus, "USB 事件採集狀態");
         void Refresh()
         {
             tools.IsVisible = localDiagnosticsPendingID != "" ? localDiagnosticsRequested : localDiagnosticsEnabled;
@@ -174,15 +103,18 @@ public sealed partial class Dashboard
             if (localDiagnosticsMessage != "") status.Text = (localDiagnosticsDeliveryFailureID != "" ? LocalControlDeliveryFailure + "\n" : "") + localDiagnosticsMessage;
             if (tools.IsVisible && text.Text != detailText) text.Text = detailText;
             copy.IsEnabled = export.IsEnabled = tools.IsVisible && !string.IsNullOrWhiteSpace(detailText);
-            fastTiming.IsChecked = connectionTimingMode is "fast" or "delayed";
-            delayedTiming.IsChecked = connectionTimingMode == "delayed";
-            fastTiming.IsEnabled = preview || connectionTimingAvailable;
-            delayedTiming.IsEnabled = (preview || connectionTimingAvailable) && fastTiming.IsChecked == true;
-            timingStatus.Text = connectionTimingMessage;
-            photoIsolation.IsChecked = photoIsolationPendingID != "" ? photoIsolationPendingEnabled : photoIsolationRequested;
-            photoIsolation.IsEnabled = localDiagnosticsEnabled && (preview || photoIsolationAvailable) && photoIsolationPendingID == "" && (!photoIsolationBusy || photoIsolationRequested);
-            photoStatus.Text = photoRecoveryStatus.Text = (photoIsolationDeliveryFailureID != "" ? LocalControlDeliveryFailure + "\n" : "") + photoIsolationMessage;
-            photoRecoveryStatus.IsVisible = !tools.IsVisible && (photoIsolationBusy || photoIsolationEffective || photoIsolationNeedsAttention);
+            wpdStatus.Text = "WPD 自動診斷：" + automaticWpd.Message
+                + (!localDiagnosticsEnabled && automaticWpd.Effective ? " 總開關已關閉，等待停止確認。" : "");
+            wpdStatus.IsVisible = localDiagnosticsEnabled || automaticWpd.Busy || automaticWpd.Effective || automaticWpd.NeedsAttention;
+            usbStatus.Text = "USB 事件：" + localUSBTraceMessage;
+            usbStatus.IsVisible = localUSBTracePresent;
+            usbStatus.Res(TextBlock.ForegroundProperty, localUSBTraceNeedsAttention ? "Warn" : "Muted");
+            archiveStatus.Text = "連線檔案：" + connectionArchiveMessage;
+            archiveStatus.IsVisible = localDiagnosticsEnabled || connectionArchiveActive || connectionArchiveNeedsAttention;
+            archiveStatus.Res(TextBlock.ForegroundProperty, connectionArchiveNeedsAttention ? "Warn" : "Muted");
+            photoRecoveryStatus.Text = "照片介面恢復：" + photoIsolationMessage;
+            photoRecoveryStatus.IsVisible = photoIsolationBusy || photoIsolationPendingID != "" || photoIsolationNeedsAttention || photoIsolationDeliveryFailureID != "" || (!localDiagnosticsEnabled && photoIsolationEffective);
+            localTrustExperimentRefresh?.Invoke();
         }
         toggle.Click += (_, _) =>
         {
@@ -202,13 +134,17 @@ public sealed partial class Dashboard
         return Card(Column(12,
             Columns("*,Auto", Label("開發者調試", 15, FontWeight.SemiBold), toggle),
             WithWrap(Label("開啟後可查看完整診斷，並允許 Mac 經 USB 推送已簽名的新版完整安裝包；關閉會撤銷推送授權。安裝時會中斷連線，Windows 仍保留管理員確認。開關狀態會保存，背景程式重啟後會恢復；USB 安裝通道會在背景準備。", 12, key: "Muted"), 680),
-            status, photoRecoveryStatus, tools));
+            WithWrap(Label("WPD 照片服務與 USB 事件診斷隨總開關自動啟停。新採集只保存經隱私檢查的摘要，舊原始記錄保留在本機。", 12, key: "Muted"), 680),
+            status, wpdStatus, usbStatus, archiveStatus, photoRecoveryStatus, experimentRecoveryStatus, tools));
     }
 
     void UpdateLocalDiagnostics(JsonElement d)
     {
         UpdateConnectionTiming(d);
         UpdatePhotoIsolation(d);
+        UpdateLocalTrustExperiments(d);
+        UpdateConnectionArchive(d);
+        UpdateLocalUSBTrace(d);
         if (!d.TryGetProperty("developer_debug", out var debug) || debug.ValueKind != JsonValueKind.Object) { localDiagnosticsRefresh?.Invoke(); return; }
         bool Flag(string name) => debug.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
         string Text(string name) => debug.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
@@ -256,13 +192,13 @@ public sealed partial class Dashboard
         if (photoIsolationPendingID == "") photoIsolationRequested = Flag("requested");
         var phase = Text("phase");
         var error = Text("error");
-        photoIsolationNeedsAttention = error != "" || persistence == "failed" || phase == "recovery_pending";
-        photoIsolationMessage = !photoIsolationAvailable ? "照片介面隔離尚未就緒。"
-            : persistence == "failed" ? "照片介面隔離設定保存或讀取失敗，下次可能恢復先前設定：" + error
+        photoIsolationNeedsAttention = error != "" || persistence == "failed" || phase is "recovering" or "recovery_pending" or "recovery_required" or "recovery_failed" or "stopping";
+        photoIsolationMessage = persistence == "failed" ? "照片介面隔離設定保存或讀取失敗，下次可能恢復先前設定：" + error
             : error != "" ? "照片介面隔離尚未完成：" + error
+            : !photoIsolationAvailable ? "照片介面隔離尚未就緒。"
             : Text("rejected_error") != "" ? "照片介面隔離設定未變更：" + Text("rejected_error")
             : persistence is "loading" or "saving" || photoIsolationPendingID != "" ? "正在讀取或儲存照片介面隔離設定…"
-            : phase is "recovering" or "recovery_pending" ? "正在恢復照片介面，尚未確認完成。"
+            : phase is "recovering" or "recovery_pending" or "recovery_required" or "recovery_failed" or "stopping" ? "正在恢復照片介面，尚未確認完成。"
             : photoIsolationBusy ? "正在核對照片介面狀態…"
             : photoIsolationEffective ? $"照片介面隔離已確認。目前觀察到 {Count("observed_nodes")} 個介面，其中 {Count("owned_nodes")} 個由本程式接管恢復。"
             : phase == "waiting_photo_interface" ? "隔離選擇已保存，正在等候可核對的照片介面；目前尚未確認隔離。"
@@ -282,10 +218,74 @@ public sealed partial class Dashboard
         var error = timing.TryGetProperty("persistence_error", out var problem) && problem.ValueKind == JsonValueKind.String ? problem.GetString() : "";
         connectionTimingMessage = persistence == "failed" ? "時序對照設定未能保存或恢復，下次可能使用先前選擇：" + error
             : persistence is "loading" or "saving" ? "正在讀取或儲存時序對照設定…"
+            : persistence == "automatic" && mode == "fast" ? "快速偵測由背景程式自動執行。"
             : mode is not ("fast" or "delayed") ? "目前使用一般流程，未啟用時序對照。"
             : phase == "delaying" ? "延遲對照進行中，模式切換前額外等待 12 秒。"
             : mode == "fast" ? "快速偵測已開啟，後續接入持續使用；設定已保存。"
             : "快速偵測及延遲 12 秒對照已開啟，後續接入持續使用；設定已保存。";
+    }
+
+    void UpdateLocalUSBTrace(JsonElement d)
+    {
+        localUSBTracePresent = d.TryGetProperty("local_usb_trace", out var state) && state.ValueKind == JsonValueKind.Object;
+        localUSBTraceNeedsAttention = false;
+        localUSBTraceMessage = "";
+        if (!localUSBTracePresent) return;
+        bool Flag(string key) => state.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True;
+        string Text(string key) => state.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        ulong Count(string key) => state.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetUInt64(out var n) ? n : 0;
+        var phase = Text("phase");
+        var failures = new List<string>();
+        foreach (var (key, label) in new[] { ("queue_overflow", "佇列漏記"), ("schema_rejected", "格式或隱私檢查未通過"), ("events_lost", "事件遺失"), ("realtime_buffers_lost", "緩衝記錄遺失"), ("archive_rejected", "未收錄到檔案"), ("late_events", "觀察結束後到達"), ("timestamp_unknown", "事件時間無法確認"), ("invalid_header_callbacks", "事件標頭無效"), ("known_provider_shape_rejected", "USB 事件結構未通過"), ("known_provider_template_rejected", "USB 事件格式未通過"), ("known_provider_scalar_rejected", "USB 事件欄位未通過") })
+            if (Count(key) is var n && n != 0) failures.Add($"{label} {n}");
+        localUSBTraceNeedsAttention = Text("coverage") == "incomplete" || Text("error") != "" || failures.Count != 0 || phase is "error" or "recovery_pending";
+        var uncovered = Count("accepted") == 0 && failures.Count == 0 && (Text("coverage") == "not_covered" || phase == "no_safe_event_schema");
+        localUSBTraceMessage = uncovered && Count("session_metadata_callbacks") > 0 && Count("received") == 0 ? "未覆蓋：僅收到會話元資料，尚無 USB 事件。"
+            : uncovered && (phase == "no_safe_event_schema" || Text("error") == "USB_TRACE_NO_SAFE_EVENT_SCHEMA") ? "未覆蓋：未找到可通過格式及隱私檢查的事件。"
+            : uncovered && (phase != "disabled" || Text("error") != "") ? "未覆蓋：尚未取得可用的事件證據。"
+            : localUSBTraceNeedsAttention ? "證據不完整。"
+            : !Flag("available") ? "未覆蓋：此環境尚未提供採集能力。"
+            : phase == "disabled" ? "採集已關閉。"
+            : phase == "discovering" ? "正在核對可安全記錄的事件，尚未確認覆蓋。"
+            : phase == "no_safe_event_schema" ? "未覆蓋：未找到可通過格式及隱私檢查的事件。"
+            : Text("coverage") == "metadata_only" && Count("accepted") > 0 ? "事件元資料可用，僅包含通過隱私檢查的摘要。"
+            : "未覆蓋有效事件；採集啟動不代表已取得證據。";
+        if (Text("error") is var error && error != "") localUSBTraceMessage += " 原因：" + error + "。";
+        if (phase == "recovery_pending") localUSBTraceMessage += " 停止結果尚未確認。";
+        if (failures.Count != 0) localUSBTraceMessage += " " + string.Join("、", failures) + "。";
+        localUSBTraceMessage += $" 已接收 USB 事件 {Count("received")}、已收錄 {Count("accepted")}。";
+        if (Count("callbacks_received") > 0) localUSBTraceMessage += $" 回呼 {Count("callbacks_received")}；會話元資料 {Count("session_metadata_callbacks")}（標頭 {Count("session_header_callbacks")}）；未知來源 {Count("unknown_provider_callbacks")}。";
+        string TimeText(string key) => DateTimeOffset.TryParse(Text(key), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t.ToLocalTime().ToString("MM-dd HH:mm:ss") : "";
+        var started = TimeText("started_utc");
+        var stopped = TimeText("stopped_utc");
+        if (started != "") localUSBTraceMessage += " 觀察時段：" + started + " 至 " + (stopped != "" ? stopped : Flag("active") ? "目前" : "結束時間待確認") + "。";
+        if (TimeText("last_event_utc") is var last && last != "") localUSBTraceMessage += " 最近事件：" + last + "。";
+        localUSBTraceMessage += " 未覆蓋配對或實際信任提示；系統事件尚不能歸因到這台 iPad，也不能據此判定是哪個應用觸發。";
+    }
+
+    void UpdateConnectionArchive(JsonElement d)
+    {
+        if (!d.TryGetProperty("connection_archive", out var state) || state.ValueKind != JsonValueKind.Object) return;
+        string Text(string key) => state.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        ulong Count(string key) => state.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetUInt64(out var count) ? count : 0;
+        var available = state.TryGetProperty("available", out var ready) && ready.ValueKind == JsonValueKind.True;
+        var phase = Text("phase");
+        var error = Text("error");
+        connectionArchiveActive = phase == "recording" && Text("current_id") != "";
+        var failures = new List<string>();
+        foreach (var (key, label) in new[] { ("queue_dropped", "佇列漏記"), ("size_dropped", "容量限制漏記"), ("write_failures", "寫入失敗"), ("rejected", "記錄拒絕"), ("cancelled_events", "停止後未收錄"), ("retention_failures", "舊檔清理失敗"), ("partial_tails", "未完整寫入的檔案") })
+            if (Count(key) is var count && count != 0) failures.Add($"{label} {count}");
+        connectionArchiveNeedsAttention = error != "" || phase == "write_failed" || failures.Count != 0;
+        connectionArchiveMessage = error != "" ? "記錄尚未完成：" + error
+            : phase == "write_failed" ? "檔案寫入失敗，採集結果尚未確認。"
+            : !available ? "檔案記錄尚未就緒。"
+            : connectionArchiveActive ? "本輪檔案記錄中，會隨 Mac 診斷自動收取。"
+            : phase == "recording" ? "等待新一輪連線記錄，檔案會隨 Mac 診斷自動收取。"
+            : phase == "stopped" ? "檔案記錄已停止，封存結果以每輪檔案為準。"
+            : "檔案狀態待確認。";
+        if (failures.Count != 0) connectionArchiveMessage += " 累計：" + string.Join("、", failures) + "；採集可能不完整。";
+        if (Count("redacted") is var redacted && redacted != 0) connectionArchiveMessage += $" 已隱去 {redacted} 項敏感內容。";
+        connectionArchiveMessage += " 檔案封存不代表 USB 或照片服務事件已完整覆蓋。";
     }
 
     void UpdateLocalControlResult(JsonElement d)
@@ -303,7 +303,9 @@ public sealed partial class Dashboard
                 photoIsolationPendingID = "";
                 photoIsolationDeliveryFailureID = id;
                 break;
-            default: return;
+            default:
+                if (!UpdateTrustExperimentDeliveryFailure(Text("action"), id)) return;
+                break;
         }
         localDiagnosticsRefresh?.Invoke();
     }
@@ -315,37 +317,8 @@ public sealed partial class Dashboard
         action = enabled ? "local-usb-update-on" : "local-usb-update-off", id,
     });
 
-    static void SendPhotoIsolation(bool enabled, string id)
-    {
-        if (!Guid.TryParseExact(id, "N", out _)) throw new ArgumentException("invalid photo isolation request id", nameof(id));
-        DesktopClient.Send(new { action = enabled ? "photo-isolation-on" : "photo-isolation-off", id });
-    }
 
-    static void SendManualTrustPrompt(int ordinal)
-    {
-        var action = ordinal switch
-        {
-            1 => "trust-prompt-first",
-            2 => "trust-prompt-second",
-            _ => throw new ArgumentOutOfRangeException(nameof(ordinal)),
-        };
-        DesktopClient.Send(new { action });
-    }
 
-    static void SendTrustServiceTrial(bool cancel) => DesktopClient.Send(new
-    {
-        action = cancel ? "trust-service-trial-cancel" : "trust-service-trial-start",
-    });
 
-    static void SendConnectionTimingTrial(string mode) => DesktopClient.Send(new
-    {
-        action = mode switch
-        {
-            "fast" => "trust-timing-fast",
-            "delayed" => "trust-timing-delayed",
-            "normal" => "trust-timing-reset",
-            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
-        },
-    });
 }
 #endif

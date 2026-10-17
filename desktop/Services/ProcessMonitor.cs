@@ -8,7 +8,7 @@ namespace Suhang.Desktop;
 
 internal sealed record ProcessTrust(string Status, string Reason = "", string Publisher = "", string Subject = "",
     string Issuer = "", string Thumbprint = "", string NotBefore = "", string NotAfter = "", string Source = "",
-    string Hash = "", string Code = "", string CheckedAt = "", bool Timestamped = false)
+    string Hash = "", string Code = "", string CheckedAt = "", bool Timestamped = false, bool? WindowsProtected = null, string ClaimedCompany = "", string ClaimedOriginalName = "", bool VerifiedMicrosoft = false)
 {
     internal string Label => Status switch {
         "valid" => "簽章有效", "invalid" => "簽章無效", "revoked" => "憑證已撤銷",
@@ -39,8 +39,14 @@ internal sealed record ProcessTrust(string Status, string Reason = "", string Pu
 }
 
 internal sealed record RunningProgram(int Pid, long Started, string Name, string Path, string Identity,
-    double? Cpu, long? Memory, ProcessTrust Trust)
+    double? Cpu, long? Memory, ProcessTrust Trust, double? DiskRead = null, double? NetworkReceive = null, double? NetworkSend = null, ProcessShape? Shape = null)
 {
+    internal ProcessAssessment Assessment => ProcessIdentity.Assess(this);
+    internal string SignatureLabel => Assessment.SignatureApplicable ? Trust.Label : "不適用（核心物件）";
+    internal string SignatureTone => Assessment.SignatureApplicable ? Trust.Tone : "Muted";
+    internal double? Network => NetworkReceive is double rx && NetworkSend is double tx ? rx+tx : null;
+    internal string DiskReadText => ProcessRate.Format(DiskRead);
+    internal string NetworkText => ProcessRate.Format(Network);
     internal string CpuText => Cpu is double c ? c.ToString("0.0", CultureInfo.InvariantCulture) + "%" : "—";
     internal string MemoryText => Memory is long m ? (m / 1048576d).ToString("N1") + " MB" : "—";
     internal string Risk => Trust.Status switch {
@@ -49,7 +55,7 @@ internal sealed record RunningProgram(int Pid, long Started, string Name, string
         "unsigned" when ProcessInventory.IsTemporaryPath(Path) => "可疑 · 未簽署且從暫存目錄執行，請核對來源。",
         _ => Trust.Reason
     };
-    internal bool Matches(string search) => new[] { Name, Path, Pid.ToString(), Trust.Publisher, Trust.Label, Risk }
+    internal bool Matches(string search) => new[] { Name, Path, Pid.ToString(), Trust.Publisher, Trust.Label, Risk, Assessment.Label, Assessment.Reason, Trust.ClaimedCompany }
         .Any(s => s.Contains(search, StringComparison.OrdinalIgnoreCase));
 }
 
@@ -58,6 +64,8 @@ internal sealed record RunningProgram(int Pid, long Started, string Name, string
 internal sealed class ProcessInventory : IDisposable
 {
     readonly CancellationTokenSource lifetime = new();
+    readonly ProcessIoMonitor io = new();
+    internal string RateStatus => io.Status;
     readonly Channel<(string Path, string Identity, int Generation)> queue = Channel.CreateBounded<(string, string, int)>(512);
     readonly Dictionary<string, ProcessTrust> cache = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> queued = new(StringComparer.OrdinalIgnoreCase);
@@ -83,20 +91,27 @@ internal sealed class ProcessInventory : IDisposable
     internal RunningProgram[] Capture(Action<RunningProgram[]>? initial = null) {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("此功能需在 Windows 執行。");
         var rows = new List<RunningProgram>();
+        var shapes = ProcessShapes.Read();
         var seen = new HashSet<(int, long)>();
         var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var process in Process.GetProcesses()) {
             using (process) {
                 if (lifetime.IsCancellationRequested) continue;
                 var pid = process.Id;
+                shapes.TryGetValue(pid,out var shape);
                 string name; try { name = process.ProcessName; } catch { name = "PID " + pid; }
                 using var handle = OpenProcess(0x1000, false, pid); // PROCESS_QUERY_LIMITED_INFORMATION
                 string path = "", identity = "";
-                long started = 0; double? cpu = null; long? memory = null;
+                long started = pid == 4 ? -4 : 0; double? cpu = null; long? memory = null;
                 var issue = pid is 0 or 4 ? "Windows 核心程序，不適用一般 EXE 簽章驗證。" : "權限不足或程序已結束，無法讀取執行檔。";
                 if (!handle.IsInvalid) {
                     var buffer = new char[32768]; uint size = (uint)buffer.Length;
-                    if (QueryFullProcessImageName(handle, 0, buffer, ref size)) { path = new string(buffer, 0, (int)size); name = System.IO.Path.GetFileName(path); }
+                    if (pid is not (0 or 4) && QueryFullProcessImageName(handle, 0, buffer, ref size)) {
+                        var candidate = new string(buffer,0,(int)size);
+                        if (NativeProcessSignature.LocalDriveRoot(candidate)!=null || candidate.StartsWith(@"\\") && !candidate.StartsWith(@"\\?\")) {
+                            path=candidate;name=System.IO.Path.GetFileName(path);
+                        }
+                    }
                     var observed = Stopwatch.GetTimestamp();
                     if (GetProcessTimes(handle, out var creation, out _, out var kernel, out var user)) {
                         started = creation; var total = kernel + user; var id = (pid, started); seen.Add(id);
@@ -107,9 +122,10 @@ internal sealed class ProcessInventory : IDisposable
                     if (K32GetProcessMemoryInfo(handle, ref counters, counters.Size)) memory = (long)counters.WorkingSet;
                 }
                 rows.Add(new(pid, started, Clean(name), path, identity, cpu, memory,
-                    new(path.Length > 0 ? "pending" : "unverified", path.Length > 0 ? "正在讀取程式檔案與簽署憑證。" : issue)));
+                    new(path.Length > 0 ? "pending" : "unverified", path.Length > 0 ? "正在讀取程式檔案與簽署憑證。" : issue), Shape:shape));
             }
         }
+        rows = io.Sample(rows).ToList();
         // Show the process census before any executable file I/O or signature work.
         // Records are immutable; later verification cannot mutate this first view.
         if (!lifetime.IsCancellationRequested) initial?.Invoke(rows.ToArray());
@@ -172,6 +188,7 @@ internal sealed class ProcessInventory : IDisposable
     }
 
     public void Dispose() {
+        io.Dispose();
         lifetime.Cancel(); queue.Writer.TryComplete();
         // Release the CTS after both child workers have killed/disposed their helpers.
         _ = Task.WhenAll(workers).ContinueWith(_ => lifetime.Dispose(), TaskScheduler.Default);

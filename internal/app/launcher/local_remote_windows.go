@@ -3,17 +3,46 @@
 package launcher
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/macconnection"
+	"sync/atomic"
 )
 
+var restartRemote atomic.Pointer[connectioninstall.RemoteManager]
+
+func authorizeLocalRestart(id, sid string, session, pid uint32, creation uint64) error {
+	m := restartRemote.Load()
+	if m == nil {
+		return errors.New("LOCAL_RESTART_UNAVAILABLE")
+	}
+	return m.AuthorizeLocalRestart(id, sid, session, pid, creation)
+}
 func configureLocalRemote(m *connectioninstall.RemoteManager) {
+	restartRemote.Store(m)
+	m.SetLocalDiagnosticArchive(func() ([]byte, error) {
+		x, err := ipadncm.ReadConnectionArchiveIndex()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(x)
+	}, func(id string, offset int64, length int, sha string) ([]byte, error) {
+		x, err := ipadncm.ReadConnectionArchiveChunk(id, offset, length, sha)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(x)
+	})
 	ipadncm.SetConnectionTimingPersistence(m.SaveLocalTimingPreference, m.ReadLocalTimingPreference)
 	ipadncm.SetPhotoIsolationPersistence(m.SaveLocalPhotoPreference, m.ReadLocalPhotoPreference)
+	ipadncm.SetLocalWPDTracePersistence(m.SaveLocalWPDTracePreference, m.ReadLocalWPDTracePreference)
+	ipadncm.SetLocalPhotoPolicyPersistence(m.SaveLocalPhotoPolicyPreference, m.ReadLocalPhotoPolicyPreference)
+	ipadncm.SetLocalNCMDirectPersistence(m.SaveLocalNCMDirectPreference, m.ReadLocalNCMDirectPreference)
+	ipadncm.SetLocalAMDSHoldPersistence(m.SaveLocalAMDSHoldPreference, m.ReadLocalAMDSHoldPreference)
 	ipadncm.SetLocalRemoteControl(func(enabled bool) (string, error) {
 		if enabled {
 			// Timing preference errors stay visible in their own snapshot;
@@ -35,6 +64,10 @@ func configureLocalRemoteUnavailable(err error) {
 	ipadncm.SetLocalRemoteUnavailable(code)
 	ipadncm.SetConnectionTimingPersistence(func(string) error { return errors.New(code) }, func() (string, error) { return "", errors.New(code) })
 	ipadncm.SetPhotoIsolationPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
+	ipadncm.SetLocalWPDTracePersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
+	ipadncm.SetLocalPhotoPolicyPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
+	ipadncm.SetLocalNCMDirectPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
+	ipadncm.SetLocalAMDSHoldPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
 	macconnection.DeveloperStatus = func() any {
 		return map[string]any{"enabled": false, "listening": false, "initialization_code": code, "initialization_failure": diagnostic}
 	}
@@ -46,7 +79,7 @@ func handleLocalRemoteCommand() bool {
 		return false
 	}
 	mode := os.Args[1]
-	if mode != connectioninstall.LocalRemoteElevateArgument && mode != connectioninstall.LocalRemoteDispatchArgument && mode != connectioninstall.LocalRemoteInstallArgument {
+	if mode != connectioninstall.LocalRestartArgument && mode != connectioninstall.LocalRemoteElevateArgument && mode != connectioninstall.LocalRemoteDispatchArgument && mode != connectioninstall.LocalRemoteInstallArgument {
 		return false
 	}
 	if len(os.Args) != 3 {
@@ -55,6 +88,8 @@ func handleLocalRemoteCommand() bool {
 	}
 	var err error
 	switch mode {
+	case connectioninstall.LocalRestartArgument:
+		err = connectioninstall.RunLocalRemoteRestart(os.Args[2])
 	case connectioninstall.LocalRemoteElevateArgument:
 		err = connectioninstall.LaunchLocalRemoteElevation(os.Args[2])
 	case connectioninstall.LocalRemoteDispatchArgument:

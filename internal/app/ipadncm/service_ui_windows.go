@@ -184,6 +184,10 @@ func ServiceReplayDesktopRequests(ctx context.Context) error {
 func (u *modernUI) proxyAction(v desktopRequest) bool {
 	p := currentServiceUIProxy()
 	if p == nil {
+		if v.Action == "exit-program" || v.Action == "exit-program-commit" {
+			u.sendEvent(map[string]string{"event": "program-exit-result", "request_id": v.ID, "code": "CORE_EXIT_UNAVAILABLE"})
+			return true
+		}
 		return false
 	}
 	switch v.Action {
@@ -197,6 +201,10 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 			go func() {
 				reply, err := p.Action(u.lifetime, b)
 				if err != nil {
+					if v.Action == "exit-program" || v.Action == "exit-program-commit" {
+						u.sendEvent(map[string]string{"event": "program-exit-result", "request_id": v.ID, "code": "CORE_EXIT_REQUEST_FAILED"})
+						return
+					}
 					if failure, ok := localControlFailureEvent(v.Action, v.ID); ok {
 						u.sendEvent(failure)
 						return
@@ -235,6 +243,9 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 						}
 					}
 					u.sendEvent(reply)
+					if v.Action == "exit-program-commit" {
+						u.cancel()
+					}
 				}
 			}()
 		}

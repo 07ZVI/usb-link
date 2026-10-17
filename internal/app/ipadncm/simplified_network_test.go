@@ -58,8 +58,12 @@ func TestSimplifiedDefaultCannotPairOrApplyRetiredPolicy(t *testing.T) {
 		t.Fatal("fresh actual consent must precede preparation")
 	}
 	mode := unpairedCalls(unpairedSourceFunction(t, "../launcher/main_windows.go", "executeMode"))
-	if mode["RunNetworkOnlyAppleControl"] == 0 {
+	if mode["RunSelectedNetworkOnlyAppleControl"] == 0 {
 		t.Fatal("default bypassed no-session USB control")
+	}
+	publicMode := unpairedCalls(unpairedSourceFunction(t, "local_ncm_direct_stub_windows.go", "RunSelectedNetworkOnlyAppleControl"))
+	if publicMode["RunNetworkOnlyAppleControl"] == 0 || publicMode["RestoreLocalNCMDirect"] == 0 || publicMode["RestoreLocalNCMDirect"] >= publicMode["RunNetworkOnlyAppleControl"] || publicMode["runWithSelectedControlLease"] != 0 {
+		t.Fatal("public selection must recover only and delegate to ordinary mode control")
 	}
 }
 func TestLegacyMigrationCannotTouchGroupingOrCreateNewPolicy(t *testing.T) {

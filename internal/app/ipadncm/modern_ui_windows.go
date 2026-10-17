@@ -312,14 +312,6 @@ func (u *modernUI) action(a string) {
 		if buildinfo.LocalDiagnostics == "true" {
 			CancelAMDSModeDiagnostic()
 		}
-	case "trust-prompt-first", "trust-prompt-second":
-		if buildinfo.LocalDiagnostics == "true" {
-			which := 1
-			if a == "trust-prompt-second" {
-				which = 2
-			}
-			RecordTrustPromptMarker(which)
-		}
 	case "select-mac":
 		selectDevice("Mac")
 	case "select-ipad":
@@ -450,17 +442,25 @@ func (u *modernUI) desktopStatus() any {
 		u.notice = fmt.Sprintf("正在結束 USB 連線並恢復設定 · 已等候 %d 秒", int(time.Since(u.stopStarted).Seconds()))
 	}
 	status := desktopStatusSnapshot{
-		DeviceStatus: desktopDeviceStatus(r, stopping),
-		Event:        "status", Connections: deviceSummary(), Version: productVersion, Stopping: stopping,
+		DefaultNetworkIsolation: DefaultNetworkIsolationDiagnostics(),
+		DeviceStatus:            desktopDeviceStatus(r, stopping),
+		Event:                   "status", Connections: deviceSummary(), Version: productVersion, Stopping: stopping,
 		ShareURL: connectioninstall.NativeSMBServerURL, NativeSMB: true, NativeAccount: nativeShare.Username,
 		ShareProblem: nativeShare.Problem, ShareReady: nativeShare.Ready, ShareEnabled: nativeShare.Enabled,
 		Notice: u.notice, Startup: ConnectionStartupEnabled(), StartupBusy: u.startupBusy,
 		StartupRequested: u.startupRequested, StartupRequestID: u.startupRequestID, StartupRejectedID: u.startupRejectedID,
 		Independent: connectionPreferences().IndependentUSB, IPadNetworkPolicy: ipadPolicy,
-		Devices:          make([]desktopipc.DeviceStatus, 0, 2),
-		DeveloperDebug:   localDeveloperDebugStatus(),
-		ConnectionTiming: ConnectionTimingDiagnostics(),
-		PhotoIsolation:   PhotoIsolationDiagnostics(),
+		Devices:           make([]desktopipc.DeviceStatus, 0, 2),
+		DeveloperDebug:    localDeveloperDebugStatus(),
+		ConnectionTiming:  ConnectionTimingDiagnostics(),
+		PhotoIsolation:    PhotoIsolationDiagnostics(),
+		WPDTrace:          desktopExperimentControl(LocalWPDTraceDiagnostics()),
+		PhotoPolicy:       desktopExperimentControl(LocalPhotoPolicyDiagnostics()),
+		NCMDirect:         desktopExperimentControl(LocalNCMDirectDiagnostics()),
+		AMDSHold:          desktopExperimentControl(LocalAMDSHoldDiagnostics()),
+		ConnectionArchive: ConnectionArchiveDiagnostics(),
+		LocalUSBTrace:     desktopUSBTraceSummary(LocalUSBTraceDiagnostics()),
+		PnPNativeTrace:    desktopUSBTraceSummary(LocalPnPTraceDiagnostics()),
 	}
 	var details string
 	for _, snapshot := range deviceDisplaySnapshots() {
@@ -480,6 +480,21 @@ func (u *modernUI) desktopStatus() any {
 		}
 	}
 	if buildinfo.LocalDiagnostics == "true" {
+		for _, item := range []struct {
+			label string
+			value any
+		}{
+			{"WPD 元資料（僅脫敏摘要；舊原始檔保留）", LocalWPDTraceDiagnostics()},
+			{"Windows USB 事件（尚未證明對應這台 iPad）", desktopUSBTraceSummary(LocalUSBTraceDiagnostics())},
+			{"Windows 裝置通知（不是 iPad 彈窗記錄）", LocalPnPTraceDiagnostics()},
+			{"照片介面前置阻斷（策略就位不代表已阻斷）", LocalPhotoPolicyDiagnostics()},
+			{"NCM Direct（模式 5，不等於 USB 配置 5）", LocalNCMDirectDiagnostics()},
+			{"Apple 服務屏蔽對照（原狀態恢復以讀回為準）", LocalAMDSHoldDiagnostics()},
+		} {
+			if b, err := json.Marshal(item.value); err == nil {
+				status.Detail += "\r\n" + item.label + "：" + string(b)
+			}
+		}
 		if b, err := json.Marshal(PhotoIsolationDiagnostics()); err == nil {
 			status.Detail += "\r\niPad 照片介面隔離（不代表信任提示已消失）：" + string(b)
 		}
@@ -578,6 +593,11 @@ func (u *modernUI) close() {
 		}
 	}
 	u.endUI()
+	// The login process is the registered owner of this exact child. Do not
+	// release that ownership while a renderer can still keep its old windows.
+	if done != nil {
+		<-done
+	}
 }
 
 // Renderer markers grant no action or readiness authority. Older verified

@@ -38,6 +38,10 @@ func updateNativeGuestSharesLocked(c *nativeSMBConfiguration, guest string) erro
 	var failures []error
 	for i := range c.Shares {
 		s := c.Shares[i]
+		if s.MigrationName != "" {
+			failures = append(failures, fmt.Errorf("NATIVE_SMB_MIGRATION_RECOVERY_REQUIRED"))
+			continue
+		}
 		got, free, rc, e := getNativeShare(s.Name)
 		if e != nil {
 			failures = append(failures, e)

@@ -19,6 +19,10 @@ func TestLocalRemoteTransportRejectsOtherPeersAndCapabilities(t *testing.T) {
 		want               int
 	}{
 		{"GET", "/v1/status", "10.6.9.2:50000", tls.VersionTLS13, true, 200},
+		{"GET", "/v1/diagnostics/index", "10.6.9.2:50000", tls.VersionTLS13, true, 200},
+		{"POST", "/v1/diagnostics/chunk", "10.6.9.2:50000", tls.VersionTLS13, true, 200},
+		{"GET", "/v1/diagnostics/chunk", "10.6.9.2:50000", tls.VersionTLS13, true, 404},
+		{"GET", "/v1/diagnostics/index?path=private", "10.6.9.2:50000", tls.VersionTLS13, true, 404},
 		{"POST", "/v1/prepare", "10.6.9.2:50000", tls.VersionTLS13, true, 200},
 		{"POST", "/v1/apply", "10.6.9.2:50000", tls.VersionTLS13, true, 200},
 		{"POST", "/v1/cancel", "10.6.9.2:50000", tls.VersionTLS13, true, 200},

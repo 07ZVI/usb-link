@@ -191,6 +191,15 @@ func scopedEcho(source, destination net.IP, index uint32, multicast bool) EchoAt
 }
 
 func (b *groupingBackend) currentPeerAdapter(expected string) (NetworkAdapter, string) {
+	if b.directTarget != nil {
+		ctx, cancel := context.WithTimeout(b.sessionContext(), 5*time.Second)
+		defer cancel()
+		s := inventory(ctx)
+		if !b.directTarget.descriptorProof(s) {
+			return NetworkAdapter{}, "DIRECT_CURRENT_DESCRIPTOR_PROOF_LOST"
+		}
+		return b.mappedPeerAdapter(s, expected)
+	}
 	s := Inspect()
 	if !sameRootInstance(b.mode.Before, s) || !HasActiveNCM(s) {
 		return NetworkAdapter{}, "PEER_TARGET_CHANGED_OR_NCM_LOST"
@@ -202,7 +211,7 @@ func (b *groupingBackend) currentPeerAdapter(expected string) (NetworkAdapter, s
 // hub/port. Continue using fresh cached PnP physical paths plus the exact
 // mapped adapter GUID/LUID. Never repeatedly open hubs during a stream.
 func (b *groupingBackend) currentActivePeerAdapter(expected string) (NetworkAdapter, string) {
-	ctx, cancel := context.WithTimeout(connectionContext(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(b.sessionContext(), 2*time.Second)
 	defer cancel()
 	s := inventoryPnP(ctx)
 	ids := make([]string, 0, len(s.Nodes))
@@ -234,6 +243,9 @@ func (b *groupingBackend) mappedPeerAdapter(s Snapshot, expected string) (Networ
 // Shared evaluator allows a read-only startup proof to reuse the already read
 // exact-node mappings. All ordinary peer admission checks remain unchanged.
 func (b *groupingBackend) mappedPeerAdapterFrom(s Snapshot, expected string, readAdapters func() []NetworkAdapter) (NetworkAdapter, string) {
+	if b.directTarget != nil {
+		return b.directTarget.mapping(s, expected, readAdapters)
+	}
 	if b.existingTarget != nil {
 		return b.existingNetworkMapping(s, expected, readAdapters)
 	}
@@ -406,7 +418,7 @@ func probeAddressLocal(a NetworkAdapter, ip net.IP) bool {
 // Let address and neighbor discovery settle on the running adapter. A late
 // IPv6 source must not cause a full grouping rollback and cable-replug prompt.
 func (b *groupingBackend) waitForPeerReady() PeerProbe {
-	ctx := connectionContext()
+	ctx := b.sessionContext()
 	deadline := time.Now().Add(45 * time.Second)
 	var peer PeerProbe
 	for attempt := 0; attempt < 4; attempt++ {

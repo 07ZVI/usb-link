@@ -103,7 +103,12 @@ func RecordConnectionAttemptFor(kind string) {
 	monitorDiagnostics.attemptStarted = time.Now()
 	monitorDiagnostics.operation = ""
 	monitorDiagnostics.operationActive = false
+	attempt := monitorDiagnostics.attempt
 	monitorDiagnostics.Unlock()
+	if kind == "iPad" {
+		RecordConnectionArchiveAttempt(attempt)
+		RequestConnectionEnvironmentCapture()
+	}
 }
 func recordManualRetry() {
 	monitorDiagnostics.Lock()

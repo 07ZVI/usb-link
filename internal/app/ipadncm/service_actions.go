@@ -16,7 +16,7 @@ type localControlFailure struct {
 // the matching UI wait and let later snapshots establish the actual state.
 func localControlFailureEvent(action, id string) (localControlFailure, bool) {
 	switch action {
-	case "local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off":
+	case "local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off":
 	default:
 		return localControlFailure{}, false
 	}
@@ -34,9 +34,9 @@ func serviceAdditionalAction(action string) bool {
 	switch action {
 	case "local-usb-update-on", "local-usb-update-off":
 		return buildinfo.LocalRemote
-	case "trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off":
+	case "trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off":
 		return buildinfo.LocalRemote && buildinfo.LocalDiagnostics == "true"
-	case "trust-prompt-first", "trust-prompt-second", "trust-service-trial-start", "trust-service-trial-cancel":
+	case "trust-service-trial-start", "trust-service-trial-cancel":
 		return buildinfo.LocalDiagnostics == "true"
 	case "share-folders-refresh", "share-folder-add", "share-folder-remove", "native-smb-access-save", "native-smb-acl-forget", "native-smb-release", "native-smb-account-read", "native-smb-account-save", "native-smb-account-create", "native-smb-account-reset", "native-smb-account-rename", "native-smb-guest-on", "native-smb-guest-off", "native-smb-repair", "native-smb-retry", "gateway-refresh", "gateway-decide", "gateway-forget":
 		return true

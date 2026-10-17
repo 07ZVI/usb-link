@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"suhang/usbnet/internal/diagnostics/grouptrial"
+	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/transport/ipadsession"
 	"syscall"
@@ -253,6 +254,7 @@ func RecoverApplicationSession(dir, system string) (r ApplicationRecovery) {
 		r.Error = "APPLICATION_RECOVERY_PLAN_INVALID"
 		return
 	}
+	finishFirewall := shutdowntrace.Begin(shutdowntrace.PhaseIPadFirewallRestore)
 	if j.ResidentFirewall {
 		r.ResidentFirewallPreserved = true
 	} else if netconfig.NativeNetworkEnabled() {
@@ -264,16 +266,23 @@ func RecoverApplicationSession(dir, system string) (r ApplicationRecovery) {
 		output, fwErr := runApplicationScript(system, script)
 		r.FirewallRemoved = fwErr == "" && output == "OWNED_FIREWALL_REMOVED"
 	}
+	finishFirewall()
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cleanupCancel()
-	if err := RestoreOwnedIPadDADForClose(cleanupCtx, dir, j.Root, j.Driver, j.Plan); err != nil {
+	finishDAD := shutdowntrace.Begin(shutdowntrace.PhaseIPadDADRestore)
+	dadError := RestoreOwnedIPadDADForClose(cleanupCtx, dir, j.Root, j.Driver, j.Plan)
+	finishDAD()
+	if err := dadError; err != nil {
 		r.Error = err.Error()
 		return // retain the application journal and originals.
 	}
+	finishRoute := shutdowntrace.Begin(shutdowntrace.PhaseIPadRouteRestore)
 	routeErr := removePeerRoute(j.Plan)
+	finishRoute()
 	ipErr := routeErr
 	preserved := false
 	if routeErr == "" {
+		finishAddress := shutdowntrace.Begin(shutdowntrace.PhaseIPadAddressRestore)
 		var ce error
 		preserved, ce = recoverIPadConfigurationBeforeAddress(cleanupCtx, dir, j)
 		if ce != nil {
@@ -281,6 +290,7 @@ func RecoverApplicationSession(dir, system string) (r ApplicationRecovery) {
 		} else if !preserved {
 			ipErr = removeApplicationAddress(j.Plan)
 		}
+		finishAddress()
 	}
 	r.PersistentAddressPreserved = preserved && ipErr == ""
 	r.AddressRemoved = !preserved && ipErr == ""
@@ -290,7 +300,9 @@ func RecoverApplicationSession(dir, system string) (r ApplicationRecovery) {
 		r.Error = ipErr
 	}
 	if r.Error == "" {
+		finishFlags := shutdowntrace.Begin(shutdowntrace.PhaseIPadHostFlagsRestore)
 		r.Error = restoreUSBHostFlags(j.Plan)
+		finishFlags()
 	}
 	if r.Error == "" && !preserved {
 		if ce := finishIPadFailedApplication(cleanupCtx, dir, j); ce != nil {

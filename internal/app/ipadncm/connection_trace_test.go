@@ -1,10 +1,34 @@
 package ipadncm
 
 import (
+	"encoding/json"
 	"suhang/usbnet/internal/buildinfo"
 	"testing"
 	"time"
 )
+
+func TestConnectionStageCarriesObservationTimeForNativeCorrelation(t *testing.T) {
+	m := newMonitorDiagnosticCounter()
+	m.deviceKind, m.attempt = "iPad", 7
+	m.attemptStarted = time.Now()
+	before := time.Now()
+	m.stage("usb_set_mode_request_begin", "own_operation_started", false)
+	after := time.Now()
+	r := m.snapshot()
+	if len(r.ConnectionTrace) != 1 {
+		t.Fatal(r)
+	}
+	e := r.ConnectionTrace[0]
+	at, err := time.Parse(time.RFC3339Nano, e.UTC)
+	if err != nil || at.Before(before) || at.After(after) || e.Attempt != 7 || e.ElapsedMS < 0 {
+		t.Fatal("operation time cannot be aligned to native metadata", e, err)
+	}
+	b, err := json.Marshal(e)
+	var decoded ConnectionEvent
+	if err != nil || json.Unmarshal(b, &decoded) != nil || decoded.UTC != e.UTC || decoded.ElapsedMS != e.ElapsedMS {
+		t.Fatal("observation time lost in snapshot", string(b), err)
+	}
+}
 
 func TestPreSwitchControlOperationsReachTrustTimeline(t *testing.T) {
 	oldMonitor, oldTrust, oldFlag := monitorDiagnostics, trustDiagnostics, buildinfo.LocalDiagnostics
@@ -16,14 +40,14 @@ func TestPreSwitchControlOperationsReachTrustTimeline(t *testing.T) {
 	trustDiagnostics.start(time.Now(), "control-window-test")
 	buildinfo.LocalDiagnostics = "true"
 	RecordConnectionAttemptFor("iPad")
-	for _, operation := range []string{"usb_control_open", "usb_get_mode", "usb_mode_switch"} {
+	for _, operation := range []string{"usb_control_open", "usb_get_mode", "usb_mode_switch", "usb_set_mode_request"} {
 		RecordConnectionOperation(operation)()
 	}
 	events := TrustDiagnosticsSnapshot().Events
-	if len(events) != 7 {
+	if len(events) != 9 {
 		t.Fatalf("control operation windows missing: %+v", events)
 	}
-	for i, stage := range []string{"usb_control_open_begin", "usb_control_open_end", "usb_get_mode_begin", "usb_get_mode_end", "usb_mode_switch_begin", "usb_mode_switch_end"} {
+	for i, stage := range []string{"usb_control_open_begin", "usb_control_open_end", "usb_get_mode_begin", "usb_get_mode_end", "usb_mode_switch_begin", "usb_mode_switch_end", "usb_set_mode_request_begin", "usb_set_mode_request_end"} {
 		if events[i+1].Kind != stage || events[i+1].Attempt != 1 {
 			t.Fatalf("control operation attribution mismatch: %+v", events[i+1])
 		}

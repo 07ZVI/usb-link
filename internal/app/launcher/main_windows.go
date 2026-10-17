@@ -30,6 +30,7 @@ import (
 	"suhang/usbnet/internal/dependencies"
 	"suhang/usbnet/internal/diagnostics/attemptlog"
 	"suhang/usbnet/internal/diagnostics/memorydiag"
+	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/applelease"
@@ -41,6 +42,17 @@ import (
 )
 
 var version = buildinfo.Version
+
+var applicationExitCleanupPending atomic.Bool
+
+// Exit UI must not treat isolation restoration as proof that the independent
+// network/session cleanup succeeded. Detailed evidence remains in the result.
+func ApplicationExitCleanupError() error {
+	if applicationExitCleanupPending.Load() {
+		return fmt.Errorf("APPLICATION_EXIT_CLEANUP_PENDING")
+	}
+	return nil
+}
 
 // Publisher-only diagnostic candidate: ordinary iPad auto-connect is held.
 // Default OFF; this is not a persisted user setting or remotely supplied flag.
@@ -223,7 +235,7 @@ func prepare(r *Result, system string) {
 				r.Error = "CORE_DEPENDENCY_UI_UNAVAILABLE"
 				return
 			}
-			answer, e := prompts.Ask(owner.ctx, coreprompt.Question{Dependency: "apple-support", Title: "iPad · Apple 通信元件", Body: "這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", Accept: "下載並開啟官方安裝程式"})
+			answer, e := prompts.Ask(owner.appCtx, coreprompt.Question{Dependency: "apple-support", Title: "iPad · Apple 通信元件", Body: "這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", Accept: "下載並開啟官方安裝程式"})
 			r.InstallConsent = e == nil && answer.Accepted
 		} else {
 			r.InstallConsent = dialog("這台電腦尚未找到 Apple Mobile Device Service。\n\n是否自動下載並啟動蘋果官方安裝程式？\n\n官方安裝包可能同時安裝 iTunes；請在官方畫面確認所需元件。USB 驅動會另外確認。它不安裝 VPN，不降低安全設定。\n安裝前會檢查檔案雜湊與 Windows 的蘋果簽名。\n\n接著會開啟蘋果官方安裝畫面，請閱讀並依你的意願同意其授權條款。之後可在 Windows 的「已安裝的應用程式」卸載 Apple Mobile Device Support。", 0x4|0x20|0x100) == 6
@@ -294,10 +306,13 @@ func modeCheck(r *Result) ipadeasy.ModeOutcome {
 func executeMode(previous *ipadncm.Result) (ipadncm.Result, applelease.Report, ipadeasy.ModeOutcome) {
 	// USB mode control uses fresh descriptor identity and actual consent only.
 	// AMDS remains in its existing state; no lease, pairing or Apple session.
-	probe := ipadncm.RunNetworkOnlyAppleControl(version, applicationConsent, nil, previous)
+	probe := ipadncm.RunSelectedNetworkOnlyAppleControl(version, applicationConsent, nil, previous)
 	ready := probe.Status == "NCM_DESCRIPTORS_PRESENT" && ipadncm.HasActiveNCM(probe.Before)
-	if probe.After != nil && probe.ReenumerationSeen {
+	if probe.Status == "NCM_DESCRIPTORS_AFTER_REQUEST" && probe.After != nil && probe.ReenumerationSeen {
 		ready = ipadncm.HasActiveNCM(*probe.After)
+	}
+	if !ready {
+		ready = ipadncm.LocalNCMDirectModeReady(probe)
 	}
 	out := ipadeasy.ModeOutcome{Ready: ready}
 	if !ready {
@@ -330,10 +345,15 @@ func inspect(r *Result, system, recoveryDir string) {
 		}
 		return ""
 	}, func() ipadeasy.ModeOutcome { return modeCheck(r) }, func() {
+		if ipadncm.LocalNCMDirectModeReady(*r.Probe) {
+			// The dedicated branch below verifies its own NIC and peer. A
+			// descriptor candidate must not pass the ordinary cfg5 startup check.
+			return
+		}
 		var start ipadncm.StartupResult
 		features := ipadncm.IPadCandidateFeatures()
 		if features.EventStartup && features.PersistentGrouping {
-			start = ipadncm.RunStartupCheckAfterModeEventsForConfigured(version, *r.Probe, recoveryDir)
+			start = ipadncm.RunStartupCheckAfterModeEventsForConfigured(version, *r.Probe, recoveryDir, applicationConsent)
 		} else if features.EventStartup {
 			start = ipadncm.RunStartupCheckAfterModeEvents(version, *r.Probe)
 		} else {
@@ -345,6 +365,12 @@ func inspect(r *Result, system, recoveryDir string) {
 	r.Stage = r.Workflow.Stage
 	if r.Workflow.Error != "" {
 		r.Error = r.Workflow.Error
+	}
+	if r.Error == "" && r.Probe != nil {
+		if trial, handled := ipadncm.RunLocalNCMDirectNetwork(version, recoveryDir, system, *r.Probe, applicationConsent); handled {
+			applyGroupingOutcome(r, trial)
+			return
+		}
 	}
 	persistent := ipadncm.IPadCandidateFeatures().PersistentGrouping
 	var reused ipadncm.GroupingResult
@@ -370,19 +396,23 @@ func inspect(r *Result, system, recoveryDir string) {
 				return probe, out.Error
 			}, applicationConsent)
 		}
-		r.Grouping = &trial
-		r.Stage = "GROUPING_TRIAL_COMPLETE"
-		if trial.Transaction.Error != "" {
-			r.Error = trial.Transaction.Error
-			r.Stage = "GROUPING_TRIAL_FAILED_NO_CHANGE"
-			if trial.Transaction.RestoreCompleted && trial.Transaction.JournalCleared {
-				r.Stage = "GROUPING_TRIAL_FAILED_RESTORED"
-			}
+		applyGroupingOutcome(r, trial)
+	}
+}
+
+func applyGroupingOutcome(r *Result, trial ipadncm.GroupingResult) {
+	r.Grouping = &trial
+	r.Stage = "GROUPING_TRIAL_COMPLETE"
+	if trial.Transaction.Error != "" {
+		r.Error = trial.Transaction.Error
+		r.Stage = "GROUPING_TRIAL_FAILED_NO_CHANGE"
+		if trial.Transaction.RestoreCompleted && trial.Transaction.JournalCleared {
+			r.Stage = "GROUPING_TRIAL_FAILED_RESTORED"
 		}
-		if trial.Transaction.RestoreError != "" {
-			r.Error = trial.Transaction.RestoreError
-			r.Stage = "GROUPING_RESTORE_PENDING_STOP"
-		}
+	}
+	if trial.Transaction.RestoreError != "" {
+		r.Error = trial.Transaction.RestoreError
+		r.Stage = "GROUPING_RESTORE_PENDING_STOP"
 	}
 }
 
@@ -499,6 +529,7 @@ func Main() {
 }
 
 func runApplication(ctx context.Context, cancel context.CancelFunc, service bool) {
+	applicationExitCleanupPending.Store(false)
 	memorydiag.RecordStage("parent_main_enter")
 	ipadncm.SetProductVersion(version)
 	if handleLocalRemoteCommand() {
@@ -778,7 +809,13 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		_ = ipadncm.InitSimplifiedIPadNetwork(recoveryDir)
 		r.Recovery = ipadncm.InspectPersistentNetworkGrouping(recoveryDir)
 		ipadncm.RecordSimplifiedGroupingWarning(r.Recovery.Error)
-		defer ipadncm.StartPhotoIsolation(ctx, recoveryDir)()
+		defer ipadncm.StartConnectionArchive(ctx, recoveryDir)()
+		defer shutdowntrace.Wrap(shutdowntrace.PhaseEnvironmentStop, ipadncm.StartConnectionEnvironment(ctx, version))()
+		defer shutdowntrace.Wrap(shutdowntrace.PhaseDefaultIsolationStop, ipadncm.StartDefaultNetworkIsolation(ctx, recoveryDir))()
+		defer shutdowntrace.Wrap(shutdowntrace.PhaseWPDStop, ipadncm.StartLocalWPDTrace(ctx, recoveryDir))()
+		defer shutdowntrace.Wrap(shutdowntrace.PhaseUSBStop, ipadncm.StartLocalUSBTrace(ctx, recoveryDir))()
+		defer shutdowntrace.Wrap(shutdowntrace.PhasePnPStop, ipadncm.StartLocalPnPTrace(ctx))()
+		defer shutdowntrace.Wrap(shutdowntrace.PhaseDirectStop, ipadncm.StartLocalNCMDirect(ctx, recoveryDir))()
 	}
 	var macRecovery macconnection.RecoveryReport
 	var macRecoveryError error
@@ -1012,6 +1049,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		macconnection.DeveloperStatus = func() any { return developerRemote.ListenerStatus() }
 	}
 	if buildinfo.LocalDiagnostics == "true" {
+		macconnection.ConnectionArchiveEvidence = func() any {
+			return map[string]any{"core_version": version, "connection_archive": ipadncm.ConnectionArchiveDiagnostics()}
+		}
 		ipadncm.StartRuntimeNetworkDiagnostics(ctx)
 		ipadncm.StartTrustDiagnostics(ctx)
 		macconnection.TrustEvidence = func() any {
@@ -1022,6 +1062,24 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		macconnection.PhotoEvidence = func() any {
 			return map[string]any{"core_version": version, "photo_isolation": ipadncm.PhotoIsolationDiagnostics()}
+		}
+		macconnection.WPDTraceEvidence = func() any {
+			return map[string]any{"core_version": version, "wpd_trace": ipadncm.LocalWPDTraceDiagnostics()}
+		}
+		macconnection.NativeUSBEvidence = func() any {
+			return map[string]any{"core_version": version, "local_usb_trace": ipadncm.LocalUSBTraceDiagnostics()}
+		}
+		macconnection.NativePnPEvidence = func() any {
+			return map[string]any{"core_version": version, "pnp_native_trace": ipadncm.LocalPnPTraceDiagnostics()}
+		}
+		macconnection.PhotoPolicyEvidence = func() any {
+			return map[string]any{"core_version": version, "photo_policy": ipadncm.LocalPhotoPolicyDiagnostics()}
+		}
+		macconnection.NCMDirectEvidence = func() any {
+			return map[string]any{"core_version": version, "ncm_direct": ipadncm.LocalNCMDirectDiagnostics()}
+		}
+		macconnection.AMDSHoldEvidence = func() any {
+			return map[string]any{"core_version": version, "amds_hold": ipadncm.LocalAMDSHoldDiagnostics(), "default_network_isolation": ipadncm.DefaultNetworkIsolationDiagnostics()}
 		}
 		macconnection.RuntimeNetworkEvidence = func() any {
 			return map[string]any{"core_version": version, "ipad_runtime_network": ipadncm.RuntimeNetworkDiagnostics()}
@@ -1095,12 +1153,15 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		nativeInterfaceSchema.Store(netconfig.NativeInterfaceConfigurationSchemaSnapshot(probe))
 	}()
-	defer func() { cancel(); <-schemaDone }()
+	defer func() { end := shutdowntrace.Begin(shutdowntrace.PhaseSchemaJoin); defer end(); cancel(); <-schemaDone }()
 	recoveryBootSummary := recoverySummary(r)
 	macDone := make(chan struct{})
 	go func() {
 		defer close(macDone)
 		ipadncm.RunConcurrentMacArchive(ctx, recoveryDir, macPayload, macManifest, cancel, func(m macconnection.Result) {
+			if m.BridgeStarted && !m.CleanupConfirmed {
+				applicationExitCleanupPending.Store(true)
+			}
 			if developerRemote != nil && netconfig.NativeStepDiagnosticValid(m.NativeStartupFailure) {
 				developerRemote.CaptureStartupFailureDetails()
 			}
@@ -1269,6 +1330,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		authorization.FinishSecurityAttempt()
 		ipadncm.ClearSimplifiedIPadConnectionScope()
 		hostInvalidated := lease.Invalidated()
+		ipadncm.RecordConnectionArchiveEvent("owner_phase", map[string]any{"phase": "session_cancel_begin", "device_kind": kind})
 		stopAttempt()
 		clearHostJoin()
 		softwareConsentContext.Store(nil)
@@ -1303,6 +1365,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		lastRecovery.Store(recoverySummary(r))
 		ipadncm.MarkIPadSoftwareReconnectSessionCleanup(!unsafeCleanup)
+		ipadncm.RecordConnectionArchiveEvent("owner_phase", map[string]any{"phase": "session_cleanup_complete", "device_kind": kind, "cleanup_safe": !unsafeCleanup})
+		ipadncm.RequestConnectionEnvironmentCapture()
 		if unsafeCleanup {
 			cleanupPending = true
 			runIPadPending(ctx, recoveryDir, system, false)
@@ -1343,11 +1407,20 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		r.Error = "SOFTWARE_RECONNECT_EXIT_RECOVERY_PENDING: " + err.Error()
 		_, _ = save(r)
 	}
+	endMacJoin := shutdowntrace.Begin(shutdowntrace.PhaseMacJoin)
 	<-macDone
-	closeUI()
+	endMacJoin()
+	if cleanupPending {
+		applicationExitCleanupPending.Store(true)
+	}
+	if cleanupPending {
+		_, _ = save(r)
+		ipadncm.SetMonitorStatus("MONITOR_RECOVERY_PENDING", r.Error)
+	}
+	shutdowntrace.Wrap(shutdowntrace.PhaseUIStop, closeUI)()
 	// Normal exit performs network cleanup only. Diagnostics remain opt-in in
 	// the live UI; never archive or launch Explorer as a shutdown side effect.
-	if cleanupPending && !developerRemote.Requested() && remoteInstallID == "" {
+	if cleanupPending && !coreProcessMode && !developerRemote.Requested() && remoteInstallID == "" {
 		dialog("USB 連線已停止，但部分網路或服務清理尚未完成。下次啟動會先重試恢復。"+r.Error, 0x30)
 	}
 }

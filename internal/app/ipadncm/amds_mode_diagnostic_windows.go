@@ -103,6 +103,9 @@ func startAMDSModeDiagnostic(ctx context.Context, version, requested string, loc
 	if ctx == nil || ctx.Err() != nil {
 		return fmt.Errorf("DIAGNOSTIC_CONTEXT_CANCELLED")
 	}
+	if LocalAMDSHoldBusy() {
+		return fmt.Errorf("AMDS_HOLD_ACTIVE_OR_RECOVERY_PENDING")
+	}
 	if localTrial && (IPadModeDiagnosticHeld() || !IPadCandidateCanConnect() || !NetworkOnlyCanConnect()) {
 		return fmt.Errorf("IPAD_DIAGNOSTIC_OR_RESTORATION_UNRESOLVED")
 	}

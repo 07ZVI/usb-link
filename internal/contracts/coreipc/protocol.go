@@ -19,10 +19,11 @@ type Request struct {
 	Payload json.RawMessage `json:"payload"`
 }
 type Response struct {
-	Version int             `json:"version"`
-	ID      string          `json:"id"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-	Problem string          `json:"problem,omitempty"`
+	AfterAcknowledged func()          `json:"-"`
+	Version           int             `json:"version"`
+	ID                string          `json:"id"`
+	Payload           json.RawMessage `json:"payload,omitempty"`
+	Problem           string          `json:"problem,omitempty"`
 }
 type Peer struct {
 	PID, Session uint32
@@ -136,4 +137,12 @@ func responseFields(b []byte) bool {
 	}
 	t, e = d.Token()
 	return e == nil && t == json.Delim('}') && d.Decode(new(any)) == io.EOF
+}
+
+// Completion is local-only and runs only after the authenticated caller has
+// acknowledged a successfully written response.
+func completeReply(reply Response, writeErr, ackErr error, ack byte) {
+	if writeErr == nil && ackErr == nil && ack == 1 && reply.AfterAcknowledged != nil {
+		reply.AfterAcknowledged()
+	}
 }

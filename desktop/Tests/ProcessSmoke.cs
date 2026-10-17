@@ -34,6 +34,35 @@ public sealed partial class Dashboard
                 if (status is "invalid" or "revoked" or "expired" or "untrusted") Require(trust.Tone == "Error", "invalid certificate must be red");
             }
             Require(NativeProcessSignature.LocalDriveRoot(@"C:\Windows\app.exe")==@"C:\" && NativeProcessSignature.LocalDriveRoot(@"\\?\C:\app.exe")==@"C:\" && NativeProcessSignature.LocalDriveRoot(@"\\?\UNC\host\app.exe")==null && NativeProcessSignature.LocalDriveRoot(@"\\?\GLOBALROOT\Device\app.exe")==null && NativeProcessSignature.LocalDriveRoot(@"\\host\app.exe")==null, "local path namespaces");
+            Require(NativeProcessSignature.IsMicrosoftOrganization(new System.Security.Cryptography.X509Certificates.X500DistinguishedName("CN=Microsoft Windows, O=Microsoft Corporation")),"Microsoft organization RDN");
+            Require(!NativeProcessSignature.IsMicrosoftOrganization(new System.Security.Cryptography.X509Certificates.X500DistinguishedName("CN=Microsoft Windows, O=Other Company")),"publisher name alone is insufficient");
+            Require(!NativeProcessSignature.IsMicrosoftOrganization(new System.Security.Cryptography.X509Certificates.X500DistinguishedName("CN=\"x,O=Microsoft Corporation\", O=Other Company")),"CN text cannot impersonate the organization RDN");
+            Require(ProcessRate.Format(1048576)=="1.0 MB/s" && ProcessRate.Format(1024)=="1.0 KB/s" && ProcessRate.Format(0)=="0.0 KB/s", "rate unit boundary");
+            Require(ProcessRate.Format(null)=="—" && ProcessRate.Format(double.NaN)=="—" && ProcessRate.Format(-1)=="—", "unknown rates must not become zero");
+            var sample = new RunningProgram(800,10,"test.exe","","",null,null,new("unverified"));
+            var ledger = new ProcessIoLedger();
+            Require(ledger.Sample([sample],0,true,false)[0].DiskRead==null,"first interval is unknown");
+            ledger.Add(800,1,read:1048576,receive:1024,send:2048);
+            var measured = ledger.Sample([sample],Stopwatch.Frequency,true,false)[0];
+            Require(measured.DiskRead==1048576 && measured.Network==3072,"independent disk and TCP/UDP direction counters");
+            ledger.Add(800,1,read:1024); // Delivery can lag behind the previous sampling boundary.
+            Require(ledger.Sample([sample],2*Stopwatch.Frequency,true,false)[0].DiskRead==1024,"late delivery within the same process lifetime must not be dropped");
+            var reused = sample with {Started=11};
+            Require(ledger.Sample([reused],3*Stopwatch.Frequency,true,false)[0].DiskRead==null,"PID reuse needs a new baseline");
+            ledger.Add(800,Stopwatch.Frequency,read:4096);
+            Require(ledger.Sample([reused],4*Stopwatch.Frequency,true,false)[0].DiskRead==0,"late event from an earlier PID lifetime must be rejected");
+            ledger.Add(800,5*Stopwatch.Frequency,read:8192);
+            Require(ledger.Sample([reused],5*Stopwatch.Frequency,true,true)[0].DiskRead==null,"lost events invalidate the interval");
+            Require(ledger.Sample([reused],6*Stopwatch.Frequency,false,false)[0].DiskRead==null,"unavailable ETW must never report zero");
+            var registry=sample with {Pid=120,Name="Registry",Shape=new(120,4,0,0,"Registry")};
+            Require(!registry.Assessment.Attention && registry.SignatureLabel=="不適用（核心物件）" && registry.Assessment.Reason.Contains("註冊表"),"minimal registry process explanation");
+            Require((registry with {Shape=null}).Assessment.Attention && (registry with {Shape=new(120,99,0,0,"Registry")}).Assessment.Attention,"name alone or wrong parent cannot establish a kernel object");
+            Require((registry with {Path=@"C:\Temp\Registry.exe",Name="Registry.exe"}).Assessment.Attention,"executable cannot impersonate the Registry object");
+            Require((sample with {Pid=4,Name="System",Shape=new(4,0,100,0,"System")}).Assessment.Label=="Windows 核心進程","reserved System PID identity");
+            Require((sample with {Name="System",Shape=new(800,0,100,0,"System")}).Assessment.Attention,"System name with another PID is insufficient");
+            Require((sample with {Trust=new("unsigned",WindowsProtected:true,ClaimedCompany:"Microsoft Corporation")}).Assessment.Attention,"WRP and version company cannot override missing signatures");
+            Require((sample with {Trust=new("invalid",WindowsProtected:true)}).Assessment.Tone=="Error","protection metadata cannot override tampering");
+            Require(Marshal.SizeOf<ProcessShapes.Entry>()==(IntPtr.Size==8?568:556),"Toolhelp ABI");
             Require(ProcessInventory.CpuPercent(10000000, 0, Stopwatch.Frequency, 4) == 25, "CPU normalization");
             Require(ProcessInventory.CpuPercent(1, 2, Stopwatch.Frequency, 4) == null, "counter reset must not display negative CPU");
             Require(ProcessInventory.CpuPercent(100000000, 0, 0, 4) == null, "initial CPU sample");
@@ -54,7 +83,7 @@ public sealed partial class Dashboard
             Directory.CreateDirectory(folder);
             for (var attempt = 0; attempt < 3; attempt++) {
                 OpenTaskManager(); Require(processInventory == null, "preview must not inspect host processes");
-                Require(runningPrograms.Length == 7 && processList.ItemCount == 7, "all running fixtures shown");
+                Require(runningPrograms.Length == 9 && processList.ItemCount == 9, "all running fixtures shown");
                 var invalid = runningPrograms.Single(p => p.Trust.Status == "invalid");
                 Require(invalid.Risk.StartsWith("可疑"), "tampered executable explanation");
                 Require((invalid with { Trust = ProcessTrust.FromCode(0x800B0100) }).Risk.Contains("暫存"), "temporary unsigned executable explanation");
@@ -64,6 +93,10 @@ public sealed partial class Dashboard
                 Require(FilterProcesses(runningPrograms, "", true, "trust", false).Length == 4, "attention excludes valid and pending");
                 Require(FilterProcesses(runningPrograms, "", false, "cpu", true)[0].Name == "Browser.exe", "CPU sorting");
                 Require(FilterProcesses(runningPrograms, "", false, "memory", true)[0].Name == "Browser.exe", "memory sorting");
+                Require(FilterProcesses(runningPrograms,"",false,"disk",true)[0].Name=="explorer.exe","disk sorting");
+                Require(FilterProcesses(runningPrograms,"",false,"network",true)[0].Name=="Browser.exe","network sorting");
+                processList.SelectedItem=runningPrograms.Single(p=>p.Name=="Registry");
+                Require(processDetailReason.Text!.Contains("註冊表")&&processDetailText.Text!.Contains("父 PID 4"),"Registry evidence in the details panel");
                 processSearch.Text = "7312";
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
                 Require(processList.ItemCount == 1, "live search updates table");

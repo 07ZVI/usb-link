@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var localConnectionTiming = connectionTimingController{stamp: func(now time.Time) (string, int64) { return trustDiagnostics.stamp(now) }}
+var localConnectionTiming = newAutomaticConnectionTimingController(func(now time.Time) (string, int64) { return trustDiagnostics.stamp(now) })
 
 func connectionTimingMasterEnabled() bool {
 	if !buildinfo.LocalRemote || buildinfo.LocalDiagnostics != "true" || localDeveloperDebug == nil {
@@ -23,18 +23,21 @@ func SetConnectionTimingTrial(mode string) error {
 	if !validConnectionTimingMode(mode) {
 		return fmt.Errorf("CONNECTION_TIMING_MODE_INVALID")
 	}
-	if mode != "normal" && !connectionTimingMasterEnabled() {
-		return fmt.Errorf("CONNECTION_TIMING_LOCAL_DEBUG_REQUIRED")
+	if mode == "delayed" {
+		return fmt.Errorf("CONNECTION_TIMING_DELAY_RETIRED")
 	}
-	return localConnectionTiming.saveSelection(mode, connectionTimingMasterEnabled)
+	localConnectionTiming.useAutomaticDetection()
+	return nil
 }
-func SetConnectionTimingPersistence(save func(string) error, restore func() (string, error)) {
-	localConnectionTiming.configurePersistence(save, restore)
-}
+
+// Older installers may still wire the retired experiment preference. It no
+// longer controls ordinary detection or restores a hidden twelve-second delay.
+func SetConnectionTimingPersistence(func(string) error, func() (string, error)) {}
 func RestoreConnectionTimingPreference() error {
-	return localConnectionTiming.restoreSelection(connectionTimingMasterEnabled)
+	localConnectionTiming.useAutomaticDetection()
+	return nil
 }
-func ResetConnectionTimingTrial() { localConnectionTiming.resetRuntime() }
+func ResetConnectionTimingTrial() { localConnectionTiming.useAutomaticDetection() }
 func ConnectionTimingDiagnostics() any {
 	s := localConnectionTiming.snapshot()
 	if run, _ := trustDiagnostics.stamp(time.Now()); run != "" {
@@ -61,3 +64,7 @@ func connectionTimingAccept(ctx context.Context, p connectionTimingPlan, kind st
 }
 
 func connectionTimingOwnerLoop() { localConnectionTiming.ownerLoop() }
+
+func connectionTimingUSBInterfaceWakeEnabled() bool {
+	return true
+}

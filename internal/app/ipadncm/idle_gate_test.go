@@ -107,3 +107,72 @@ func TestBriefReplugAndReplugDuringSuccessfulCleanup(t *testing.T) {
 		t.Fatal("unknown sample did not reset stability")
 	}
 }
+
+func TestConfirmedNormalReplugSkipsAdditionalDebounce(t *testing.T) {
+	now := time.Unix(100, 0)
+	absent := idlePresence{readable: true, absent: true}
+	peer := idlePresence{readable: true, candidate: true, identity: "same-root"}
+	var g idleReattachGate
+	for _, elapsed := range []time.Duration{0, time.Second, 1999 * time.Millisecond, 2 * time.Second} {
+		if g.ready(now.Add(elapsed), peer.identity, absent, true) {
+			t.Fatal("absence must not start a connection")
+		}
+		if g.fastReplug != (elapsed >= 2*time.Second) {
+			t.Fatal("sustained absence threshold", elapsed, g.fastReplug)
+		}
+	}
+	arrival := now.Add(2100 * time.Millisecond)
+	if !g.ready(arrival, peer.identity, peer, true) {
+		t.Fatal("confirmed replug waited another two seconds")
+	}
+	s := rearmDiagnostic(arrival, now, peer.identity, peer, true, g, false, false, true)
+	if !s.FastReplug || !s.AbsenceConfirmed || s.MinimumMS != 0 || s.Reason != "same_root_ready_after_cached_absence" {
+		t.Fatal("fast-path evidence missing", s)
+	}
+}
+
+func TestConfirmedAbsenceDoesNotAccelerateFailedSession(t *testing.T) {
+	now := time.Unix(100, 0)
+	absent := idlePresence{readable: true, absent: true}
+	peer := idlePresence{readable: true, candidate: true, identity: "same-root"}
+	var g idleReattachGate
+	g.ready(now, peer.identity, absent, false)
+	g.ready(now.Add(2*time.Second), peer.identity, absent, false)
+	arrival := now.Add(3 * time.Second)
+	if g.ready(arrival, peer.identity, peer, false) || g.ready(arrival.Add(1999*time.Millisecond), peer.identity, peer, false) {
+		t.Fatal("failed session bypassed stability")
+	}
+	if !g.ready(arrival.Add(2*time.Second), peer.identity, peer, false) {
+		t.Fatal("normal failed-session recovery lost")
+	}
+}
+
+func TestReplugFastPathRequiresContinuousUnambiguousEvidence(t *testing.T) {
+	now := time.Unix(100, 0)
+	absent := idlePresence{readable: true, absent: true}
+	peer := idlePresence{readable: true, candidate: true, identity: "same-root"}
+	for name, interruption := range map[string]idlePresence{
+		"unreadable": {},
+		"ambiguous":  {readable: true},
+		"other_root": {readable: true, candidate: true, identity: "other-root"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var g idleReattachGate
+			g.ready(now, peer.identity, absent, true)
+			g.ready(now.Add(2*time.Second), peer.identity, absent, true)
+			g.ready(now.Add(3*time.Second), peer.identity, interruption, true)
+			arrival := now.Add(4 * time.Second)
+			if g.ready(arrival, peer.identity, peer, true) || g.fastReplug {
+				t.Fatal("uncertain transition inherited fast readiness")
+			}
+			if !g.ready(arrival.Add(2*time.Second), peer.identity, peer, true) {
+				t.Fatal("original stable fallback lost")
+			}
+		})
+	}
+	var single idleReattachGate
+	single.ready(now, peer.identity, absent, true)
+	if single.ready(now.Add(3*time.Second), peer.identity, peer, true) {
+		t.Fatal("one absence reading is not continuous confirmation")
+	}
+}

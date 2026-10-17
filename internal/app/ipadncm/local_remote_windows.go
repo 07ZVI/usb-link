@@ -7,16 +7,23 @@ var localDeveloperDebug *developerDebugController
 // Keep local inspection usable when protected initialization failed. No save,
 // restore or USB admission is claimed by this fallback controller.
 func SetLocalRemoteUnavailable(code string) {
-	SetPhotoIsolationMaster(false)
+	setLocalExperimentMaster(false)
 	localDeveloperDebug = newUnavailableDeveloperDebugController(code)
 }
 
 // SetLocalRemoteControl is wired once before the desktop service starts.
 func SetLocalRemoteControl(f func(bool) (string, error), save func(bool) error, restore func() (bool, error), intent func(bool) error, transport func() (bool, bool, string), startupError string) {
-	SetPhotoIsolationMaster(false)
-	localDeveloperDebug = &developerDebugController{apply: f, save: save, restore: restore, intent: intent, transport: transport, photoMaster: SetPhotoIsolationMaster, state: developerDebugSnapshot{Available: true, Busy: true, Persistence: "loading", USBPhase: "off", StartupError: startupError}}
+	localDeveloperDebug = &developerDebugController{apply: f, save: save, restore: restore, intent: intent, transport: transport, photoMaster: setLocalExperimentMaster, state: developerDebugSnapshot{Available: true, Busy: true, Persistence: "loading", USBPhase: "off", StartupError: startupError}}
 	localDeveloperDebug.intentError = intent(false)
 	go localDeveloperDebug.initialize()
+}
+
+func setLocalExperimentMaster(on bool) {
+	SetConnectionArchiveMaster(on)
+	SetLocalWPDTraceMaster(on)
+	SetLocalUSBTraceMaster(on)
+	SetLocalPnPTraceMaster(on)
+	SetLocalNCMDirectMaster(on)
 }
 
 func localDeveloperDebugStatus() any {
@@ -28,14 +35,28 @@ func localDeveloperDebugStatus() any {
 
 func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 	action := request.Action
-	if action == "photo-isolation-on" || action == "photo-isolation-off" {
+	var set func(bool, string) error
+	switch action {
+	case "photo-isolation-on", "photo-isolation-off":
+		set = SetPhotoIsolation
+	case "wpd-trace-on", "wpd-trace-off":
+		set = SetLocalWPDTrace
+	case "photo-policy-on", "photo-policy-off":
+		set = SetLocalPhotoPolicy
+	case "ncm-direct-on", "ncm-direct-off":
+		set = SetLocalNCMDirect
+	case "amds-hold-on", "amds-hold-off":
+		set = SetLocalAMDSHold
+	}
+	if set != nil {
 		if !validStartupDisplayRequestID(request.ID) {
-			u.setNotice("照片介面隔離請求無效。")
+			u.setNotice("本地實驗設定請求無效。")
 			return true
 		}
 		go func() {
-			if err := SetPhotoIsolation(action == "photo-isolation-on", request.ID); err != nil {
-				u.setNotice("照片介面隔離設定未完成：" + err.Error())
+			on := action == "photo-isolation-on" || action == "wpd-trace-on" || action == "photo-policy-on" || action == "ncm-direct-on" || action == "amds-hold-on"
+			if err := set(on, request.ID); err != nil {
+				u.setNotice("本地實驗設定未完成：" + err.Error())
 			}
 			u.requestRefresh()
 		}()

@@ -77,7 +77,7 @@ func TestRuntimeNetworkTCPMalformedAndBounded(t *testing.T) {
 	}
 	d := RuntimeNetworkDiagnostic{Status: "ROOT_UNCONFIRMED_OR_AMBIGUOUS", SampledUTC: "2026-10-16T00:00:00Z", AgeMS: 123456, Collecting: true, ElapsedMS: 1234, TCP: r, AdaptersOmitted: 10}
 	for i := 0; i < 2; i++ {
-		d.Adapters = append(d.Adapters, RuntimeNetworkAdapter{Index: 12345, OperStatus: 7, IPv4: []string{"255.255.255.255/32", "255.255.255.255/32"}, AddressesOmitted: 126, Error: "NCM_INTERFACE_CHANGED_BEFORE_STATISTICS"})
+		d.Adapters = append(d.Adapters, RuntimeNetworkAdapter{Index: 12345, OperStatus: 7, AdminStatus: 3, MediaState: 2, StatusFlags: 255, StatusRead: true, IPv4: []string{"255.255.255.255/32", "255.255.255.255/32"}, AddressesOmitted: 126, Error: "NCM_INTERFACE_CHANGED_BEFORE_STATISTICS"})
 	}
 	body, err := json.Marshal(d)
 	if err != nil || len(body) > 2000 {

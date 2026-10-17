@@ -30,19 +30,6 @@ import (
 
 const nativeSMBMarker = "USB Link native SMB / v1 / "
 
-type nativeSMBShare struct {
-	ID, Name, Path, SID, GuestSID      string
-	GuestUpdate                        bool
-	NextGuestSID                       string
-	AccountAccess, GuestAccess         string
-	AccessUpdate                       bool
-	NextAccountAccess, NextGuestAccess string
-}
-type nativeSMBConfiguration struct {
-	Version int
-	Shares  []nativeSMBShare
-	Access  []nativeSMBAccessSetting
-}
 type NativeSMBInfo struct {
 	Ready      bool   `json:"ready"`
 	Enabled    bool   `json:"enabled"`
@@ -86,7 +73,7 @@ func loadNativeSMB() (nativeSMBConfiguration, error) {
 	} else if e != nil {
 		return c, e
 	}
-	if c.Version != 1 || len(c.Shares) > 32 || len(c.Access) > 32 {
+	if (c.Version != 1 && c.Version != 2) || c.Version != nativeSMBStateVersion(c) || len(c.Shares) > 32 || len(c.Access) > 32 {
 		return c, fmt.Errorf("NATIVE_SMB_CONFIGURATION_INVALID")
 	}
 	seen, ids := map[string]bool{}, map[string]bool{}
@@ -101,7 +88,7 @@ func loadNativeSMB() (nativeSMBConfiguration, error) {
 		if !validSMBAccess(s.AccountAccess) || !validSMBAccess(s.GuestAccess) || !validSMBAccess(s.NextAccountAccess) || !validSMBAccess(s.NextGuestAccess) || s.AccessUpdate && s.GuestUpdate || !s.AccessUpdate && (s.NextAccountAccess != "" || s.NextGuestAccess != "") {
 			return c, fmt.Errorf("NATIVE_SMB_ACCESS_JOURNAL_INVALID")
 		}
-		if !fileshare.ValidFolderID(s.ID) || !validNativeShareName(s.ID, s.Name) || !filepath.IsAbs(s.Path) || seen[s.Name] || ids[s.ID] {
+		if !fileshare.ValidFolderID(s.ID) || !validNativeShareName(s.ID, s.Name, s.Path) || !validSMBMigration(s.ID, s.Name, s.Path, s.MigrationName, s.MigrationFileID, s.AccessUpdate || s.GuestUpdate) || !filepath.IsAbs(s.Path) || seen[strings.ToLower(s.Name)] || ids[s.ID] {
 			return c, fmt.Errorf("NATIVE_SMB_RECEIPT_INVALID")
 		}
 		if _, e = windows.StringToSid(s.SID); e != nil {
@@ -120,12 +107,19 @@ func loadNativeSMB() (nativeSMBConfiguration, error) {
 				return c, e
 			}
 		}
-		seen[s.Name] = true
+		seen[strings.ToLower(s.Name)] = true
+		if s.MigrationName != "" {
+			if seen[strings.ToLower(s.MigrationName)] {
+				return c, fmt.Errorf("NATIVE_SMB_MIGRATION_NAME_CONFLICT")
+			}
+			seen[strings.ToLower(s.MigrationName)] = true
+		}
 		ids[s.ID] = true
 	}
 	return c, nil
 }
 func saveNativeSMB(c nativeSMBConfiguration) error {
+	c.Version = nativeSMBStateVersion(c)
 	p, e := nativeSMBPath()
 	if e != nil {
 		return e
@@ -221,7 +215,7 @@ func ownedNativeShare(want nativeSMBShare, got *nativeShare502) bool {
 	}
 	return false
 }
-func deleteNativeShare(want nativeSMBShare) error {
+func deleteNativeShareExact(want nativeSMBShare) error {
 	got, free, rc, e := getNativeShare(want.Name)
 	if e != nil {
 		return e
@@ -412,13 +406,16 @@ func setNativeSMB(enabled bool) error {
 	usedNames := map[string]string{}
 	for _, s := range c.Shares {
 		usedNames[s.Name] = s.ID
+		if s.MigrationName != "" {
+			usedNames[s.MigrationName] = s.ID
+		}
 	}
 	for _, f := range cat.List() {
 		if !f.Available {
 			failures = append(failures, fmt.Errorf("共享資料夾不可用：%s；其他資料夾仍可共享", f.Name))
 			continue
 		}
-		want := nativeSMBShare{ID: f.ID, Name: selectNativeShareName(f.ID, usedNames), Path: f.Path, SID: sid, GuestSID: guest}
+		want := nativeSMBShare{ID: f.ID, Name: folderShareName(f.Path), Path: f.Path, SID: sid, GuestSID: guest}
 		accessConflict := false
 		for _, p := range c.Access {
 			if p.ID == f.ID {
@@ -437,6 +434,7 @@ func setNativeSMB(enabled bool) error {
 		for _, old := range c.Shares {
 			if old.ID == f.ID {
 				want.Name = old.Name
+				want.MigrationName, want.MigrationFileID = old.MigrationName, old.MigrationFileID
 				if old.AccessUpdate {
 					failures = append(failures, fmt.Errorf("NATIVE_SMB_ACCESS_RECOVERY_REQUIRED: %s", f.Name))
 					conflict = true
@@ -451,6 +449,15 @@ func setNativeSMB(enabled bool) error {
 		if conflict {
 			continue
 		}
+		if found && (want.MigrationName != "" || legacyNativeShareName(want.ID, want.Name) && !strings.EqualFold(want.Name, folderShareName(f.Path))) {
+			oldName := want.Name
+			want, e = migrateNativeSMBShare(&c, want, f, usedNames)
+			if e != nil {
+				return errors.Join(errors.Join(failures...), e)
+			}
+			delete(usedNames, oldName)
+			usedNames[want.Name] = want.ID
+		}
 		if !found {
 			if want.AccountAccess == "" {
 				want.AccountAccess = "modify"
@@ -458,7 +465,7 @@ func setNativeSMB(enabled bool) error {
 			if want.GuestAccess == "" {
 				want.GuestAccess = "none"
 			}
-			want.Name, e = availableNativeShareName(f.ID, usedNames, func(name string) (bool, error) {
+			want.Name, e = availableNativeShareName(f.ID, f.Path, usedNames, func(name string) (bool, error) {
 				got, free, rc, err := getNativeShare(name)
 				if err != nil {
 					return false, err
@@ -574,15 +581,44 @@ func ForgetNativeSMBACL(id string, confirmed bool) error {
 	}
 	// Also refuse if Windows still has this name, even if a previous receipt
 	// write was lost or somebody modified the share externally.
-	for _, name := range []string{nativeShareName(id), "USB-" + id, "USB-Link-" + id} {
-		_, free, rc, e := getNativeShare(name)
+	names := []string{nativeShareName(id), "USB-" + id, "USB-Link-" + id}
+	acls, err := loadSMBACLs()
+	if err != nil {
+		return err
+	}
+	var rootPath, rootID string
+	for _, root := range acls.Roots {
+		if root.ID == id {
+			rootPath, rootID = root.Path, root.FileID
+			actual, e := smbRootFileIdentity(root.Path)
+			if e != nil {
+				return e
+			}
+			if !validSMBFileIdentity(rootID) || actual != rootID {
+				return fmt.Errorf("SMB_ROOT_IDENTITY_CHANGED")
+			}
+			for i := 1; i <= 100; i++ {
+				names = append(names, numberedShareName(folderShareName(root.Path), i))
+			}
+		}
+	}
+	for _, name := range names {
+		got, free, rc, e := getNativeShare(name)
+		unrelated := false
+		if e == nil && rc == 0 && got != nil && got.Path != nil && rootPath != "" {
+			path := windows.UTF16PtrToString(got.Path)
+			if filepath.IsAbs(path) {
+				fileID, identityError := smbRootFileIdentity(path)
+				unrelated = identityError == nil && smbRecoveryShareUnrelated(rootPath, rootID, path, fileID)
+			}
+		}
 		if free != nil {
 			free()
 		}
 		if e != nil {
 			return e
 		}
-		if rc != 2310 {
+		if rc != 2310 && !unrelated {
 			return fmt.Errorf("SMB_ACL_SHARE_REMOVAL_UNCONFIRMED: %d", rc)
 		}
 	}
@@ -661,6 +697,18 @@ func NativeSMBStatus() NativeSMBInfo {
 	var sharedNames []string
 	if e == nil {
 		for _, s := range c.Shares {
+			if s.MigrationName != "" {
+				name, err := observeNativeSMBMigration(s)
+				if name != "" {
+					info.Shared++
+					sharedNames = append(sharedNames, name)
+				}
+				info.Problem = "共享名稱更新待完成；請重試共享或取消共享。"
+				if err != nil {
+					info.Problem += " " + err.Error()
+				}
+				continue
+			}
 			got, free, rc, er := getNativeShare(s.Name)
 			if er == nil && rc == 0 {
 				if ownedNativeShare(s, got) {
@@ -718,12 +766,12 @@ func NativeSMBFolders(rows []fileshare.Folder) []fileshare.Folder {
 			found = found || r.ID == s.ID
 		}
 		if !found {
-			rows = append(rows, fileshare.Folder{ID: s.ID, Name: filepath.Base(s.Path), Path: s.Path, Problem: "Windows 共享記錄仍在；此資料夾不在目前選擇列表", SMBURL: "smb://10.6.9.1/" + s.Name})
+			rows = append(rows, fileshare.Folder{ID: s.ID, Name: filepath.Base(s.Path), Path: s.Path, Problem: "Windows 共享記錄仍在；此資料夾不在目前選擇列表", SMBURL: nativeFolderSMBURL(s.Name)})
 		}
 	}
 	for i := range rows {
-		rows[i].ShareName = nativeShareName(rows[i].ID)
-		rows[i].SMBURL = "smb://10.6.9.1/" + nativeShareName(rows[i].ID)
+		rows[i].ShareName = folderShareName(rows[i].Path)
+		rows[i].SMBURL = nativeFolderSMBURL(rows[i].ShareName)
 		for _, s := range c.Shares {
 			if s.ID == rows[i].ID {
 				rows[i].ShareName = s.Name
@@ -734,7 +782,7 @@ func NativeSMBFolders(rows []fileshare.Folder) []fileshare.Folder {
 					rows[i].GuestAccess = s.GuestAccess
 				}
 				rows[i].AccessRecovery = s.AccessUpdate
-				rows[i].SMBURL = "smb://10.6.9.1/" + s.Name
+				rows[i].SMBURL = nativeFolderSMBURL(s.Name)
 				got, free, rc, er := getNativeShare(s.Name)
 				if er == nil && rc == 0 {
 					rows[i].NativeShared = ownedNativeShare(s, got)
@@ -753,6 +801,25 @@ func NativeSMBFolders(rows []fileshare.Folder) []fileshare.Folder {
 					free()
 				} else if rc == 2310 && rows[i].Problem == "" {
 					rows[i].Problem = "尚未成功發布到 Windows，裝置目前看不到此共享。請重試共享。"
+				}
+				if s.MigrationName != "" {
+					rows[i].Problem = "共享名稱更新待完成；請重試共享或取消共享。"
+					rows[i].MigrationPending = true
+					target := s
+					target.Name = s.MigrationName
+					next, nextFree, nextRC, nextError := getNativeShare(target.Name)
+					if nextError == nil && nextRC == 0 {
+						owned := ownedNativeShare(target, next)
+						rows[i].ManagedConflict = rows[i].ManagedConflict || !owned
+						if owned && !rows[i].NativeShared {
+							rows[i].NativeShared = true
+							rows[i].ShareName = target.Name
+							rows[i].SMBURL = nativeFolderSMBURL(target.Name)
+						}
+					}
+					if nextFree != nil {
+						nextFree()
+					}
 				}
 			}
 		}
@@ -775,7 +842,7 @@ func NativeSMBFolders(rows []fileshare.Folder) []fileshare.Folder {
 				}
 			}
 			if !found {
-				rows = append(rows, fileshare.Folder{ID: r.ID, Name: filepath.Base(r.Path), Path: r.Path, PermissionRecovery: recoveryNeeded, SMBURL: "smb://10.6.9.1/" + nativeShareName(r.ID)})
+				rows = append(rows, fileshare.Folder{ID: r.ID, Name: filepath.Base(r.Path), Path: r.Path, PermissionRecovery: recoveryNeeded, SMBURL: nativeFolderSMBURL(folderShareName(r.Path))})
 			}
 		}
 	}
@@ -896,6 +963,9 @@ func ReleaseNativeSMBOwnership(id string, confirmed bool) error {
 	for i, s := range c.Shares {
 		if s.ID != id {
 			continue
+		}
+		if s.MigrationName != "" {
+			return fmt.Errorf("NATIVE_SMB_MIGRATION_RECOVERY_REQUIRED")
 		}
 		got, free, rc, err := getNativeShare(s.Name)
 		if err != nil {

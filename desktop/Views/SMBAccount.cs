@@ -35,7 +35,7 @@ public sealed partial class Dashboard
             smbAccountTimer?.Stop(); smbAccountTimer = null; smbPendingID = smbPendingAction = smbPasswordPurpose = ""; smbAccountBusy = false;
             ClearNewSMBPassword(); smbAccountWindow!.Content = null; smbAccountWindow = null; smbAccountActions.Clear();
             shareFolderTimer?.Stop(); sharePendingID = ""; shareBusy = false; shareFoldersWindow = null;
-            shareRefreshQueued = false; shareAccessDrafts.Clear(); shareAddDrafts.Clear();
+            shareRefreshQueued = false; shareAccessDrafts.Clear();
             CloseSMBMaintenance(smbGuestState); CloseSMBMaintenance(smbRepairState);
         };
         smbAccountWindow.Show(this); UpdateSMBControls(); RequestSMBAccount("native-smb-account-read"); RequestShareFolders("share-folders-refresh");

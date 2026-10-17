@@ -22,30 +22,32 @@ type NetworkAddress struct {
 	SuffixOrigin int32  `json:"suffix_origin"`
 }
 type NetworkAdapter struct {
-	Node                string           `json:"node_id_prefix"`
-	Matched             bool             `json:"exact_devnode_to_adapter_match"`
-	InterfaceIndex      uint32           `json:"interface_index,omitempty"`
-	IPv6InterfaceIndex  uint32           `json:"ipv6_interface_index,omitempty"`
-	OperStatus          uint32           `json:"oper_status,omitempty"`
-	MediaConnectState   uint32           `json:"media_connect_state,omitempty"`
-	MTU                 uint32           `json:"mtu,omitempty"`
-	ReportedTransmitBPS uint64           `json:"reported_transmit_link_bps_not_throughput,omitempty"`
-	ReportedReceiveBPS  uint64           `json:"reported_receive_link_bps_not_throughput,omitempty"`
-	Addresses           []NetworkAddress `json:"unicast_addresses,omitempty"`
-	StatisticsRead      bool             `json:"statistics_read"`
-	InOctets            uint64           `json:"in_octets"`
-	OutOctets           uint64           `json:"out_octets"`
-	InErrors            uint64           `json:"in_errors"`
-	OutErrors           uint64           `json:"out_errors"`
-	InDiscards          uint64           `json:"in_discards"`
-	OutDiscards         uint64           `json:"out_discards"`
-	DeltaValid          bool             `json:"same_adapter_counter_delta_valid"`
-	DeltaIn             uint64           `json:"passive_in_octets_delta"`
-	DeltaOut            uint64           `json:"passive_out_octets_delta"`
-	Error               string           `json:"error,omitempty"`
-	instanceID          string           // Exact local native node, never exported.
-	key                 string
-	luid                uint64
+	Node                        string           `json:"node_id_prefix"`
+	Matched                     bool             `json:"exact_devnode_to_adapter_match"`
+	InterfaceIndex              uint32           `json:"interface_index,omitempty"`
+	IPv6InterfaceIndex          uint32           `json:"ipv6_interface_index,omitempty"`
+	OperStatus                  uint32           `json:"oper_status,omitempty"`
+	AdminStatus                 uint32           `json:"admin_status,omitempty"`
+	InterfaceAndOperStatusFlags uint8            `json:"interface_and_oper_status_flags,omitempty"`
+	MediaConnectState           uint32           `json:"media_connect_state,omitempty"`
+	MTU                         uint32           `json:"mtu,omitempty"`
+	ReportedTransmitBPS         uint64           `json:"reported_transmit_link_bps_not_throughput,omitempty"`
+	ReportedReceiveBPS          uint64           `json:"reported_receive_link_bps_not_throughput,omitempty"`
+	Addresses                   []NetworkAddress `json:"unicast_addresses,omitempty"`
+	StatisticsRead              bool             `json:"statistics_read"`
+	InOctets                    uint64           `json:"in_octets"`
+	OutOctets                   uint64           `json:"out_octets"`
+	InErrors                    uint64           `json:"in_errors"`
+	OutErrors                   uint64           `json:"out_errors"`
+	InDiscards                  uint64           `json:"in_discards"`
+	OutDiscards                 uint64           `json:"out_discards"`
+	DeltaValid                  bool             `json:"same_adapter_counter_delta_valid"`
+	DeltaIn                     uint64           `json:"passive_in_octets_delta"`
+	DeltaOut                    uint64           `json:"passive_out_octets_delta"`
+	Error                       string           `json:"error,omitempty"`
+	instanceID                  string           // Exact local native node, never exported.
+	key                         string
+	luid                        uint64
 }
 type NetworkSample struct {
 	ElapsedMS       int64            `json:"elapsed_ms"`
@@ -230,6 +232,8 @@ func readMappedAdapter(r NetworkAdapter, guid string) NetworkAdapter {
 	}
 	r.StatisticsRead = true
 	r.OperStatus = row.OperStatus
+	r.AdminStatus = row.AdminStatus
+	r.InterfaceAndOperStatusFlags = row.InterfaceAndOperStatusFlags
 	r.MediaConnectState = row.MediaConnectState
 	r.MTU = row.Mtu
 	r.InOctets = row.InOctets

@@ -97,11 +97,18 @@ func TestPasswordJournalSurvivesInterruptedMutation(t *testing.T) {
 	}
 }
 
-func TestNativeShareNamesKeepLegacyNamesAndDisambiguatePrefixCollision(t *testing.T) {
-	first, second := "123456780000000000000001", "123456780000000000000002"
-	used := map[string]string{"USB-12345678": first}
-	if selectNativeShareName(first, used) != "USB-12345678" || selectNativeShareName(second, used) != "USB-"+second || !validNativeShareName(second, "USB-"+second) {
-		t.Fatal("colliding shared names")
+func TestNativeShareNamesUseFolderNameAndDisambiguate(t *testing.T) {
+	id := "123456780000000000000002"
+	used := map[string]string{"movies": "123456780000000000000001"}
+	name, err := availableNativeShareName(id, `D:\Movies`, used, func(string) (bool, error) { return true, nil })
+	if err != nil || name != "Movies (2)" || !validNativeShareName(id, name, `D:\Movies`) {
+		t.Fatal(name, err)
+	}
+	if !validNativeShareName(id, "USB-"+id, `D:\Movies`) || validNativeShareName(id, "Other", `D:\Movies`) {
+		t.Fatal("receipt validation")
+	}
+	if folderShareName(`D:\中文 資料#1`) != "中文 資料#1" || nativeFolderSMBURL("a#b% c") != "smb://10.6.9.1/a%23b%25%20c" {
+		t.Fatal("folder name or URL changed")
 	}
 }
 
@@ -128,15 +135,15 @@ func TestNativeConnectionAddressUsesAnActuallyPublishedShare(t *testing.T) {
 
 func TestNativeNameChecksExternalWindowsSharesAndStopsOnProbeFailure(t *testing.T) {
 	id := "000000000000000000000001"
-	name, e := availableNativeShareName(id, map[string]string{}, func(name string) (bool, error) { return name != "USB", nil })
-	if e != nil || name != "USB-"+id || !validNativeShareName(id, name) {
+	name, e := availableNativeShareName(id, `D:\Movies`, map[string]string{}, func(name string) (bool, error) { return name != "Movies", nil })
+	if e != nil || name != "Movies (2)" || !validNativeShareName(id, name, `D:\Movies`) {
 		t.Fatal(name, e)
 	}
 	failure := errors.New("Windows query unavailable")
-	if _, e = availableNativeShareName(id, nil, func(string) (bool, error) { return false, failure }); !errors.Is(e, failure) {
+	if _, e = availableNativeShareName(id, `D:\Movies`, nil, func(string) (bool, error) { return false, failure }); !errors.Is(e, failure) {
 		t.Fatal(e)
 	}
-	if _, e = availableNativeShareName(id, nil, func(string) (bool, error) { return false, nil }); e == nil {
+	if _, e = availableNativeShareName(id, `D:\Movies`, nil, func(string) (bool, error) { return false, nil }); e == nil {
 		t.Fatal("foreign share names accepted")
 	}
 }

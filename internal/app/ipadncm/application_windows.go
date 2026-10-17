@@ -16,6 +16,7 @@ import (
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/usbhost"
+	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/diagnostics/throughput"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
@@ -163,7 +164,7 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 	_ = connectionPreferences().IndependentUSB
 	s.Unlock()
 	defer func() { out = s.snapshot() }()
-	ctx, cancel := context.WithCancel(connectionContext())
+	ctx, cancel := context.WithCancel(b.sessionContext())
 	defer cancel()
 	s.update(func(r *ApplicationResult) {
 		r.Status = "APPLICATION_PREPARING"
@@ -345,7 +346,9 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 	defer func() {
 		cancel()
 		s.update(func(r *ApplicationResult) { r.Status = "APPLICATION_TRIAL_ENDED_RESTORING" })
+		finishRecovery := shutdowntrace.Begin(shutdowntrace.PhaseIPadSessionRecovery)
 		recovery := RecoverApplicationSession(b.dir, b.system)
+		finishRecovery()
 		s.update(func(r *ApplicationResult) { r.Recovery = recovery })
 		if recovery.Error != "" {
 			b.applicationRestoreError = recovery.Error
@@ -415,10 +418,14 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 		return
 	}
 	releaseTopology()
-	stopDescriptorWatch, descriptorWatchProblem := watchUSBDescriptorAttachment(ctx, b.mode.Before, func() {
+	var descriptorProof func(Snapshot) bool
+	if b.directTarget != nil {
+		descriptorProof = b.directTarget.descriptorProof
+	}
+	stopDescriptorWatch, descriptorWatchProblem := watchUSBDescriptorAttachmentWithProof(ctx, b.mode.Before, func() {
 		s.update(func(r *ApplicationResult) { r.Error = "USB_SERIAL_PRODUCT_OR_ATTACHMENT_CHANGED_OR_UNREADABLE" })
 		cancel()
-	})
+	}, descriptorProof)
 	if descriptorWatchProblem != "" {
 		s.update(func(r *ApplicationResult) { r.Error = descriptorWatchProblem })
 		return
@@ -809,6 +816,9 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 			ipadNetDebug.store(collectNetDebug("periodic", debugIndex), false)
 		}
 		s.update(func(r *ApplicationResult) { r.PeerIPv4NeighborVerified = v4Peer })
+		if b.directTarget != nil {
+			b.directTarget.runtimeEvidence(s.snapshot())
+		}
 		if v4Peer {
 			recordUnpairedExperimentEvent("ipv4_neighbor_verified_not_arp_capture")
 			recordConnectionStage("ipv4_neighbor_verified", "same_usb_peer_ipv4_mac_matched")

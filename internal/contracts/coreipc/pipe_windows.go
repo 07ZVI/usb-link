@@ -272,7 +272,8 @@ func serveOne(ctx context.Context, h windows.Handle, ownerSID, exe string, verif
 		return
 	}
 	var ack [1]byte
-	_ = transfer(ctx, h, ack[:], false)
+	ackErr := transfer(ctx, h, ack[:], false)
+	completeReply(reply, nil, ackErr, ack[0])
 }
 
 // Call authenticates the exact SCM service PID before sending any request.
@@ -324,7 +325,9 @@ func Call(ctx context.Context, r Request, verifyServer func(uint32) error) (Resp
 	if e != nil {
 		return Response{}, e
 	}
-	_ = transfer(ctx, h, []byte{1}, true)
+	if err := transfer(ctx, h, []byte{1}, true); err != nil {
+		return Response{}, err
+	}
 	return out, nil
 }
 

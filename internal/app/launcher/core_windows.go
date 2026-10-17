@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"io"
@@ -23,17 +24,23 @@ import (
 	"suhang/usbnet/internal/app/coreprompt"
 	"suhang/usbnet/internal/app/coreupdatenotice"
 	"suhang/usbnet/internal/app/ipadncm"
+	"suhang/usbnet/internal/app/macconnection"
 	"suhang/usbnet/internal/app/startupopt"
 	"suhang/usbnet/internal/app/startuptelemetry"
 	"suhang/usbnet/internal/app/uistartup"
 	"suhang/usbnet/internal/app/usbhost"
 	"suhang/usbnet/internal/contracts/coreipc"
 	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/background"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 )
 
-type coreLifetime struct{ ctx context.Context }
+type coreLifetime struct {
+	ctx    context.Context
+	appCtx context.Context
+	exit   *coreProgramExit
+}
 
 var liveCore atomic.Pointer[coreLifetime]
 var prompts = coreprompt.New()
@@ -79,18 +86,57 @@ func runCoreService() {
 	if err = background.RunCoreService(background.CoreOptions{
 		Executable: exe, OwnerSID: binding.OwnerSID, Verify: verifyCore, Log: logger,
 		Run: func(ctx context.Context, owner background.CoreContext) error {
-			ctx, cancel := context.WithCancel(ctx)
+			appCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			liveCore.Store(&coreLifetime{ctx})
+			appDone := make(chan struct{})
+			var exit *coreProgramExit
+			recordExit := func(stage, id string) {
+				logger.Printf("PROGRAM_EXIT stage=%s request_id=%s", stage, id)
+				if dir, ok := serviceDiagnosticDirectory.Load().(string); ok && dir != "" {
+					if err := macconnection.RecordProgramExitEvidence(dir, version, stage); err != nil {
+						logger.Print("PROGRAM_EXIT_EVIDENCE_WRITE_FAILED")
+					}
+				}
+			}
+			exit = newCoreProgramExit(func() {
+				shutdowntrace.Start()
+				end := shutdowntrace.Begin(shutdowntrace.PhaseApplicationJoin)
+				defer end()
+				cancel()
+				<-appDone
+			}, func() error {
+				id := exit.snapshot().ID
+				cleanupErr := ApplicationExitCleanupError()
+				if cleanupErr != nil {
+					recordExit("APPLICATION_CLEANUP_PENDING", id)
+				} else {
+					recordExit("APPLICATION_CLEANUP_CONFIRMED", id)
+				}
+				isolationErr := ipadncm.StopDefaultNetworkIsolation()
+				if isolationErr != nil {
+					recordExit("DEFAULT_RESTORE_PENDING", id)
+				} else {
+					recordExit("DEFAULT_RESTORE_CONFIRMED", id)
+				}
+				if isolationErr != nil {
+					return isolationErr
+				}
+				return cleanupErr
+			})
+			exit.record = recordExit
+			defer exit.closeUILifetimes()
+			liveCore.Store(&coreLifetime{ctx: ctx, appCtx: appCtx, exit: exit})
 			defer liveCore.Store(nil)
 			ipadncm.SetPanelRelay(relayCorePanel)
 			defer ipadncm.SetPanelRelay(nil)
+			controlsCtx, stopControls := context.WithCancel(ctx)
 			controlsDone := make(chan struct{})
+			defer func() { stopControls(); <-controlsDone }()
 			go func() {
 				defer close(controlsDone)
 				for {
 					select {
-					case <-ctx.Done():
+					case <-controlsCtx.Done():
 						return
 					case control := <-owner.Controls:
 						if control.Resume {
@@ -99,10 +145,22 @@ func runCoreService() {
 					}
 				}
 			}()
-			defer func() { cancel(); <-controlsDone }()
-			runApplication(ctx, cancel, true)
-			if ctx.Err() == nil {
-				return fmt.Errorf("CORE_APPLICATION_STOPPED_BEFORE_CANCELLATION")
+			go func() { defer close(appDone); runApplication(appCtx, cancel, true) }()
+			select {
+			case <-appDone:
+				if appCtx.Err() == nil && !exit.active() {
+					return fmt.Errorf("CORE_APPLICATION_STOPPED_BEFORE_CANCELLATION")
+				}
+			case <-ctx.Done():
+				cancel()
+				<-appDone
+				return nil
+			}
+			if exit.active() {
+				select {
+				case <-exit.committed:
+				case <-ctx.Done():
+				}
 			}
 			return nil
 		}, Handle: handleCoreRequest,
@@ -114,7 +172,7 @@ func runCoreService() {
 func relayCorePanel(ctx context.Context, title, body, accept string, checks []ipadncm.PanelCheck) (bool, []bool) {
 	if ctx == nil {
 		if owner := liveCore.Load(); owner != nil {
-			ctx = owner.ctx
+			ctx = owner.appCtx
 		}
 	}
 	q := coreprompt.Question{Title: title, Body: body, Accept: accept}
@@ -220,14 +278,19 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		if !uistartup.Record(query.UITimings, peer.PID, peer.Creation) {
 			return response, fmt.Errorf("CORE_UI_TIMING_INVALID")
 		}
-		if query.Replay {
-			_ = ipadncm.ServiceReplayDesktopRequests(owner.ctx)
+		if query.Replay && !owner.exit.active() {
+			_ = ipadncm.ServiceReplayDesktopRequests(owner.appCtx)
 		}
-		display, err := ipadncm.ServiceDesktopSnapshot(owner.ctx)
-		if err != nil {
+		var display json.RawMessage
+		var err error
+		if !owner.exit.active() {
+			display, err = ipadncm.ServiceDesktopSnapshot(owner.appCtx)
+		}
+		if err != nil && !owner.exit.active() {
 			response.Problem = err.Error()
 			return response, nil
 		}
+		display = owner.exit.display(display, ipadncm.DefaultNetworkIsolationDiagnostics(), version)
 		display = extendDesktopSnapshot(display)
 		response.Payload, err = json.Marshal(struct {
 			Version      string                   `json:"version"`
@@ -237,7 +300,8 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 			Timing       startuptelemetry.Report  `json:"startup_timing"`
 			Options      map[string]bool          `json:"startup_options"`
 			UpdateNotice *coreupdatenotice.Notice `json:"update_notice,omitempty"`
-		}{version, ipadncm.RemoteUSBConnectionHealthy(), display, prompts.Snapshot(), startuptelemetry.Snapshot(), startupopt.Snapshot(), coreUpdateNotices.Snapshot(coreNoticeClient(peer))})
+			LoginUI      *programLoginUIStatus    `json:"login_ui,omitempty"`
+		}{version, !owner.exit.active() && ipadncm.RemoteUSBConnectionHealthy(), display, prompts.Snapshot(), startuptelemetry.Snapshot(), startupopt.Snapshot(), coreUpdateNotices.Snapshot(coreNoticeClient(peer)), owner.exit.loginUIStatus(programExitOwner{SID: peer.SID, Session: peer.Session, PID: peer.PID, Creation: peer.Creation})})
 		if err != nil || len(response.Payload) > coreipc.MaxMessage-256 {
 			return response, fmt.Errorf("CORE_SNAPSHOT_LIMIT")
 		}
@@ -251,6 +315,10 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		}
 		response.Payload = json.RawMessage(`{}`)
 	case "consent":
+		if owner.exit.active() {
+			response.Problem = "CORE_EXIT_IN_PROGRESS"
+			return response, nil
+		}
 		var answer coreprompt.Answer
 		if err := strictCorePayload(request.Payload, &answer); err != nil {
 			return response, err
@@ -260,14 +328,74 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		}
 		response.Payload = json.RawMessage(`{}`)
 	case "action":
-		if handled, e := internetAction(owner.ctx, request.Payload); handled {
+		var exitCommand struct {
+			Action string `json:"action"`
+			ID     string `json:"id"`
+		}
+		_ = json.Unmarshal(request.Payload, &exitCommand)
+		if exitCommand.Action == "ui-register" {
+			var registration struct {
+				Action string `json:"action"`
+				Open   bool   `json:"ui_open"`
+			}
+			if err := strictCorePayload(request.Payload, &registration); err != nil || !peer.Elevated {
+				return response, fmt.Errorf("CORE_UI_REGISTRATION_INVALID")
+			}
+			identity := programExitOwner{SID: peer.SID, Session: peer.Session, PID: peer.PID, Creation: peer.Creation}
+			ui, err := pinProgramLoginUI(identity)
+			if err != nil {
+				return response, err
+			}
+			admitted, err := owner.exit.registerUI(identity, ui, registration.Open)
+			if err != nil {
+				response.Problem = err.Error()
+			}
+			response.Payload, _ = json.Marshal(struct {
+				Admitted bool `json:"admitted"`
+			}{admitted})
+			return response, nil
+		}
+		if exitCommand.Action == "exit-program" || exitCommand.Action == "exit-program-commit" || exitCommand.Action == "restart-program" {
+			if err := strictCorePayload(request.Payload, &exitCommand); err != nil || !validProgramExitID(exitCommand.ID) || !peer.Elevated || peer.SID == "" || peer.PID == 0 || peer.Session == 0 || peer.Creation == 0 {
+				return response, fmt.Errorf("CORE_EXIT_REQUEST_INVALID")
+			}
+			restart := exitCommand.Action == "restart-program"
+			if restart {
+				if err := authorizeLocalRestart(exitCommand.ID, peer.SID, peer.Session, peer.PID, peer.Creation); err != nil {
+					response.Problem = "LOCAL_RESTART_UNAVAILABLE"
+					return response, nil
+				}
+				exitCommand.Action = "exit-program"
+			}
+			identity := programExitOwner{SID: peer.SID, Session: peer.Session, PID: peer.PID, Creation: peer.Creation}
+			if exitCommand.Action == "exit-program" {
+				if err := owner.exit.beginWithMode(exitCommand.ID, identity, restart); err != nil {
+					response.Problem = err.Error()
+				}
+				response.Payload = json.RawMessage(`{}`)
+			} else {
+				after, err := owner.exit.prepareCommit(exitCommand.ID, identity)
+				if err != nil {
+					response.Problem = err.Error()
+				} else {
+					response.AfterAcknowledged = after
+				}
+				response.Payload, _ = json.Marshal(map[string]string{"event": "program-exit-complete", "request_id": exitCommand.ID})
+			}
+			return response, nil
+		}
+		if owner.exit.active() {
+			response.Problem = "CORE_EXIT_IN_PROGRESS"
+			return response, nil
+		}
+		if handled, e := internetAction(owner.appCtx, request.Payload); handled {
 			if e != nil {
 				response.Problem = e.Error()
 			}
 			response.Payload = json.RawMessage(`{}`)
 			return response, nil
 		}
-		if reply, handled, err := ipadncm.ServiceSMBDesktopRead(owner.ctx, request.Payload); handled {
+		if reply, handled, err := ipadncm.ServiceSMBDesktopRead(owner.appCtx, request.Payload); handled {
 			if err != nil {
 				response.Problem = err.Error()
 			} else {
@@ -275,7 +403,7 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 			}
 			return response, nil
 		}
-		if err := ipadncm.ServiceDesktopAction(owner.ctx, request.Payload); err != nil {
+		if err := ipadncm.ServiceDesktopAction(owner.appCtx, request.Payload); err != nil {
 			response.Problem = err.Error()
 		}
 		response.Payload = json.RawMessage(`{}`)
@@ -285,6 +413,10 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 			}
 		}
 	case "settings":
+		if owner.exit.active() {
+			response.Problem = "CORE_EXIT_IN_PROGRESS"
+			return response, nil
+		}
 		var command struct {
 			PrepareUninstall bool `json:"prepare_uninstall"`
 		}
@@ -293,7 +425,7 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		}
 		if rt := currentInternet.Load(); rt != nil {
 			rt.mu.Lock()
-			e := rt.manager.Disable(owner.ctx)
+			e := rt.manager.Disable(owner.appCtx)
 			rt.mu.Unlock()
 			if e != nil {
 				response.Problem = e.Error()
@@ -451,6 +583,17 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			}
 		}()
 	}
+	confirmBootstrap := func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		if confirmLoginUIBootstrap(ctx, ticker.C, func() (bool, error) {
+			return connectioninstall.CoreBootstrapPending(remoteInstallID, version)
+		}, func() {
+			_ = connectioninstall.ConfirmCoreBootstrap(ctx, remoteInstallID, version)
+		}) {
+			bootstrapComplete.Store(true)
+		}
+	}
 	var pipeMu sync.Mutex
 	call := func(callCtx context.Context, method string, payload json.RawMessage) (json.RawMessage, error) {
 		pipeMu.Lock()
@@ -467,6 +610,37 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			return nil, fmt.Errorf("%s", r.Problem)
 		}
 		return r.Payload, nil
+	}
+	// A verified core owns the single login UI for this user/session. Register
+	// before any tray or renderer exists; a second launch only requests focus.
+	registerCtx, registerStop := context.WithTimeout(ctx, 45*time.Second)
+	registerPayload, _ := json.Marshal(map[string]any{"action": "ui-register", "ui_open": !minimized})
+	var registration json.RawMessage
+	for registerCtx.Err() == nil {
+		registration, err = call(registerCtx, "action", registerPayload)
+		if err == nil || err.Error() != "CORE_INITIALIZING" {
+			break
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-registerCtx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
+	registerStop()
+	admitted, confirmed := loginUIAdmission(registration)
+	if err != nil || !confirmed {
+		return
+	}
+	if !admitted {
+		// Another verified UI can win registration during an upgrade. This
+		// bootstrap process must still finish its original migration proof;
+		// duplicate UI admission is not installation acceptance or failure.
+		if remoteInstallID != "" {
+			confirmBootstrap()
+		}
+		return
 	}
 	var panelMu sync.Mutex
 	var panelWorkers sync.WaitGroup
@@ -530,9 +704,32 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 	var renderedNoticeID string
 	var replay atomic.Bool
 	replay.Store(true)
+	readFailure := func() {
+		stopLoginUIForVerifiedReplacement(func() bool {
+			return connectioninstall.LocalInstallationDraining(exe)
+		}, func() bool {
+			return handoffLoginUI(exe, minimized)
+		}, cancel)
+	}
 	ipadncm.SetServiceUIProxy(&ipadncm.ServiceUIProxy{
 		ObserveOpen: uiTimings.Add,
 		Read: func(readCtx context.Context) (json.RawMessage, error) {
+			// Re-register idempotently with the authenticated current core. A
+			// replacement core must also know this still-running UI; a transient
+			// pipe failure is never an instruction to terminate it.
+			registration, registrationErr := call(readCtx, "action", json.RawMessage(`{"action":"ui-register","ui_open":false}`))
+			if registrationErr != nil {
+				readFailure()
+				return nil, registrationErr
+			}
+			admitted, confirmed := loginUIAdmission(registration)
+			if !confirmed {
+				return nil, fmt.Errorf("CORE_UI_REGISTRATION_UNCONFIRMED")
+			}
+			if !admitted {
+				cancel()
+				return nil, fmt.Errorf("CORE_UI_ALREADY_REGISTERED")
+			}
 			timings := uiTimings.Take()
 			q, _ := json.Marshal(struct {
 				Replay    bool               `json:"replay"`
@@ -541,9 +738,7 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			b, err := call(readCtx, "snapshot", q)
 			if err != nil {
 				uiTimings.Restore(timings)
-				if connectioninstall.LocalInstallationDraining(exe) || handoffLoginUI(exe, minimized) {
-					cancel()
-				}
+				readFailure()
 				return nil, err
 			}
 			var snapshot struct {
@@ -551,9 +746,19 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 				Display      json.RawMessage          `json:"display"`
 				Panel        *coreprompt.Question     `json:"panel"`
 				UpdateNotice *coreupdatenotice.Notice `json:"update_notice"`
+				LoginUI      struct {
+					ShowRequested bool `json:"show_requested"`
+				} `json:"login_ui"`
 			}
 			if json.Unmarshal(b, &snapshot) != nil || snapshot.Version != version {
 				return nil, fmt.Errorf("CORE_VERSION_CHANGED")
+			}
+			if loginUIFollowExit(snapshot.Display) {
+				cancel()
+				return snapshot.Display, nil
+			}
+			if snapshot.LoginUI.ShowRequested {
+				ipadncm.ShowExistingConnectionUI()
 			}
 			updatePanel(snapshot.Panel)
 			if snapshot.UpdateNotice != nil {
@@ -590,10 +795,27 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 				if e := strictCorePayload(b, &dep); e != nil {
 					return nil, e
 				}
-				if _, e := dependencies.Lookup(dep.ID); e != nil {
-					return nil, e
+				if dep.ID != "all" {
+					if _, e := dependencies.Lookup(dep.ID); e != nil {
+						return nil, e
+					}
 				}
-				e := dependencies.WithProgress(actionCtx, func(c context.Context) error { _, e := dependencies.Retry(c, dep.ID); return e })
+				e := dependencies.WithProgress(actionCtx, func(c context.Context) error {
+					if dep.ID != "all" {
+						_, e := dependencies.Retry(c, dep.ID)
+						return e
+					}
+					var failures []error
+					for _, asset := range dependencies.Catalog() {
+						if e := c.Err(); e != nil {
+							return errors.Join(append(failures, e)...)
+						}
+						if _, e := dependencies.Retry(c, asset.ID); e != nil {
+							failures = append(failures, fmt.Errorf("%s: %w", asset.ID, e))
+						}
+					}
+					return errors.Join(failures...)
+				})
 				if e != nil {
 					return nil, e
 				}
@@ -616,23 +838,7 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 		// independently authenticates the service and checks actual USB health.
 		go func() {
 			defer close(bootstrapDone)
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					pending, err := connectioninstall.CoreBootstrapPending(remoteInstallID, version)
-					if err == nil && !pending {
-						bootstrapComplete.Store(true)
-						return
-					}
-					if pending {
-						_ = connectioninstall.ConfirmCoreBootstrap(ctx, remoteInstallID, version)
-					}
-				}
-			}
+			confirmBootstrap()
 		}()
 	} else {
 		close(bootstrapDone)

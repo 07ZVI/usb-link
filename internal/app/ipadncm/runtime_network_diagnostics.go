@@ -17,6 +17,10 @@ const runtimeNetworkTCPMatchLimit = 4
 type RuntimeNetworkAdapter struct {
 	Index            uint32   `json:"index,omitempty"`
 	OperStatus       uint32   `json:"oper_status"`
+	AdminStatus      uint32   `json:"admin_status,omitempty"`
+	MediaState       uint32   `json:"media_state,omitempty"`
+	StatusFlags      uint8    `json:"status_flags,omitempty"`
+	StatusRead       bool     `json:"status_read"`
 	IPv4             []string `json:"ipv4,omitempty"`
 	AddressesOmitted int      `json:"addresses_omitted,omitempty"`
 	Error            string   `json:"error,omitempty"`

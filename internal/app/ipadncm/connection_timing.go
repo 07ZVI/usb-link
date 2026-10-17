@@ -43,6 +43,7 @@ type connectionTimingSnapshot struct {
 	NativeNoticeUTC     string `json:"native_notice_utc,omitempty"`
 	NativeNoticeCount   uint64 `json:"native_notice_count"`
 	NativeNoticeCode    uint32 `json:"native_notice_code,omitempty"`
+	NativeNoticeSource  string `json:"native_notice_source,omitempty"`
 }
 
 type connectionTimingPlan struct {
@@ -141,6 +142,7 @@ func (c *connectionTimingController) setLocked(mode string, now time.Time) error
 	c.state.NativeNoticeUTC = ""
 	c.state.NativeNoticeMS = -1
 	c.state.NativeNoticeCode = 0
+	c.state.NativeNoticeSource = ""
 	return nil
 }
 func (c *connectionTimingController) plan(_ time.Time) connectionTimingPlan {
@@ -226,6 +228,10 @@ func (c *connectionTimingController) nativeNotice(code uint32) {
 	c.state.NativeNoticeMS = c.msLocked(now)
 	c.state.NativeNoticeUTC = timingUTC(now)
 	c.state.NativeNoticeCode = code
+	c.state.NativeNoticeSource = "device_instance_hint"
+	if code == 1 {
+		c.state.NativeNoticeSource = "usb_interface_hint"
+	}
 	c.state.NativeNoticeCount++
 }
 

@@ -195,6 +195,31 @@ func TestDeveloperDebugRestoresIntentWithFreshAuthorization(t *testing.T) {
 	}
 }
 
+func TestDeveloperDebugInitialDecisionReachesExperimentRecovery(t *testing.T) {
+	for _, reason := range []string{"saved_off", "read_failed", "intent_failed", "saved_on"} {
+		t.Run(reason, func(t *testing.T) {
+			var decisions []bool
+			c := &developerDebugController{
+				restore: func() (bool, error) {
+					if reason == "read_failed" {
+						return false, errors.New("read failed")
+					}
+					return reason != "saved_off", nil
+				},
+				save: func(bool) error { return nil }, apply: func(bool) (string, error) { return "", nil },
+				photoMaster: func(on bool) { decisions = append(decisions, on) },
+			}
+			if reason == "intent_failed" {
+				c.intentError = errors.New("intent failed")
+			}
+			c.initialize()
+			if len(decisions) != 1 || decisions[0] != (reason == "saved_on") {
+				t.Fatal("master recovery must receive one known decision, without an initial off gap", decisions)
+			}
+		})
+	}
+}
+
 func TestDeveloperDebugClickWinsOverSlowRestore(t *testing.T) {
 	entered, finish := make(chan struct{}), make(chan struct{})
 	calls := make(chan bool, 1)

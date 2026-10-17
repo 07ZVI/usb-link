@@ -70,6 +70,8 @@ func collectRuntimeNetworkDiagnostics(ctx context.Context) RuntimeNetworkDiagnos
 			}
 			a := mapped[0]
 			entry.Index, entry.OperStatus, entry.Error = a.InterfaceIndex, a.OperStatus, a.Error
+			entry.AdminStatus, entry.MediaState = a.AdminStatus, a.MediaConnectState
+			entry.StatusFlags, entry.StatusRead = a.InterfaceAndOperStatusFlags, a.StatisticsRead
 			// Recheck ancestry after the separate adapter query; PnP can change mid-read.
 			belongs, err = descendantOfPortableRoot(node.devInst, root.instanceID)
 			if err != nil || !belongs || !runtimeNetworkRootPresent(root) {

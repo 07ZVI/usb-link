@@ -43,22 +43,21 @@ public sealed partial class Dashboard
         ClearNewSMBPassword();smbAccountName.Text="USBLink";smbNameEdited=false;UpdateSMBAccount(existing.RootElement);UpdateSMBControls();
         using var shares=JsonDocument.Parse("""{"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Media","share_name":"USB-Media","path":"D:\\Media","smb_url":"smb://10.6.9.1/USB-Media","available":true,"native_shared":true,"account_access":"modify","guest_access":"read","guest_enabled":true},{"name":"Archive","share_name":"Archive","path":"E:\\Archive","available":true,"native_shared":true,"external_share":true}]}""");UpdateShareFolders(shares.RootElement);
         if(shareFolderRows.Children.Count!=2)throw new InvalidOperationException("existing published shares");
+        if(shareFolderRows.GetVisualDescendants().OfType<Button>().Count(b=>Avalonia.Automation.AutomationProperties.GetName(b)?.StartsWith("取消共享「")==true)!=1)
+            throw new InvalidOperationException("owned shares need a cancel icon; external shares remain Windows managed");
         var checks=shareFolderRows.GetVisualDescendants().OfType<CheckBox>().ToArray();
         if(checks.Length!=4||checks[0].IsChecked!=true||checks[1].IsChecked!=true||checks[2].IsChecked!=true||checks[3].IsChecked!=false)throw new InvalidOperationException("inline per-principal access");
         checks[0].IsChecked=false;if(checks[1].IsEnabled)throw new InvalidOperationException("modify enabled without access");checks[0].IsChecked=true;
         checks[1].IsChecked=false;checks[3].IsChecked=true;
-        AddShareDraft("F:\\New");
-        var addingCard=shareAddDrafts["F:\\New"];
-        var addingChecks=addingCard.GetVisualDescendants().OfType<CheckBox>().ToArray();addingChecks[1].IsChecked=false;
         shareBusy=true;RequestShareFolders("share-folders-refresh");
         if(!shareRefreshQueued)throw new InvalidOperationException("maintenance refresh dropped during share request");
         UpdateShareFolders(shares.RootElement);
-        checks=shareFolderRows.Children.OfType<Border>().Last(c=>c!=addingCard&&c.GetVisualDescendants().OfType<CheckBox>().Any()).GetVisualDescendants().OfType<CheckBox>().ToArray();
-        if(checks[1].IsChecked!=false||checks[3].IsChecked!=true||shareAccessDrafts.Count!=1||shareRefreshQueued||!shareFolderRows.Children.Contains(addingCard)||addingChecks[1].IsChecked!=false)
-            throw new InvalidOperationException("shared refresh must preserve unsaved folder access and new folder edits");
+        checks=shareFolderRows.Children.OfType<Border>().Last(c=>c.GetVisualDescendants().OfType<CheckBox>().Any()).GetVisualDescendants().OfType<CheckBox>().ToArray();
+        if(checks[1].IsChecked!=false||checks[3].IsChecked!=true||shareAccessDrafts.Count!=1||shareRefreshQueued)
+            throw new InvalidOperationException("shared refresh must preserve unsaved folder access");
         using var confirmed=JsonDocument.Parse("""{"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","path":"D:\\Media","account_access":"read","guest_access":"modify"}]}""");UpdateShareFolders(confirmed.RootElement);
         if(shareAccessDrafts.Count!=0)throw new InvalidOperationException("confirmed access must consume saved draft");
-        shareAddDrafts.Clear();UpdateShareFolders(shares.RootElement);
+        UpdateShareFolders(shares.RootElement);
         checks=shareFolderRows.GetVisualDescendants().OfType<CheckBox>().ToArray();checks[1].IsChecked=false;
         using var failure=JsonDocument.Parse("""{"problem":"Example read error"}""");UpdateShareFolders(failure.RootElement);
         if(shareAccessDrafts.Count!=1||checks[1].IsChecked!=false)throw new InvalidOperationException("failed read must preserve draft");
@@ -74,6 +73,12 @@ public sealed partial class Dashboard
         smbScroll.Offset=new Vector(0,smbScroll.Extent.Height);window.UpdateLayout();SaveSecurityPreview(window,"usb-link-smb-unified-repair.png");
         using var unpublished=JsonDocument.Parse("""{"folders":[{"id":"bbbbbbbbbbbbbbbbbbbbbbbb","name":"Media","share_name":"USB-New","path":"D:\\Media","available":true,"native_shared":false,"account_access":"modify","guest_access":"none"}]}""");UpdateShareFolders(unpublished.RootElement);
         if(!shareFolderRows.GetVisualDescendants().OfType<Button>().Any(b=>b.Content is TextBlock t&&t.Text=="重試共享"))throw new InvalidOperationException("unpublished share has no recovery action");
+        using var migrating=JsonDocument.Parse("""{"folders":[{"id":"bbbbbbbbbbbbbbbbbbbbbbbb","name":"Media","share_name":"USB-New","path":"D:\\Media","available":true,"native_shared":true,"migration_pending":true,"account_access":"modify","guest_access":"none","folder_problem":"共享名稱更新待完成"}]}""");UpdateShareFolders(migrating.RootElement);
+        if(!shareFolderRows.GetVisualDescendants().OfType<Button>().Any(b=>b.Content is TextBlock t&&t.Text=="重試共享") ||
+           !shareFolderRows.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.Contains("名稱更新待完成")==true) ||
+           shareFolderRows.GetVisualDescendants().OfType<CheckBox>().Any(c=>c.IsEffectivelyEnabled) ||
+           !shareFolderRows.GetVisualDescendants().OfType<Button>().Any(b=>Avalonia.Automation.AutomationProperties.GetName(b)?.StartsWith("取消共享「")==true&&b.IsEffectivelyEnabled))
+            throw new InvalidOperationException("pending rename must allow retry or cancel while access edits stay disabled");
         window.Close();if(smbPassword.Text!=""||smbConfirmPassword.Text!=""||shareFoldersWindow!=null||smbGuestState.Window!=null||smbRepairState.Window!=null)throw new InvalidOperationException("close credential and shared-window cleanup");
         OpenSMBGuest();smbGuestState.ID="dddddddddddddddddddddddddddddddd";smbGuestState.Action="native-smb-account-read";
         using var guest=JsonDocument.Parse("""{"action":"native-smb-account-read","request_id":"dddddddddddddddddddddddddddddddd","account":{"exists":true},"guest":false}""");UpdateSMBAccount(guest.RootElement);

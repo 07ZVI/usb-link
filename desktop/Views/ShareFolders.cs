@@ -17,17 +17,16 @@ public sealed partial class Dashboard
  bool shareRefreshQueued;
  sealed record ShareAccessDraft(string Path,string Account,string Guest);
  readonly Dictionary<string,ShareAccessDraft> shareAccessDrafts = new();
- readonly Dictionary<string,Control> shareAddDrafts = new(StringComparer.OrdinalIgnoreCase);
  void ShareRequest(object value) { if (preview) return; DesktopClient.SendRaw(JsonSerializer.Serialize(value));  }
  void OpenShareFolders() => OpenSMBManager();
  Control BuildShareFoldersPanel() {
   shareFolderRows = new() { Spacing = 10 }; shareFolderProblem = SMBHint(""); shareFolderProblem.Res(TextBlock.ForegroundProperty,"Warn");
   shareBusy = false; sharePendingID = ""; shareRefreshQueued = false;
-  shareAccessDrafts.Clear(); shareAddDrafts.Clear();
+  shareAccessDrafts.Clear();
   shareRefresh = Action("重新整理",()=>RequestShareFolders("share-folders-refresh")); shareAdd = Action("添加共享",PickShareFolders,Icons.Folder);
   shareFolderRows.Children.Add(SMBHint("正在讀取 Windows 已共享的資料夾…"));
   return Column(12, Columns("*,Auto",Label("共享資料夾",18,FontWeight.SemiBold),Row(8,shareRefresh,shareAdd)),
-    SMBHint("在各資料夾下勾選並保存權限。只啟用存取為只讀，允許修改包含新增、編輯、重新命名與刪除。"),shareFolderRows,shareFolderProblem);
+    SMBHint("在各資料夾下勾選並保存權限。添加後立即共享，預設允許專用帳戶修改、禁止訪客。右側叉號只取消共享，檔案會保留。"),shareFolderRows,shareFolderProblem);
  }
  void RequestShareFolders(string action,string? id=null,string? path=null,string? accountAccess=null,string? guestAccess=null,bool remember=false) {
   if(shareFoldersWindow==null)return;
@@ -43,35 +42,26 @@ public sealed partial class Dashboard
  async void PickShareFolders() {
   var owner=shareFoldersWindow;if(owner==null||shareBusy)return;
   try { var folders=await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions{Title="選擇共享資料夾",AllowMultiple=false});
-   var path=folders.FirstOrDefault()?.TryGetLocalPath();if(path!=null&&shareFoldersWindow==owner) AddShareDraft(path);
+   var path=folders.FirstOrDefault()?.TryGetLocalPath();if(path!=null&&shareFoldersWindow==owner) RequestShareFolders("share-folder-add",path:path,accountAccess:"modify",guestAccess:"none");
   } catch(Exception) { shareFolderProblem.Text="無法開啟資料夾選擇器。"; }
  }
- void AddShareDraft(string path) {
-  if(shareAddDrafts.TryGetValue(path,out var existing)){existing.BringIntoView();return;}
-  var name=System.IO.Path.GetFileName(path.TrimEnd('\\','/'));if(name=="")name=path;
-  var card=Card(new StackPanel(),new Thickness(16));
-  var cancel=Action("取消",()=>{shareAddDrafts.Remove(path);shareFolderRows.Children.Remove(card);});
-  card.Child=Column(10,Columns("*,Auto",Label(name+" · 新增共享",15,FontWeight.SemiBold),cancel),SMBHint(path),
-   InlineShareAccess("",path,"modify","none",smbGuestEnabled,true));
-  shareAddDrafts[path]=card;shareFolderRows.Children.Insert(0,card);card.BringIntoView();
- }
  static string ShareAccessLabel(string value)=>value=="read"?"只讀":value=="modify"?"可修改":"禁止存取";
- Control InlineShareAccess(string id,string path,string account,string guest,bool guestEnabled,bool adding=false) {
+ Control InlineShareAccess(string id,string path,string account,string guest,bool guestEnabled) {
   var selectedAccount=account;var selectedGuest=guest;
-  if(!adding&&shareAccessDrafts.TryGetValue(id,out var draft)&&draft.Path==path){selectedAccount=draft.Account;selectedGuest=draft.Guest;}
+  if(shareAccessDrafts.TryGetValue(id,out var draft)&&draft.Path==path){selectedAccount=draft.Account;selectedGuest=draft.Guest;}
   var accountOn=new CheckBox{Content="啟用帳戶存取",IsChecked=selectedAccount!="none"};
   var accountWrite=new CheckBox{Content="允許修改",IsChecked=selectedAccount=="modify"};
   var guestOn=new CheckBox{Content="啟用訪客存取",IsChecked=selectedGuest!="none"};
   var guestWrite=new CheckBox{Content="允許修改",IsChecked=selectedGuest=="modify"};
   string Value(CheckBox enabled,CheckBox write)=>enabled.IsChecked==true?(write.IsChecked==true?"modify":"read"):"none";
   var state=SMBHint("");
-  var save=Action(adding?"建立共享":"保存權限",()=>RequestShareFolders(adding?"share-folder-add":"native-smb-access-save",id:adding?null:id,path:adding?path:null,accountAccess:Value(accountOn,accountWrite),guestAccess:Value(guestOn,guestWrite)),primary:true);
+  var save=Action("保存權限",()=>RequestShareFolders("native-smb-access-save",id:id,accountAccess:Value(accountOn,accountWrite),guestAccess:Value(guestOn,guestWrite)),primary:true);
   var revert=Action("還原",()=>{accountOn.IsChecked=account!="none";accountWrite.IsChecked=account=="modify";guestOn.IsChecked=guest!="none";guestWrite.IsChecked=guest=="modify";});
   var choices=Row(8,revert,save);
   void Changed() {
    accountWrite.IsEnabled=accountOn.IsChecked==true;guestWrite.IsEnabled=guestOn.IsChecked==true;
-   var a=Value(accountOn,accountWrite);var g=Value(guestOn,guestWrite);var dirty=adding||a!=account||g!=guest;
-   if(!adding){if(dirty)shareAccessDrafts[id]=new(path,a,g);else shareAccessDrafts.Remove(id);}
+   var a=Value(accountOn,accountWrite);var g=Value(guestOn,guestWrite);var dirty=a!=account||g!=guest;
+   if(dirty)shareAccessDrafts[id]=new(path,a,g);else shareAccessDrafts.Remove(id);
    choices.IsVisible=dirty;save.IsEnabled=dirty;
    state.Text="帳戶："+ShareAccessLabel(a)+"    訪客："+ShareAccessLabel(g)+(g!="none"&&!guestEnabled?"（全機訪客尚未啟用）":"")+(dirty?" · 尚未保存":"");
   }
@@ -99,23 +89,27 @@ public sealed partial class Dashboard
    if(account=="")account="modify";if(guest=="")guest="none";
    var guestEnabled=folder.TryGetProperty("guest_enabled",out var ge)&&ge.ValueKind==JsonValueKind.True;
    var published=folder.TryGetProperty("native_shared",out var shared)&&shared.ValueKind==JsonValueKind.True;
+   var migrationPending=folder.TryGetProperty("migration_pending",out var migration)&&migration.ValueKind==JsonValueKind.True;
    // Only a matching identity and confirmed readback can consume an edit.
    if(shareAccessDrafts.TryGetValue(id,out var draft)&&
       (external||changed||draft.Path!=path||draft.Account==account&&draft.Guest==guest))shareAccessDrafts.Remove(id);
-   if(!external&&!changed&&shareFolderProblem.Text==""&&Text(folder,"folder_problem")=="")shareAddDrafts.Remove(path);
-   var actions=Row(8,Action("複製地址",()=>Copy(url,"共享地址")));
+    var actions=Row(8,Action("複製地址",()=>Copy(url,"共享地址")));
    if(external)actions.Children.Add(Action("在 Windows 管理",()=>ShareRequest(new{action="windows-smb-manage"})));
    else {
-    if(!published&&available&&!changed)actions.Children.Add(Action("重試共享",()=>RequestShareFolders("native-smb-retry")));
-    actions.Children.Add(Action(published?"停止共享":"移除",()=>RemoveShareFolder(id,name)));
+    if((!published||migrationPending)&&available&&!changed)actions.Children.Add(Action("重試共享",()=>RequestShareFolders("native-smb-retry")));
+    actions.Children.Add(IconButton(Icons.Close,"取消共享「"+name+"」（保留檔案）",()=>RequestShareFolders("share-folder-remove",id:id)));
    }
    var recovery=folder.TryGetProperty("permission_recovery",out var pending)&&pending.ValueKind==JsonValueKind.True;
    if(changed)actions.Children.Add(Action("交由 Windows 管理",()=>ReleaseShareOwnership(id,name)));
    if(recovery)actions.Children.Add(Action("保留目前權限",()=>KeepSharePermissions(id,name,path)));
-   var nameLabel=Label(name+(external?" · Windows 管理":published?" · 已共享":" · 未共享"),15,FontWeight.SemiBold);nameLabel.TextTrimming=TextTrimming.CharacterEllipsis;
+   var nameLabel=Label(name+(external?" · Windows 管理":migrationPending?" · 名稱更新待完成":published?" · 已共享":" · 未共享"),15,FontWeight.SemiBold);nameLabel.TextTrimming=TextTrimming.CharacterEllipsis;
    var details=Column(10,Columns("*,Auto",nameLabel,actions),pathLabel);
    if(external||changed)details.Children.Add(SMBHint(changed?"權限已由 Windows 修改，請在 Windows 核對。":"此共享的帳戶與訪客權限由 Windows 管理。"));
-   else details.Children.Add(InlineShareAccess(id,path,account,guest,guestEnabled));
+   else {
+    var permissions=InlineShareAccess(id,path,account,guest,guestEnabled);
+    permissions.IsEnabled=!migrationPending;
+    details.Children.Add(permissions);
+   }
    if(folder.TryGetProperty("access_recovery",out var accessPending)&&accessPending.ValueKind==JsonValueKind.True)details.Children.Add(SMBHint("上次權限保存尚未完成，請重新核對並保存。"));
    var folderProblem=Text(folder,"folder_problem");if(folderProblem!=""){var warning=Label(folderProblem,12,key:"Warn");warning.TextWrapping=TextWrapping.Wrap;details.Children.Add(warning);}
    if(recovery)details.Children.Add(SMBHint("權限恢復尚未完成。可先重試關閉共享；若已自行管理權限，可選擇保留目前權限。"));
@@ -125,8 +119,7 @@ public sealed partial class Dashboard
    var ids=folders.Where(f=>Text(f,"id")!="").Select(f=>Text(f,"id")).ToHashSet();
    foreach(var id in shareAccessDrafts.Keys.Where(id=>!ids.Contains(id)).ToArray())shareAccessDrafts.Remove(id);
   }
-  foreach(var card in shareAddDrafts.Values)shareFolderRows.Children.Insert(0,card);
-  if(folders.Length==0&&shareAddDrafts.Count==0)shareFolderRows.Children.Add(SMBHint(Text(value,"problem")==""?"Windows 目前沒有可管理的共享資料夾。":"未取得共享列表，請重新整理。"));
+  if(folders.Length==0)shareFolderRows.Children.Add(SMBHint(Text(value,"problem")==""?"Windows 目前沒有可管理的共享資料夾。":"未取得共享列表，請重新整理。"));
   if(matched)ShareRequest(new{action="smb-ui-result-ack",id=requestID,decision="share-folders"});
   if(Program.SMBWireSmoke&&matched)CompleteSMBWireSmoke();
   DrainShareRefresh();
@@ -148,10 +141,4 @@ public sealed partial class Dashboard
   _=dialog.ShowDialog(shareFoldersWindow);
  }
 
- void RemoveShareFolder(string id,string name){
-  if(shareFoldersWindow==null)return;
-  var dialog=new Window{Title="移除共享",Width=420,SizeToContent=SizeToContent.Height,CanResize=false,WindowStartupLocation=WindowStartupLocation.CenterOwner};dialog.Res(BackgroundProperty,"Window");
-  dialog.Content=new Border{Padding=new Thickness(24),Child=Column(16,Label("移除「"+name+"」的共享？",18,FontWeight.SemiBold),Label("檔案會保留在原資料夾。",12,key:"Muted"),Row(8,Action("取消",()=>dialog.Close()),Action("移除",()=>{dialog.Close();RequestShareFolders("share-folder-remove",id:id);},primary:true)))};
-  _=dialog.ShowDialog(shareFoldersWindow);
- }
 }

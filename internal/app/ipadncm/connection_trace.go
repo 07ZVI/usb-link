@@ -7,6 +7,7 @@ import "time"
 // that the iPad applied an address or reached Sunshine.
 type ConnectionEvent struct {
 	Attempt   uint64 `json:"attempt"`
+	UTC       string `json:"event_utc,omitempty"`
 	ElapsedMS int64  `json:"ms_since_software_attempt_not_physical_insertion"`
 	Stage     string `json:"stage"`
 	Evidence  string `json:"evidence"`
@@ -14,7 +15,7 @@ type ConnectionEvent struct {
 
 func validConnectionStage(stage string) bool {
 	switch stage {
-	case "usb_mode_switch_begin", "usb_mode_switch_end":
+	case "usb_mode_switch_begin", "usb_mode_switch_end", "usb_control_open_begin", "usb_control_open_end", "usb_get_mode_begin", "usb_get_mode_end", "usb_set_mode_request_begin", "usb_set_mode_request_end":
 		return true
 	case "usb_enumerated", "grouping_applied", "native_ncm_started", "adapter_mapped", "ip_configured", "dhcp_ack_sent", "ipv4_neighbor_verified", "sunshine_peer_tcp_observed", "native_start_check_begin", "native_start_check_end", "passive_network_observation_begin", "passive_network_observation_end", "grouping_write_begin", "grouping_write_end", "device_restart_begin", "device_restart_end", "grouping_restore_begin", "grouping_restore_end", "apple_service_lease_begin", "apple_service_lease_end", "application_firewall_begin", "application_firewall_end", "core_permissions_begin", "core_permissions_end", "sunshine_local_probe_begin", "sunshine_local_probe_end", "dhcp_listener_started", "optional_application_services_ready", "application_permission_batch_begin", "application_permission_batch_end":
 		return true
@@ -29,7 +30,13 @@ func (m *monitorDiagnosticCounter) stageFor(expectedAttempt uint64, stage, evide
 		return
 	}
 	m.Lock()
-	defer m.Unlock()
+	var archived *ConnectionEvent
+	defer func() {
+		m.Unlock()
+		if archived != nil {
+			RecordConnectionArchiveEvent("connection_stage", map[string]any{"attempt": archived.Attempt, "stage": archived.Stage, "event_utc": archived.UTC, "ms_since_software_attempt_not_physical_insertion": archived.ElapsedMS})
+		}
+	}()
 	if m.deviceKind != "iPad" || m.attemptStarted.IsZero() {
 		return
 	}
@@ -54,7 +61,10 @@ func (m *monitorDiagnosticCounter) stageFor(expectedAttempt uint64, stage, evide
 		m.r.ConnectionTrace = m.r.ConnectionTrace[1:]
 		m.r.DroppedConnectionEvents++
 	}
-	m.r.ConnectionTrace = append(m.r.ConnectionTrace, ConnectionEvent{m.attempt, time.Since(m.attemptStarted).Milliseconds(), stage, evidence})
+	now := time.Now()
+	event := ConnectionEvent{Attempt: m.attempt, UTC: now.UTC().Format(time.RFC3339Nano), ElapsedMS: now.Sub(m.attemptStarted).Milliseconds(), Stage: stage, Evidence: evidence}
+	m.r.ConnectionTrace = append(m.r.ConnectionTrace, event)
+	archived = &event
 }
 func recordConnectionStage(stage, evidence string) { monitorDiagnostics.stage(stage, evidence, true) }
 
@@ -62,7 +72,7 @@ func recordConnectionStage(stage, evidence string) { monitorDiagnostics.stage(st
 // device notifications. It does not claim that the action caused a notice.
 func RecordConnectionOperation(operation string) func() {
 	switch operation {
-	case "usb_control_open", "usb_get_mode", "usb_mode_switch":
+	case "usb_control_open", "usb_get_mode", "usb_mode_switch", "usb_set_mode_request":
 	case "grouping_write", "device_restart", "grouping_restore", "apple_service_lease", "passive_network_observation", "native_start_check", "application_firewall", "core_permissions", "sunshine_local_probe", "application_permission_batch":
 	default:
 		return func() {}

@@ -60,27 +60,28 @@ func TestActiveGuardCannotReachUSBDescriptorOrControlReads(t *testing.T) {
 		}
 	}
 	seen := map[string]bool{}
-	var visit func(string)
-	visit = func(n string) {
+	var visit func(string, []string)
+	visit = func(n string, path []string) {
 		if seen[n] {
 			return
 		}
 		seen[n] = true
+		path = append(append([]string(nil), path...), n)
 		for _, forbidden := range []string{"Inspect", "inventory", "ioctl", "descriptor", "open", "RunAppleControlWithLease"} {
 			if n == forbidden {
-				t.Fatalf("active guard reaches USB request: %s", n)
+				t.Fatalf("active guard reaches USB request: %s", strings.Join(path, " -> "))
 			}
 		}
 		for _, child := range graph[n] {
 			if _, ok := graph[child]; ok {
-				visit(child)
+				visit(child, path)
 			}
 		}
 	}
 	if len(graph["currentActivePeerAdapter"]) == 0 {
 		t.Fatal("missing active guard")
 	}
-	visit("currentActivePeerAdapter")
+	visit("currentActivePeerAdapter", nil)
 	if !seen["inventoryPnP"] || !seen["sameCachedLocation"] || !seen["readNCMAdapters"] || !seen["readMappedAdapter"] {
 		t.Fatal("lost live physical/adapter checks", seen)
 	}

@@ -41,6 +41,13 @@ public sealed partial class Dashboard : Window
  string nativeAccount="", shareProblem="";
     readonly bool preview = Program.Preview;
     bool backendEnded;
+    readonly TextBlock automaticIsolationStatus = Label("", 12, key: "Muted"), programExitStatus = Label("", 12, key: "Warn");
+    Button programExitButton = null!;
+    string programExitID = "", programExitPhase = "idle";
+    bool programExitAwaiting, programExitCommitSent;
+    DispatcherTimer? programExitConfirmationTimer;
+    long programExitConfirmationGeneration;
+
     bool KeepInTray => !preview && !Program.StandaloneTasks && OperatingSystem.IsWindows();
 
     // ---------- building blocks ----------
@@ -129,7 +136,7 @@ public sealed partial class Dashboard : Window
         if (Program.StandaloneTasks) Opened += (_, _) => Dispatcher.UIThread.Post(() => {
             OpenTaskManager(); taskWindow!.Closed += (_, _) => Close(); Hide();
         }, DispatcherPriority.Normal);
-        Closed += (_, _) => taskWindow?.Close();
+        Closed += (_, _) => { CancelProgramExitConfirmation(); taskWindow?.Close(); };
 
         ApplyConnectionSummary(0);
         if (preview) SeedPreview();
@@ -281,30 +288,99 @@ public sealed partial class Dashboard : Window
         var background = Label("關閉視窗後縮至托盤，連線繼續運作。", 12, key: "Subtle");
         background.VerticalAlignment = VerticalAlignment.Center;
 
-        var stopLabel = Label("退出介面", 12, key: "Error");
-        var stop = new Button
+        var stopLabel = Label("退出程序", 12, key: "Error");
+        var stop = programExitButton = new Button
         {
             Content = Row(6, Icons.Make(Icons.Power, 14, "Error"), stopLabel), Padding = new Thickness(10, 6),
             Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4),
         };
-        // The boot service owns connections independently of the login UI.
-        var confirm = Action("退出介面", () => Send("stop"), primary: true);
-        var flyout = new Flyout
-        {
-            Placement = PlacementMode.TopEdgeAlignedRight,
-            Content = Column(10,
-                Label("退出連線介面？", 14, FontWeight.SemiBold),
-                WithWrap(Label("介面與托盤會關閉，USB 連線和共享繼續在背景運作。", 12, key: "Muted"), 260),
-                WithAlign(confirm, HorizontalAlignment.Right)),
-        };
-        confirm.Click += (_, _) => flyout.Hide();
-        stop.Flyout = flyout;
+        stop.Click += (_, _) => RequestProgramExit();
 
         var right = Row(12, background, stop);
         var grid = Columns("*,Auto", noticeBar, right);
         noticeBar.HorizontalAlignment = HorizontalAlignment.Left;
         noticeBar.Margin = new Thickness(0, 0, 16, 0);
-        return grid;
+        automaticIsolationStatus.TextWrapping = programExitStatus.TextWrapping = TextWrapping.Wrap;
+        automaticIsolationStatus.IsVisible = programExitStatus.IsVisible = false;
+        return Column(6, automaticIsolationStatus, programExitStatus, grid);
+    }
+
+    void RequestProgramExit()
+    {
+        if (preview) { SetNotice("介面預覽，不會停止連線或修改系統。"); return; }
+        if (programExitAwaiting) return;
+        foreach (var window in OwnedWindows.ToArray()) window.Close();
+        if (programExitID == "" || programExitPhase == "failed") programExitID = Guid.NewGuid().ToString("N");
+        programExitPhase = "requesting";
+        programExitAwaiting = true; programExitCommitSent = false;
+        bodyScroll.IsEnabled = false;
+        programExitStatus.Text = "正在要求停止連線，核對恢復完成後才會退出…";
+        programExitStatus.IsVisible = true; programExitButton.IsEnabled = false;
+        SendProgramExitRequest("exit-program");
+    }
+
+    void CancelProgramExitConfirmation()
+    {
+        programExitConfirmationTimer?.Stop(); programExitConfirmationTimer = null;
+        programExitConfirmationGeneration++;
+    }
+
+    void SendProgramExitRequest(string action)
+    {
+        CancelProgramExitConfirmation();
+        var generation = programExitConfirmationGeneration;
+        var id = programExitID;
+        // This bounds acknowledgement waiting, never the native restore work.
+        programExitConfirmationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        programExitConfirmationTimer.Tick += (_, _) => ExpireProgramExitConfirmation(id, generation);
+        programExitConfirmationTimer.Start();
+        try { if (!preview) DesktopClient.SendRaw(JsonSerializer.Serialize(new { action, id })); }
+        catch { ExpireProgramExitConfirmation(id, generation); }
+    }
+
+    void ExpireProgramExitConfirmation(string id, long generation)
+    {
+        if (id != programExitID || generation != programExitConfirmationGeneration || !programExitAwaiting) return;
+        CancelProgramExitConfirmation();
+        programExitAwaiting = programExitCommitSent = false;
+        programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試；這不代表恢復已完成。";
+        programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+    }
+
+    void UpdateProgramLifecycle(JsonElement d)
+    {
+        if (d.TryGetProperty("default_network_isolation", out var isolation) && isolation.ValueKind == JsonValueKind.Object)
+        {
+            string S(string k) => isolation.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            bool B(string k) => isolation.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+            var phase = S("phase");
+            var failure = S("error") != "" || phase == "recovery_pending";
+            automaticIsolationStatus.IsVisible = true;
+            automaticIsolationStatus.Text = failure ? "自動連線策略尚未完成，恢復狀態需要處理。Apple 服務：" + (B("amds_restored") ? "已恢復" : "待確認") + "；照片介面：" + (B("photo_restored") ? "已恢復" : "待確認") + "；舊照片策略：" + (B("policy_restored") ? "已恢復" : "待確認") + "。"
+                : phase == "restored" && B("restored") ? "Apple 服務、照片介面與舊照片策略均已恢復。"
+                : phase is "restoring" or "recovering_previous" || B("busy") ? "正在恢復 Apple 服務與照片介面，尚未確認完成。"
+                : phase == "running" ? "自動連線策略 · Apple 服務：" + (B("amds_effective") ? "已暫停" : "待確認") + "；照片介面：" + (B("photo_effective") ? "已隔離" : "等候適用裝置") + "。退出程序時恢復。"
+                : "自動連線策略尚未就緒，恢復狀態待確認。";
+            automaticIsolationStatus.Res(TextBlock.ForegroundProperty, failure ? "Warn" : "Muted");
+        }
+        if (!d.TryGetProperty("program_exit", out var exit) || exit.ValueKind != JsonValueKind.Object) return;
+        string E(string k) => exit.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        var phaseExit = E("phase");
+        if (phaseExit == "idle" || programExitAwaiting && E("request_id") != programExitID) return; // Queued status cannot complete another request.
+        if (!programExitCommitSent) CancelProgramExitConfirmation();
+        programExitPhase = phaseExit;
+        programExitStatus.IsVisible = true;
+        programExitStatus.Text = phaseExit == "failed" ? "恢復尚未完成，程序仍保留，USB 連線已停止。可再按「退出程序」重試恢復。"
+            : phaseExit == "ready" ? programExitAwaiting ? "已停止連線並確認恢復，正在完成退出。" : "恢復已確認，退出尚未完成；可按「退出程序」重試確認。"
+            : phaseExit == "restoring" ? "USB 連線已停止，正在恢復 Apple 服務、照片介面與網路設定…"
+            : "正在停止 USB 連線，完成後會恢復設定…";
+        if (phaseExit == "failed") { CancelProgramExitConfirmation(); programExitAwaiting = programExitCommitSent = false; }
+        programExitButton.IsEnabled = !programExitAwaiting;
+        if (phaseExit == "ready" && programExitAwaiting && !programExitCommitSent && E("request_id") == programExitID)
+        {
+            programExitCommitSent = true;
+            SendProgramExitRequest("exit-program-commit");
+        }
     }
 
     static TextBlock WithWrap(TextBlock t, double width) { t.TextWrapping = TextWrapping.Wrap; t.MaxWidth = width; return t; }
@@ -318,7 +394,8 @@ public sealed partial class Dashboard : Window
         var copy = Action("複製全部", () => Copy(detailText, "診斷內容"), Icons.Copy);
         var head = Columns("*,Auto", Column(2, Label("連線診斷", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
         var diagnostics = Card(detailRows, new Thickness(4));
-        var content = Column(16, InternetSection(), diagnostics, Gap(4));
+        var debugDetails = new Expander { Header = "詳細診斷 / 調試資訊", IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch, Content = diagnostics };
+        var content = Column(16, InternetSection(), debugDetails, Gap(4));
 #if USBLINK_LOCAL_DIAGNOSTICS
         content.Children.Insert(0, LocalDiagnosticsSection());
 #endif
@@ -336,6 +413,7 @@ public sealed partial class Dashboard : Window
             scroll.Content = null; diagnostics.Child = null;
 #if USBLINK_LOCAL_DIAGNOSTICS
             localDiagnosticsRefresh = null;
+            localTrustExperimentRefresh = null;
 #endif
             content.Children.Clear(); detailWindow = null;
         };
@@ -420,6 +498,22 @@ public sealed partial class Dashboard : Window
     {
         string S(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool B(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+        if (S("event") == "program-exit-request") { Show(); WindowState = WindowState.Normal; Activate(); RequestProgramExit(); return; }
+        if (S("event") == "program-exit-result")
+        {
+            if (S("request_id") != programExitID || programExitID == "") return;
+            CancelProgramExitConfirmation();
+            programExitAwaiting = programExitCommitSent = false;
+            programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試。";
+            programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+            return;
+        }
+        if (S("event") == "program-exit-complete")
+        {
+            if (S("request_id") == programExitID && programExitCommitSent && !preview)
+                (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
+            return;
+        }
         if (S("event") == "backend-unavailable") { MarkBackendUnavailable(S("code")); return; }
         if (S("event") == "shutdown") { (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(); return; }
         if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
@@ -432,6 +526,7 @@ public sealed partial class Dashboard : Window
 #if USBLINK_LOCAL_DIAGNOSTICS
             localDiagnosticsPendingID = "";
             photoIsolationPendingID = "";
+            ResetTrustExperimentWaits();
 #endif
             backendUnavailable = false;
             backendFailureBanner.IsVisible = false;
@@ -448,8 +543,10 @@ public sealed partial class Dashboard : Window
         if (S("event") == "gateway-request") { ShowGatewayRequest(d); return; }
         if (S("event") == "gateway") { UpdateGateway(d); return; }
         if (S("event") == "security") { UpdateSecurity(d); return; }
+        UpdateProgramLifecycle(d);
         // The custom caption remains usable while the core finishes stopping.
-        bodyScroll.IsEnabled = footerControl.IsEnabled = !B("stopping");
+        bodyScroll.IsEnabled = !B("stopping") && programExitPhase == "idle" && !programExitAwaiting;
+        footerControl.IsEnabled = !B("stopping") || programExitPhase != "idle";
 
         if (S("windows_ipv4") != "") { WindowsHostIp = S("windows_ipv4"); ShareUrl = S("share_url") != "" ? S("share_url") : "smb://" + WindowsHostIp; addressValue.Text = WindowsHostIp; shareUrlValue.Text = ShareUrl; }
         var devices = DeviceStatusSnapshot.Parse(d);

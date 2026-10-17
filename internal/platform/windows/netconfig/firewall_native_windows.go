@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/wincom"
 	"suhang/usbnet/internal/security/securitypolicy"
 	"suhang/usbnet/internal/transport/usbaddress"
@@ -626,7 +627,9 @@ func removeOwnedNativeSessionRules(ctx context.Context, guid, token string, veri
 		return err
 	}
 	specs = append(specs, files...)
+	endLock := shutdowntrace.Begin(shutdowntrace.PhaseMacRecoveryLock)
 	release, err := usbaddress.ConfigurationLock(ctx)
+	endLock()
 	if err != nil {
 		return err
 	}
@@ -638,6 +641,11 @@ func removeOwnedNativeSessionRules(ctx context.Context, guid, token string, veri
 		return verifyOwner()
 	}
 	return nativeStep(logger, "firewall_cleanup", func() error {
+		endRules := func() {}
+		if verifyOnly {
+			endRules = shutdowntrace.Begin(shutdowntrace.PhaseMacRecoveryRules)
+		}
+		defer endRules()
 		return withFirewall(ctx, func(svc *wincom.Dispatch) error {
 			read := func(spec nativeRuleSpec) (firewallConstraints, error) {
 				r, err := matchingRule(svc, spec.Name)
@@ -651,20 +659,27 @@ func removeOwnedNativeSessionRules(ctx context.Context, guid, token string, veri
 				return readFirewallConstraints(r)
 			}
 			if verifyOnly {
-				for _, spec := range specs {
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-					r, err := matchingRule(svc, spec.Name)
-					if err != nil {
-						return err
-					}
-					if r != nil {
-						r.Close()
-						return errors.New("USB_NATIVE_SESSION_RULE_REMAINS")
-					}
+				if err := ctx.Err(); err != nil {
+					return err
 				}
-				return nil
+				names := make([]string, len(specs))
+				for i, spec := range specs {
+					names[i] = spec.Name
+				}
+				query, err := sessionRuleAbsenceQuery(token, names)
+				if err != nil {
+					return err
+				}
+				rows, err := comObject(svc.Call("ExecQuery", wincom.String(query), wincom.String("WQL"), wincom.Int(0)))
+				if err != nil {
+					return err
+				}
+				defer rows.Close()
+				count, err := comInt(rows, "Count")
+				if err = sessionRuleAbsenceCount(count, err); err != nil {
+					return err
+				}
+				return ctx.Err()
 			}
 			err := executeNativeRuleCleanup(specs, read, verify, func(spec nativeRuleSpec, baseline string) error {
 				// Retain the exact freshly queried provider object through Delete_.
@@ -849,6 +864,8 @@ func VerifyMacCleanupNative(ctx context.Context, guid, token string, logger *log
 		return e
 	}
 	return nativeStep(logger, "mac_adapter_absence", func() error {
+		end := shutdowntrace.Begin(shutdowntrace.PhaseMacRecoveryAdapter)
+		defer end()
 		absent, e := MacAdapterAbsentNative()
 		if e != nil {
 			return e

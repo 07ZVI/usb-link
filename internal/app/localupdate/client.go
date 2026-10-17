@@ -115,7 +115,7 @@ func newClient(inv invitation) (*client, func()) {
 }
 
 func (c *client) request(ctx context.Context, method, path string, body io.Reader, manifest string, length int64) ([]byte, error) {
-	if !(method == "GET" && path == "/v1/status" || method == "POST" && (path == "/v1/prepare" || path == "/v1/apply" || path == "/v1/cancel")) {
+	if !(method == "GET" && (path == "/v1/status" || path == "/v1/diagnostics/index" || path == "/v1/restart") || method == "POST" && (path == "/v1/prepare" || path == "/v1/apply" || path == "/v1/cancel" || path == "/v1/diagnostics/chunk" || path == "/v1/restart")) {
 		return nil, fmt.Errorf("unsupported USB push action")
 	}
 	q, err := http.NewRequestWithContext(ctx, method, endpoint+path, body)
@@ -138,9 +138,18 @@ func (c *client) request(ctx context.Context, method, path string, body io.Reade
 	}
 	// Only report fixed classifications; a remote body can reflect credentials.
 	if r.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("USB push request rejected (%d)%s", r.StatusCode, rejectionReason(b))
+		return nil, &requestFailure{status: r.StatusCode, reason: rejectionReason(b)}
 	}
 	return b, nil
+}
+
+type requestFailure struct {
+	status int
+	reason string
+}
+
+func (e *requestFailure) Error() string {
+	return fmt.Sprintf("USB push request rejected (%d)%s", e.status, e.reason)
 }
 
 func rejectionReason(body []byte) string {

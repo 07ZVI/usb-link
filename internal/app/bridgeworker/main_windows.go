@@ -563,7 +563,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 			tun.Close()
 			if *moduleHold {
 				l.Printf("USB_WINTUN_MODULE_LIFETIME enabled=%t pinned_modules=%d", wintun.ModuleLifetimeSnapshot().Enabled, wintun.ModuleLifetimeSnapshot().PinnedModules)
-				cleanupErr = errors.Join(cleanupErr, netconfig.WaitOwnedMacCloseAbsentNative(cleanupCtx, ordinaryCleanupProof.Index, ordinaryCleanupProof.LUID, closeInstance))
+				cleanupErr = errors.Join(cleanupErr, netconfig.WaitOwnedMacCloseAbsentNative(cleanupCtx, ordinaryCleanupProof.Index, ordinaryCleanupProof.LUID, closeInstance, l))
 			}
 		} // All packet workers have joined before cleanup.
 		check, e := netconfig.VerifyCleanup(session.GUID, session.Token)

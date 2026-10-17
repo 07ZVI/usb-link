@@ -28,7 +28,9 @@ var changes = struct {
 	next      uintptr
 	listeners map[uintptr]chan struct{}
 	filters   map[uintptr]func(string) bool
-}{listeners: make(map[uintptr]chan struct{}), filters: make(map[uintptr]func(string) bool)}
+	kinds     map[uintptr]uint32
+	metadata  map[uintptr]*ChangeMetadataStream
+}{listeners: make(map[uintptr]chan struct{}), filters: make(map[uintptr]func(string) bool), kinds: make(map[uintptr]uint32), metadata: make(map[uintptr]*ChangeMetadataStream)}
 var changeEvents, changeFallbacks atomic.Uint64
 
 // Bounded, serial-free log of device notifications for remote diagnosis.
@@ -38,7 +40,7 @@ var recentChanges = struct {
 }{}
 
 func recordChange(action uintptr, instance string) {
-	name := map[uintptr]string{7: "enumerated", 8: "started", 9: "removed"}[action]
+	name := map[uintptr]string{0: "usb_interface_arrival", 1: "usb_interface_removal", 7: "enumerated", 8: "started", 9: "removed"}[action]
 	device := instance
 	if parts := strings.SplitN(instance, `\`, 3); len(parts) >= 2 {
 		device = parts[0] + `\` + parts[1]
@@ -51,31 +53,53 @@ func recordChange(action uintptr, instance string) {
 	recentChanges.Unlock()
 }
 
-var changeCallback = windows.NewCallback(func(h, id, action, data, size uintptr) uintptr {
-	if action >= 7 && action <= 9 {
-		if data != 0 && size >= 10 && size <= 4096 {
-			metadata := make([]byte, int(size))
-			copyNotificationData.Call(uintptr(unsafe.Pointer(&metadata[0])), data, size)
-			if instance, ok := notificationInstance(metadata); ok {
-				recordChange(action, instance)
-			}
-		}
+var changeCallback = windows.NewCallback(func(h, id uintptr, nativeAction uint32, data uintptr, nativeSize uint32) uintptr {
+	observedAt := time.Now()
+	// CM_NOTIFY_ACTION and EventDataSize are DWORDs; x64 stack-slot padding
+	// is unspecified and must not become part of the bounded copy length.
+	action, size := uintptr(nativeAction), uintptr(nativeSize)
+	if action <= 1 || action >= 7 && action <= 9 {
 		changes.Lock()
 		ch := changes.listeners[id]
 		match := changes.filters[id]
+		kind := changes.kinds[id]
+		stream := changes.metadata[id]
 		changes.Unlock()
-		if match != nil {
+		if match != nil || kind == 0 {
 			if data == 0 || size < 10 || size > 4096 {
+				rejectChangeMetadata(stream, 3)
 				return 0
 			}
 			// Copy while the callback owns the event-data lifetime; never retain
 			// or convert the callback's uintptr into a Go heap pointer.
 			metadata := make([]byte, int(size))
 			copyNotificationData.Call(uintptr(unsafe.Pointer(&metadata[0])), data, size)
-			instance, ok := notificationInstance(metadata)
-			if !ok || !match(instance) {
+			var instance string
+			var ok bool
+			if kind == 0 && action <= 1 {
+				var path string
+				path, ok = notificationUSBInterfacePath(metadata)
+				if ok {
+					var candidate bool
+					instance, candidate = usbInterfaceRootHint(path)
+					if !candidate {
+						return 0
+					}
+				}
+			} else if kind == 2 && action >= 7 {
+				instance, ok = notificationInstance(metadata)
+			}
+			if !ok {
+				rejectChangeMetadata(stream, kind)
 				return 0
 			}
+			if match != nil && !match(instance) {
+				return 0
+			}
+			recordChange(action, instance)
+			emitChangeMetadata(stream, action, instance, observedAt)
+		} else if action < 7 {
+			return 0
 		}
 		if ch != nil {
 			changeEvents.Add(1)
@@ -90,7 +114,7 @@ var changeCallback = windows.NewCallback(func(h, id, action, data, size uintptr)
 
 // Register before admission recheck; callbacks only enqueue a coalesced wake.
 func SubscribeChanges() (<-chan struct{}, func(), error) {
-	return subscribeChanges(nil)
+	return subscribeChanges(nil, 2)
 }
 
 // Filter only notification metadata. It is a wake hint, never device authority.
@@ -98,9 +122,21 @@ func SubscribeFilteredChanges(match func(string) bool) (<-chan struct{}, func(),
 	if match == nil {
 		return nil, nil, fmt.Errorf("device notification filter required")
 	}
-	return subscribeChanges(match)
+	return subscribeChanges(match, 2)
 }
-func subscribeChanges(match func(string) bool) (<-chan struct{}, func(), error) {
+
+// USB interface arrival can wake before the selected root's Started event.
+func SubscribeUSBInterfaceChanges(match func(string) bool) (<-chan struct{}, func(), error) {
+	if match == nil {
+		return nil, nil, fmt.Errorf("USB interface notification filter required")
+	}
+	return subscribeChanges(match, 0)
+}
+func subscribeChanges(match func(string) bool, kind uint32) (<-chan struct{}, func(), error) {
+	return subscribeChangesWithMetadata(match, kind, nil)
+}
+
+func subscribeChangesWithMetadata(match func(string) bool, kind uint32, metadata *ChangeMetadataStream) (<-chan struct{}, func(), error) {
 	if match != nil {
 		if e := copyNotificationData.Find(); e != nil {
 			return nil, nil, e
@@ -125,14 +161,24 @@ func subscribeChanges(match func(string) bool) (<-chan struct{}, func(), error) 
 	ch := make(chan struct{}, 1)
 	changes.listeners[id] = ch
 	changes.filters[id] = match
+	changes.kinds[id] = kind
+	if metadata != nil {
+		changes.metadata[id] = metadata
+	}
 	changes.Unlock()
 	f := notifyFilter{Size: 416, Flags: 2, Kind: 2}
+	if kind == 0 {
+		f.Flags, f.Kind = 0, 0
+		copy(unsafe.Slice((*byte)(unsafe.Pointer(&f.Instance[0])), 16), usbDeviceInterfaceGUID[:])
+	}
 	var h uintptr
 	rc, _, _ := registerChange.Call(uintptr(unsafe.Pointer(&f)), id, changeCallback, uintptr(unsafe.Pointer(&h)))
 	if rc != 0 {
 		changes.Lock()
 		delete(changes.listeners, id)
 		delete(changes.filters, id)
+		delete(changes.kinds, id)
+		delete(changes.metadata, id)
 		changes.Unlock()
 		changeFallbacks.Add(1)
 		return nil, nil, fmt.Errorf("CM_Register_Notification: %d", rc)
@@ -145,11 +191,16 @@ func subscribeChanges(match func(string) bool) (<-chan struct{}, func(), error) 
 				changes.Lock()
 				delete(changes.listeners, id)
 				delete(changes.filters, id)
+				delete(changes.kinds, id)
+				delete(changes.metadata, id)
 				changes.Unlock()
+			} else if metadata != nil {
+				metadata.unregisterFailed()
 			}
 		})
 	}, nil
 }
+
 func recentChangeEvents() []map[string]string {
 	recentChanges.Lock()
 	defer recentChanges.Unlock()
@@ -159,7 +210,7 @@ func ChangeDiagnostics() any {
 	changes.Lock()
 	n := len(changes.listeners)
 	changes.Unlock()
-	return map[string]any{"backend": "CM device-instance notifications; 2s polling if registration fails", "active_registrations": n, "callbacks": changeEvents.Load(), "polling_fallbacks": changeFallbacks.Load(), "polling_baseline": pollingBaseline.Load(), "recent": recentChangeEvents()}
+	return map[string]any{"backend": "CM device-instance and USB-interface notifications; polling if registration fails", "active_registrations": n, "callbacks": changeEvents.Load(), "polling_fallbacks": changeFallbacks.Load(), "polling_baseline": pollingBaseline.Load(), "recent": recentChangeEvents()}
 }
 
 var baselineTimer struct {

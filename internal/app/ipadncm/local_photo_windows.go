@@ -1,4 +1,4 @@
-//go:build windows && amd64 && usblink_local_remote
+//go:build windows && amd64
 
 package ipadncm
 
@@ -6,12 +6,15 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"suhang/usbnet/internal/buildinfo"
 	"sync"
 	"time"
 )
 
-var localPhoto = newLocalPhotoController(nil)
+var localPhoto = func() *localPhotoController {
+	c := newLocalPhotoController(nil)
+	c.policyBlocked = func() bool { return !defaultIsolationReady.Load() }
+	return c
+}()
 var localPhotoStart sync.Once
 
 func StartPhotoIsolation(ctx context.Context, dir string) func() {
@@ -35,29 +38,19 @@ func StartPhotoIsolation(ctx context.Context, dir string) func() {
 	}
 	return stop
 }
-func SetPhotoIsolationPersistence(save func(bool) error, read func() (bool, error)) {
-	localPhoto.configure(save, read)
-}
-func SetPhotoIsolationMaster(on bool) {
-	localPhoto.masterChanged(on && buildinfo.LocalDiagnostics == "true")
-}
-func SetPhotoIsolation(on bool, id string) error {
-	if on && buildinfo.LocalDiagnostics != "true" {
-		localPhoto.mu.Lock()
-		if len(id) == 32 && strings.Trim(id, "0123456789abcdefABCDEF") == "" {
-			localPhoto.state.RejectedID = id
-			localPhoto.state.RejectedError = "PHOTO_LOCAL_DIAGNOSTICS_REQUIRED"
-		}
-		localPhoto.mu.Unlock()
-		return errors.New("PHOTO_LOCAL_DIAGNOSTICS_REQUIRED")
-	}
-	return localPhoto.set(on, id)
-}
-func PhotoIsolationDiagnostics() any { return localPhoto.snapshot() }
+
+// Compatibility entry points cannot override the ordinary network lifecycle.
+func SetPhotoIsolationPersistence(func(bool) error, func() (bool, error)) {}
+func SetPhotoIsolationMaster(bool)                                        {}
+func SetPhotoIsolation(bool, string) error                                { return errors.New("PHOTO_AUTOMATIC_RUNTIME_POLICY") }
+func PhotoIsolationDiagnostics() any                                      { return localPhoto.snapshot() }
 
 // Callers must already hold the normal network/identity consent scope. This
 // binding does not infer such authority from a preference or display prefix.
 func BindPhotoIsolationTarget(s Snapshot) error {
+	if err := defaultIsolationAdmission(); err != nil {
+		return err
+	}
 	if !networkOnlyUSBEligible(s) {
 		return errors.New("PHOTO_ROOT_UNPROVEN")
 	}

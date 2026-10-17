@@ -74,9 +74,13 @@ type trustDiagnosticState struct {
 	result      TrustDiagnosticSnapshot
 	pnpKey      string
 	serviceSeen bool
+	// The sink is memory-only and must not acquire the observer lock or clock.
+	archive func(TrustDiagnosticEvent)
 }
 
-var trustDiagnostics = &trustDiagnosticState{}
+var trustDiagnostics = &trustDiagnosticState{archive: func(e TrustDiagnosticEvent) {
+	RecordConnectionArchiveEvent("trust_event", e)
+}}
 
 func (m *trustDiagnosticState) start(now time.Time, runID string) bool {
 	m.Lock()
@@ -111,7 +115,11 @@ func (m *trustDiagnosticState) appendLocked(now time.Time, attempt uint64, sourc
 	if ms < 0 {
 		ms = 0
 	}
-	m.result.Events = append(m.result.Events, TrustDiagnosticEvent{MS: ms, UTC: now.UTC().Format("2006-01-02T15:04:05.000Z"), Attempt: attempt, Source: source, Kind: kind, Data: data})
+	event := TrustDiagnosticEvent{MS: ms, UTC: now.UTC().Format("2006-01-02T15:04:05.000Z"), Attempt: attempt, Source: source, Kind: kind, Data: data}
+	m.result.Events = append(m.result.Events, event)
+	if m.archive != nil {
+		m.archive(event)
+	}
 }
 
 func (m *trustDiagnosticState) event(now time.Time, attempt uint64, source, kind, data string) {
@@ -337,7 +345,7 @@ func RecordTrustOperation(attempt uint64, stage string) {
 		return
 	}
 	switch stage {
-	case "usb_control_open_begin", "usb_control_open_end", "usb_get_mode_begin", "usb_get_mode_end":
+	case "usb_control_open_begin", "usb_control_open_end", "usb_get_mode_begin", "usb_get_mode_end", "usb_set_mode_request_begin", "usb_set_mode_request_end":
 		trustDiagnostics.event(time.Now(), attempt, "own_operation", stage, "")
 	case "usb_mode_switch_begin", "usb_mode_switch_end", "grouping_write_begin", "grouping_write_end", "device_restart_begin", "device_restart_end", "grouping_restore_begin", "grouping_restore_end", "apple_service_lease_begin", "apple_service_lease_end", "native_start_check_begin", "native_start_check_end":
 		trustDiagnostics.event(time.Now(), attempt, "own_operation", stage, "")

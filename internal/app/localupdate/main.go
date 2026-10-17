@@ -204,7 +204,10 @@ func run(args []string, output io.Writer) error {
 	exe := fs.String("exe", "", "Windows installer file")
 	manifest := fs.String("manifest", "", "signed manifest input, or new output file when signing")
 	connection := fs.String("connection", "", "private connection JSON; default discovers over USB")
+	collect := fs.String("collect-archives", "", "read connection archives into a new private capture directory")
 	status := fs.Bool("status", false, "read status only")
+	restart := fs.Bool("restart", false, "request a verified developer software restart without another elevation prompt")
+	restartStatus := fs.Bool("restart-status", false, "read the current developer software restart result")
 	cancelUpdate := fs.Bool("cancel", false, "cancel only the current authenticated idle staged update")
 	stageOnly := fs.Bool("stage-only", false, "stage signed bytes without requesting installation")
 	if err := fs.Parse(args); err != nil {
@@ -213,6 +216,38 @@ func run(args []string, output io.Writer) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments")
 	}
+	restartFlag, mixedRestart := false, false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "restart" || f.Name == "restart-status" {
+			restartFlag = true
+		}
+	})
+	if restartFlag {
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "restart" && f.Name != "restart-status" && f.Name != "connection" {
+				mixedRestart = true
+			}
+		})
+		if *restart == *restartStatus || mixedRestart {
+			return fmt.Errorf("choose restart or restart-status with only optional connection")
+		}
+	}
+	collectFlag, mixedCollect := false, false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "collect-archives" {
+			collectFlag = true
+		}
+	})
+	if collectFlag {
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "collect-archives" && f.Name != "connection" {
+				mixedCollect = true
+			}
+		})
+		if strings.TrimSpace(*collect) == "" || mixedCollect {
+			return fmt.Errorf("archive collection accepts only collect-archives and optional connection")
+		}
+	}
 	if *init != "" {
 		if fs.NFlag() != 1 {
 			return fmt.Errorf("init-key must be used alone")
@@ -220,12 +255,15 @@ func run(args []string, output io.Writer) error {
 		return initKey(*init, output)
 	}
 	if *key != "" {
-		if *status || *cancelUpdate || *stageOnly || *connection != "" || *version == "" || *exe == "" || *manifest == "" {
+		if *collect != "" || *status || *cancelUpdate || *stageOnly || *connection != "" || *version == "" || *exe == "" || *manifest == "" {
 			return fmt.Errorf("signing requires only sign-key, version, exe and manifest")
 		}
 		return sign(*key, *exe, *version, *manifest)
 	}
-	if *version != "" || *status && *cancelUpdate || (*status || *cancelUpdate) && (*stageOnly || *exe != "" || *manifest != "") || !*status && !*cancelUpdate && (*exe == "" || *manifest == "") {
+	if *collect != "" && (*status || *cancelUpdate || *stageOnly || *exe != "" || *manifest != "" || *version != "") {
+		return fmt.Errorf("archive collection cannot be mixed with installation or signing")
+	}
+	if !restartFlag && *collect == "" && (*version != "" || *status && *cancelUpdate || (*status || *cancelUpdate) && (*stageOnly || *exe != "" || *manifest != "") || !*status && !*cancelUpdate && (*exe == "" || *manifest == "")) {
 		return fmt.Errorf("choose status, cancel, or a signed manifest and installer")
 	}
 	if runtime.GOOS != "darwin" {
@@ -249,6 +287,12 @@ func run(args []string, output io.Writer) error {
 	}
 	c, closeClient := newClient(inv)
 	defer closeClient()
+	if *collect != "" {
+		return collectArchives(ctx, c, *collect, output)
+	}
+	if *restartStatus {
+		return readSoftwareRestart(ctx, c.request, output)
+	}
 	b, err := c.request(ctx, "GET", "/v1/status", nil, "", 0)
 	if err != nil {
 		return err
@@ -262,6 +306,9 @@ func run(args []string, output io.Writer) error {
 	if *status {
 		_, err = fmt.Fprintln(output, string(b))
 		return err
+	}
+	if *restart {
+		return requestSoftwareRestart(ctx, c.request, output)
 	}
 	if *cancelUpdate {
 		return cancelStaged(ctx, c, b, output)

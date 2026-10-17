@@ -17,6 +17,7 @@
   <Compile Remove="obj/**/*.cs;bin/**/*.cs" />
   <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
   <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
+  <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="[4.0.0]" ExcludeAssets="build;buildTransitive" />
   <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
  </ItemGroup>
 </Project>

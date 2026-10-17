@@ -35,6 +35,7 @@ import (
 const localRemoteBuild = true
 
 type localRemoteState struct {
+	archive    localDiagnosticArchive
 	consent    localRemoteConsentGate
 	startup    localRemoteStartupCleanup
 	desired    atomic.Bool
@@ -43,6 +44,13 @@ type localRemoteState struct {
 	watchOnce  sync.Once
 	generation uint64
 	guid       string
+}
+
+// SetLocalDiagnosticArchive is wired once before developer control can open a listener.
+func (m *RemoteManager) SetLocalDiagnosticArchive(index func() ([]byte, error), chunk func(string, int64, int, string) ([]byte, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.localRemote.archive = localDiagnosticArchive{index: index, chunk: chunk}
 }
 
 func (m *RemoteManager) initializeLocalRemote() error {
@@ -259,7 +267,8 @@ func (m *RemoteManager) openLocalRemote() error {
 	api := m.api
 	m.localRemote.generation++
 	generation := m.localRemote.generation
-	handler := localRemoteHandler(api, func() bool { return m.localRemoteGenerationActive(api, generation, guid, guard) })
+	active := func() bool { return m.localRemoteGenerationActive(api, generation, guid, guard) }
+	handler := localRemoteHandler(localRestartHandler(localArchiveHandler(api, m.config.Token, active, m.localRemote.archive), m.config.Token, active, localRestartAPI{status: m.localRestartStatus, request: m.requestLocalRestart}), active)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 180 * time.Second, WriteTimeout: 180 * time.Second, IdleTimeout: 10 * time.Second, MaxHeaderBytes: 8192, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, Certificates: []tls.Certificate{pair}}}
 	m.server, m.nativeGeneration, m.localRemote.guid = server, guard, guid
 	go func() {

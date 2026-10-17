@@ -5,8 +5,10 @@ package ipadncm
 import (
 	"context"
 	"golang.org/x/sys/windows"
+	"strings"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 var lastAttemptIdentity atomic.Value
@@ -22,7 +24,9 @@ func signalConnectionChanged(code uint32) {
 	monitorDiagnostics.notice(code)
 	select {
 	case connectionChanged <- struct{}{}:
+		archiveOwnerNotice("queued", "coalesced_owner_signal", code)
 	default:
+		archiveOwnerNotice("coalesced", "coalesced_owner_signal", code)
 	}
 }
 func requestConnectionRetry() {
@@ -74,8 +78,45 @@ func idleUSBPresence(ctx context.Context) (string, idlePresence) {
 	monitorDiagnostics.presence(p)
 	return kind, p
 }
+
+func idleExactRootReadiness(ctx context.Context, expected string) (string, idleRootObservation) {
+	_, before := idleUSBPresence(ctx)
+	o := idleRootObservation{ContextActive: ctx.Err() == nil}
+	if o.ContextActive && before.readable && before.candidate && before.identity == expected {
+		p, err := windows.UTF16PtrFromString(expected)
+		if err == nil {
+			var dev windows.DEVINST
+			cr, _, _ := portableCfg.NewProc("CM_Locate_DevNodeW").Call(uintptr(unsafe.Pointer(&dev)), uintptr(unsafe.Pointer(p)), 0)
+			if cr == 0 {
+				var id [1024]uint16
+				idCR, _, _ := portableID.Call(uintptr(dev), uintptr(unsafe.Pointer(&id[0])), uintptr(len(id)), 0)
+				o.ExactRoot = idCR == 0 && strings.EqualFold(windows.UTF16ToString(id[:]), expected)
+				if o.ExactRoot {
+					o.StateReadable = windows.CM_Get_DevNode_Status(&o.Status, &o.Problem, dev, 0) == nil
+				}
+			}
+		}
+	}
+	_, after := idleUSBPresence(ctx)
+	o.ContextActive = ctx.Err() == nil
+	return idleRootReadiness(expected, before, after, o), o
+}
+
 func WaitForUSBConnection(ctx context.Context) string {
+	archiveOwnerPhase("candidate_wait", "begin")
+	defer func() {
+		if ctx.Err() != nil {
+			archiveOwnerPhase("candidate_wait", "cancelled")
+		} else {
+			archiveOwnerPhase("candidate_wait", "end")
+		}
+	}()
 	connectionTimingWaitBegin()
+	var lastPresence idlePresence
+	havePresence := false
+	haveProductGate, lastProductAllowed := false, false
+	var lastRootState string
+	var lastRootObservation idleRootObservation
 	for ctx.Err() == nil {
 		connectionTimingOwnerLoop()
 		if UnpairedExperimentPending() {
@@ -98,16 +139,52 @@ func WaitForUSBConnection(ctx context.Context) string {
 		}
 		plan := connectionTimingWaitPlan()
 		kind, p := idleUSBPresence(ctx)
-		if p.candidate && !AMDSModeDiagnosticActive() && NetworkOnlyCanConnect() && IPadSoftwareReconnectCanConnect() {
+		if !havePresence || p != lastPresence {
+			archiveCandidate("cached_presence_observed", p, false)
+			lastPresence, havePresence = p, true
+		}
+		productAllowed := p.candidate && !AMDSModeDiagnosticActive() && NetworkOnlyCanConnect() && IPadSoftwareReconnectCanConnect()
+		if p.candidate && (!haveProductGate || productAllowed != lastProductAllowed) {
+			archiveCandidate("pre_candidate_product_gate", p, productAllowed)
+			haveProductGate, lastProductAllowed = true, productAllowed
+		}
+		if productAllowed {
 			acceptedKind, acceptedPresence, accepted := connectionTimingAccept(ctx, plan, kind, p)
+			diagnosticPresence := p
+			if accepted {
+				diagnosticPresence = acceptedPresence
+			}
+			archiveCandidate("timing_and_candidate_check", diagnosticPresence, accepted)
 			if !accepted {
 				continue
 			}
 			if !connectionTimingCandidateAllowed() {
+				archiveCandidate("final_product_gate", acceptedPresence, false)
 				continue
 			}
-			lastAttemptIdentity.Store(acceptedPresence.identity)
-			return acceptedKind
+			rootReady := true
+			if acceptedKind == "iPad" {
+				state, observation := idleExactRootReadiness(ctx, acceptedPresence.identity)
+				rootReady = state == "root_started_not_authorization"
+				if state != lastRootState || observation != lastRootObservation {
+					RecordConnectionArchiveEvent("candidate_gate", struct {
+						Phase         string `json:"phase"`
+						Reason        string `json:"reason"`
+						Allowed       bool   `json:"allowed"`
+						ContextActive bool   `json:"context_active"`
+						ExactRoot     bool   `json:"exact_root"`
+						StateReadable bool   `json:"state_readable"`
+						Status        uint32 `json:"status"`
+						Problem       uint32 `json:"problem"`
+					}{"cached_root_readiness", state, rootReady, observation.ContextActive, observation.ExactRoot, observation.StateReadable, observation.Status, observation.Problem})
+					lastRootState, lastRootObservation = state, observation
+				}
+			}
+			if rootReady && ctx.Err() == nil && connectionTimingCandidateAllowed() {
+				archiveCandidate("accepted_for_attempt_not_usb_authorization", acceptedPresence, true)
+				lastAttemptIdentity.Store(acceptedPresence.identity)
+				return acceptedKind
+			}
 		}
 		timer := time.NewTimer(plan.fallback)
 		select {
@@ -120,6 +197,7 @@ func WaitForUSBConnection(ctx context.Context) string {
 			connectionTimingWake("profile_changed")
 		case <-connectionChanged:
 			timer.Stop()
+			archiveOwnerNotice("consumed", "candidate_wait", 0)
 			connectionTimingWake("owner_notice")
 		case <-timer.C:
 			connectionTimingWake("fallback")
@@ -155,6 +233,17 @@ func WaitAfterUSBAttempt(ctx context.Context, err string, applicationRan bool) b
 	return waitAfterUSBAttempt(ctx, err, applicationRan, true)
 }
 func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unified bool) bool {
+	archiveOwnerPhase("rearm_wait", "begin")
+	defer func() {
+		if ctx.Err() != nil {
+			archiveOwnerPhase("rearm_wait", "cancelled")
+		} else {
+			archiveOwnerPhase("rearm_wait", "end")
+		}
+	}()
+	waitStarted := time.Now()
+	var lastDiagnostic rearmDiagnosticSample
+	haveDiagnostic := false
 	select {
 	case <-connectionRetry:
 	default:
@@ -196,7 +285,22 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 			p = idlePnPPresence(ctx)
 		}
 		now := time.Now()
-		if gate.detached(now, p) || (unified && (newDevice.ready(now, previous, p) || reattach.ready(now, previous, p, applicationRan))) {
+		// Preserve the original short-circuit order; diagnostics only observe
+		// states already updated by the existing readiness gates.
+		detached, newReady, sameReady := gate.detached(now, p), false, false
+		if !detached && unified {
+			newReady = newDevice.ready(now, previous, p)
+			if !newReady {
+				sameReady = reattach.ready(now, previous, p, applicationRan)
+			}
+		}
+		diagnostic := rearmDiagnostic(now, waitStarted, previous, p, applicationRan, reattach, detached, newReady, sameReady)
+		diagnostic.Attempt = currentSoftwareAttempt()
+		if !haveDiagnostic || !sameRearmDiagnosticState(lastDiagnostic, diagnostic) {
+			RecordConnectionArchiveEvent("rearm_gate", diagnostic)
+			lastDiagnostic, haveDiagnostic = diagnostic, true
+		}
+		if detached || newReady || sameReady {
 			automaticRetries = autoRetryBudget{}
 			sameAttachmentRetry.Store(false)
 			return true
@@ -212,6 +316,7 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 				})
 			}
 			if ready && !now.Before(due) {
+				archiveOwnerPhase("automatic_retry_ready", "observed")
 				automaticRetries.used++
 				recordAutomaticRetry(err)
 				sameAttachmentRetry.Store(true)
@@ -225,11 +330,13 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 			return false
 		case <-connectionRetry:
 			timer.Stop()
+			archiveOwnerPhase("manual_retry_requested", "consumed")
 			automaticRetries = autoRetryBudget{}
 			sameAttachmentRetry.Store(p.readable && p.candidate && p.identity == previous)
 			return ctx.Err() == nil
 		case <-connectionChanged:
 			timer.Stop()
+			archiveOwnerNotice("consumed", "rearm_wait", 0)
 		case <-timer.C:
 		}
 	}

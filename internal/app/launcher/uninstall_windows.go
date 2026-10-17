@@ -73,6 +73,21 @@ func recoverUninstallInterfaces(parent context.Context, dir, system string, lock
 			if err := verifyOwner(); err != nil {
 				return err
 			}
+			if err := ipadncm.RestoreLocalWPDTrace(dir); err != nil {
+				return fmt.Errorf("WPD_TRACE_UNINSTALL_RESTORE_PENDING: %w", err)
+			}
+			if err := ipadncm.RestoreLocalUSBTrace(dir); err != nil {
+				return fmt.Errorf("USB_TRACE_UNINSTALL_RESTORE_PENDING: %w", err)
+			}
+			if err := ipadncm.RestoreLocalPhotoPolicy(dir); err != nil {
+				return fmt.Errorf("PHOTO_POLICY_UNINSTALL_RESTORE_PENDING: %w", err)
+			}
+			if err := ipadncm.RestoreLocalNCMDirect(dir); err != nil {
+				return fmt.Errorf("NCM_DIRECT_UNINSTALL_RESTORE_PENDING: %w", err)
+			}
+			if err := ipadncm.RestoreLocalAMDSHold(dir); err != nil {
+				return fmt.Errorf("AMDS_HOLD_UNINSTALL_RESTORE_PENDING: %w", err)
+			}
 			if err := ipadncm.RestorePhotoIsolation(dir); err != nil {
 				return fmt.Errorf("PHOTO_ISOLATION_UNINSTALL_RESTORE_PENDING: %w", err)
 			}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"suhang/usbnet/internal/diagnostics/exitrecord"
 )
 
 const diagnosticLimit = 256 * 1024
@@ -68,8 +69,64 @@ func ReadDiagnosticTails(dir string) DiagnosticTails {
 	if err != nil {
 		bridge = err.Error()
 	}
-	service, _ := diagnosticTail(filepath.Join(dir, "service.log"), 64*1024, true)
+	service, _ := diagnosticTail(filepath.Join(dir, "service.log"), 96*1024, true)
+	previous, _ := diagnosticTail(filepath.Join(dir, "service.log.1"), 96*1024, true)
+	service = rotatedDiagnosticEvidence(previous, service) + service
+	if row := exitrecord.Projection(dir); len(row) > 0 {
+		service += "\n" + evidencePrefix + string(row) + "\n"
+	}
 	return DiagnosticTails{installer, bridge, service}
+}
+
+// Rotation can split a set of independently written snapshots. Keep missing
+// sections from the same version and label their older origin explicitly.
+func rotatedDiagnosticEvidence(previous, current string) string {
+	version := ""
+	present := map[string]bool{}
+	for _, line := range strings.Split(current, "\n") {
+		var row map[string]json.RawMessage
+		if !strings.HasPrefix(line, evidencePrefix) || json.Unmarshal([]byte(strings.TrimPrefix(line, evidencePrefix)), &row) != nil {
+			continue
+		}
+		if v := row["core_version"]; len(v) != 0 {
+			_ = json.Unmarshal(v, &version)
+		}
+		for _, key := range diagnosticEvidenceSections {
+			if _, ok := row[key]; ok {
+				present[key] = true
+			}
+		}
+	}
+	if version == "" {
+		return ""
+	}
+	var result strings.Builder
+	for _, line := range strings.Split(latestDiagnosticEvidence(previous), "\n") {
+		var row map[string]json.RawMessage
+		if !strings.HasPrefix(line, evidencePrefix) || json.Unmarshal([]byte(strings.TrimPrefix(line, evidencePrefix)), &row) != nil {
+			continue
+		}
+		var oldVersion string
+		if json.Unmarshal(row["core_version"], &oldVersion) != nil || oldVersion != version {
+			continue
+		}
+		missing := false
+		for _, key := range diagnosticEvidenceSections {
+			if _, ok := row[key]; ok && !present[key] {
+				missing = true
+			}
+		}
+		if !missing {
+			continue
+		}
+		row["evidence_from_rotated_log"] = json.RawMessage("true")
+		if body, err := json.Marshal(row); err == nil {
+			result.WriteString(evidencePrefix)
+			result.Write(body)
+			result.WriteByte('\n')
+		}
+	}
+	return result.String()
 }
 
 // Retain each latest independent iPad section when unrelated service logs are large.
@@ -83,20 +140,22 @@ func latestDiagnosticEvidence(service string) string {
 		if json.Unmarshal([]byte(strings.TrimPrefix(line, evidencePrefix)), &row) != nil {
 			continue
 		}
-		for _, key := range []string{"ipad_connection", "ipad_runtime_network", "ipad_trust_timeline", "connection_timing", "photo_isolation"} {
+		for _, key := range diagnosticEvidenceSections {
 			if _, ok := row[key]; ok {
 				latest[key] = line
 			}
 		}
 	}
 	var lines []string
-	for _, key := range []string{"ipad_connection", "ipad_runtime_network", "ipad_trust_timeline", "connection_timing", "photo_isolation"} {
+	for _, key := range diagnosticEvidenceSections {
 		if line := latest[key]; line != "" {
 			lines = append(lines, line)
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
+
+var diagnosticEvidenceSections = []string{"ipad_connection", "ipad_runtime_network", "ipad_trust_timeline", "connection_timing", "photo_isolation", "wpd_trace", "photo_policy", "ncm_direct", "amds_hold", "connection_archive", "local_usb_trace", "pnp_native_trace", "program_exit", "program_exit_persistence", "last_program_exit"}
 
 // Bound the encoded payload, since JSON escaping can expand raw log bytes sixfold.
 // Old ordinary log prefixes are expendable before complete recent iPad evidence.

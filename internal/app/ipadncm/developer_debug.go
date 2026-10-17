@@ -47,7 +47,7 @@ type developerDebugController struct {
 	intent      func(bool) error
 	intentError error
 	transport   func() (bool, bool, string)
-	// This callback only changes in-memory photo authority. It must not do I/O
+	// This callback only changes in-memory experiment authority. It must not do I/O
 	// or call back into this controller while mu serializes the current intent.
 	photoMaster func(bool)
 }
@@ -75,6 +75,9 @@ func (c *developerDebugController) initialize() {
 		return
 	}
 	if err != nil {
+		if c.photoMaster != nil {
+			c.photoMaster(false)
+		}
 		c.state.Busy = false
 		c.state.Persistence = "failed"
 		c.state.Error = err.Error()
@@ -87,6 +90,9 @@ func (c *developerDebugController) initialize() {
 	c.state.Enabled = desired
 	c.state.Requested = desired
 	if c.intentError != nil {
+		if c.photoMaster != nil {
+			c.photoMaster(false)
+		}
 		c.state.Busy = false
 		c.state.Error = c.intentError.Error()
 		c.state.USBPhase = "failed"
@@ -94,6 +100,9 @@ func (c *developerDebugController) initialize() {
 		return
 	}
 	if !desired {
+		if c.photoMaster != nil {
+			c.photoMaster(false)
+		}
 		c.state.Busy = false
 		c.state.USBPhase = "off"
 		c.mu.Unlock()

@@ -31,7 +31,7 @@ class BuildProfileTests(unittest.TestCase):
     def test_local_allows_server_but_public_rejects_it(self):
         for symbol in ('remoteupdate.(*Server).ServeHTTP', 'connectioninstall.LaunchLocalRemoteElevation',
                        'connectioninstall.DispatchLocalRemoteInstall', 'connectioninstall.RunLocalRemoteInstall',
-                       'launcher.handleLocalRemoteCommand', 'ipadncm.(*localPhotoNativeBackend).disable'):
+                       'launcher.handleLocalRemoteCommand', 'ipadncm.(*localWPDTraceNative).start', 'ipadncm.readWPDManifestTemplates', 'ipadncm.openConnectionArchiveStore', 'ipadncm.collectConnectionEnvironment', 'ipadncm.(*localWPDTraceNative).startCriticalConsumer', 'ipadncm.(*localWPDTraceNative).startSummaryConsumer', 'connectioninstall.localArchiveHandler', 'localupdate.collectArchives', 'ipadncm.applyPhotoPolicy', 'ipadncm.(*localDirectRun).prepare', 'ipadncm.(*directNetworkTarget).mapping'):
             with self.subTest(symbol=symbol), patch.object(project, 'run'), patch.object(project.subprocess, 'check_output',
                     return_value='suhang/usbnet/internal/app/'+symbol):
                 project.verify_release_surface('synthetic-bridge-hash', 'local')
@@ -47,11 +47,31 @@ class BuildProfileTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, 'Forbidden '+profile):
                         project.verify_release_surface('synthetic-bridge-hash', profile)
 
+    def test_session_isolation_is_an_ordinary_network_feature(self):
+        for profile in ('local', 'release'):
+            for symbol in ('ipadncm.(*localPhotoNativeBackend).disable',
+                           'ipadncm.(*localAMDSHoldNative).start'):
+                with self.subTest(profile=profile, symbol=symbol), patch.object(project, 'run'), patch.object(
+                        project.subprocess, 'check_output', return_value=symbol):
+                    project.verify_release_surface('synthetic-bridge-hash', profile)
+
     def test_unknown_profile_fails_before_build(self):
         with patch.object(project, 'run') as run:
             with self.assertRaises(ValueError):
                 project.go_build('./cmd/ipad-usb-easy', Path('unused.exe'), profile='typo')
             run.assert_not_called()
+
+    def test_native_metadata_observers_are_local_only(self):
+        symbols = ('ipadncm.(*usbTraceNative).startCapture',
+                   'ipadncm.(*localPnPTraceController).run',
+                   'deviceguard.SubscribeAppleChangeMetadata',
+                   'deviceguard.(*ChangeMetadataStream).offer')
+        for symbol in symbols:
+            with self.subTest(symbol=symbol), patch.object(project, 'run'), patch.object(
+                    project.subprocess, 'check_output', return_value=symbol):
+                project.verify_release_surface('synthetic-bridge-hash', 'local')
+                with self.assertRaisesRegex(RuntimeError, 'Forbidden release'):
+                    project.verify_release_surface('synthetic-bridge-hash', 'release')
 
     def test_go_file_selection_ignores_inherited_tags_and_restricts_platform(self):
         go = shutil.which(project.GO)

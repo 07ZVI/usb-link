@@ -296,6 +296,59 @@
         "licenses/libraries/Tmds.DBus.Protocol-LICENSE.txt"
       ],
       "license_source": "https://raw.githubusercontent.com/tmds/Tmds.DBus/8cb04f66c330b64244e996ff68f685f27f7381a0/COPYING"
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Microsoft.Diagnostics.Tracing.TraceEvent",
+      "version": "4.0.0",
+      "source": "https://github.com/microsoft/perfview",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Microsoft.Diagnostics.Tracing.TraceEvent-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Microsoft.Diagnostics.NETCore.Client",
+      "version": "0.2.661903",
+      "source": "https://github.com/dotnet/diagnostics",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Microsoft.Diagnostics.NETCore.Client-LICENSE.txt"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "8.0.2",
+      "source": "https://github.com/dotnet/runtime",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Microsoft.Extensions.DependencyInjection.Abstractions-THIRD-PARTY-NOTICES.TXT",
+        "licenses/libraries/Microsoft.Extensions.DependencyInjection.Abstractions-LICENSE.TXT"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "8.0.3",
+      "source": "https://github.com/dotnet/runtime",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/Microsoft.Extensions.Logging.Abstractions-THIRD-PARTY-NOTICES.TXT",
+        "licenses/libraries/Microsoft.Extensions.Logging.Abstractions-LICENSE.TXT"
+      ]
+    },
+    {
+      "ecosystem": "NuGet",
+      "name": "System.Reflection.TypeExtensions",
+      "version": "4.7.0",
+      "source": "https://github.com/dotnet/corefx",
+      "license": "MIT",
+      "notices": [
+        "licenses/libraries/System.Reflection.TypeExtensions-THIRD-PARTY-NOTICES.TXT",
+        "licenses/libraries/System.Reflection.TypeExtensions-LICENSE.TXT"
+      ]
     }
   ]
 }

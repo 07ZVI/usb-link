@@ -13,6 +13,7 @@ import (
 	"suhang/usbnet/internal/security/securitypolicy"
 	"suhang/usbnet/internal/transport/ipadsession"
 	"sync"
+	"time"
 )
 
 var connectionSettings = struct {
@@ -239,20 +240,56 @@ type ConnectionAuthorization struct {
 	Once                   bool      `json:"allowed_this_connection"`
 }
 
-func (a *ConnectionAuthorization) Allow() bool {
+func (a *ConnectionAuthorization) Allow() (allowed bool) {
+	started := time.Now()
+	failure := usbAuthorizationFailureDiagnostic{Attempt: currentSoftwareAttempt()}
+	defer func() {
+		if !allowed {
+			failure.ConsentStatus = a.ConsentStatus
+			failure.ContextActive = a.guardContext != nil && a.guardContext.Err() == nil
+			failure.ElapsedMS = time.Since(started).Milliseconds()
+			RecordConnectionArchiveEvent("usb_authorization", sanitizedAuthorizationFailure(failure))
+		}
+	}()
+	var firstRead *Snapshot
+	inspect := func() Snapshot {
+		readStarted := time.Now()
+		s := Inspect()
+		if firstRead == nil {
+			firstRead = &s
+		}
+		summary := authorizationReadback(*firstRead, s, time.Since(readStarted))
+		failure.ReadCount++
+		if failure.Initial == nil {
+			failure.Initial = &summary
+		}
+		failure.Latest = &summary
+		return s
+	}
 	if a.guardContext == nil || a.guardContext.Err() != nil {
 		a.ConsentStatus = "USB_DESCRIPTOR_CONNECTION_CONTEXT_REQUIRED"
 		return false
 	}
-	s := Inspect()
+	s := inspect()
 	if a.InitialUSB == nil {
-		a.InitialUSB = &s
+		initial := s
+		a.InitialUSB = &initial
 	}
-	if !networkOnlyUSBEligible(s) {
+	if next, waited, state := waitInitialUSBConfiguration(a.guardContext, s, inspect); waited {
+		if state != "INITIAL_CONFIGURATION_VERIFIED_NOT_AUTHORIZED" {
+			a.ConsentStatus = state
+			return false
+		}
+		s = next
+	}
+	if !networkOnlyUSBEligible(s) && !localDirectCurrentConsentLayout(a, s) {
 		a.ConsentStatus = "USB_PREFLIGHT_UNCONFIRMED"
 		return false
 	}
 	binding := descriptorAttachment(s)
+	if !binding.verified {
+		binding = localDirectDescriptorAttachment(s)
+	}
 	model := binding.product // Verified real iProduct, never the display fallback.
 	g := ipadsession.USBDescriptorGrant(binding.serial, model, "12AB", "photo-mux-cfg3-to-ncm-union-cfg5-v3")
 	if !g.Valid() || !binding.verified {
@@ -260,8 +297,12 @@ func (a *ConnectionAuthorization) Allow() bool {
 		return false
 	}
 	return a.allowUSB(model, binding.root, "12AB", func() string {
-		fresh := Inspect()
-		if !binding.same(descriptorAttachment(fresh)) {
+		fresh := inspect()
+		current := descriptorAttachment(fresh)
+		if !current.verified {
+			current = localDirectDescriptorAttachment(fresh)
+		}
+		if !binding.same(current) {
 			return ""
 		}
 		return exactIPadRoot(fresh)

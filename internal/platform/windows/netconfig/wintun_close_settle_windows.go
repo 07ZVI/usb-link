@@ -4,8 +4,9 @@ package netconfig
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"strings"
+	"log"
 	"time"
 )
 
@@ -13,24 +14,37 @@ import (
 // Its caller must capture this exact instance/index/LUID while holding that
 // creator and its protected live session, before invoking Close. This API does
 // not delete/adopt an adapter, restore configuration or authorize journal use.
-func WaitOwnedMacCloseAbsentNative(ctx context.Context, index uint32, luid uint64, instance string) error {
-	if ctx == nil || index == 0 || luid == 0 || instance == "" || len(instance) > 1024 || strings.ContainsAny(instance, "*?\x00") {
+func WaitOwnedMacCloseAbsentNative(ctx context.Context, index uint32, luid uint64, instance string, logger *log.Logger) (err error) {
+	if ctx == nil || !wintunCloseScopeValid(index, luid, instance) {
 		return errors.New("USB_MAC_LIFETIME_CLOSE_SCOPE_UNPROVEN")
 	}
-	// Use the real old LUID for address absence. A removed interface's numeric
-	// index may be reused by another interface; no address is deleted here.
-	observe := func() (bool, error) {
-		absent, err := nativeWintunRemovalAbsent(instance, NativeMacGUID, "USB Link")
-		if err != nil || !absent {
-			return absent, err
-		}
-		if err := nativeHostIPv4Absent(nativeHostInterface{LUID: luid}); err != nil {
-			if err.Error() == "USB_HOST_IPV4_REMAINS_BEFORE_ADAPTER_REMOVAL" {
-				return false, nil // readable remaining row is pending, not absence.
+	start := time.Now()
+	var last wintunCloseObservation
+	var observations uint32
+	var parentRecoveryRequired bool
+	defer func() {
+		if logger != nil {
+			row := struct {
+				wintunCloseObservation
+				Observations           uint32 `json:"observations"`
+				ElapsedMS              int64  `json:"elapsed_ms"`
+				Confirmed              bool   `json:"confirmed"`
+				ParentRecoveryRequired bool   `json:"parent_recovery_required"`
+			}{last, observations, time.Since(start).Milliseconds(), err == nil, parentRecoveryRequired}
+			if data, e := json.Marshal(row); e == nil {
+				logger.Printf("USB_MAC_NORMAL_CLOSE %s", data)
 			}
-			return false, err
 		}
-		return true, nil
+	}()
+	// This is live creator closure, not a DIF_REMOVE transaction. Nonpresent
+	// installation records remain outside its proof and grant no new authority.
+	observe := func() (bool, error) {
+		var readErr error
+		last, readErr = observeOwnedMacCloseNative(luid, instance)
+		observations++
+		absent, handoff, decisionErr := last.closeResult(readErr)
+		parentRecoveryRequired = handoff
+		return absent, decisionErr
 	}
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()

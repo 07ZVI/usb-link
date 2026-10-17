@@ -4,6 +4,7 @@ package ipadncm
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"regexp"
 	"strings"
@@ -15,12 +16,18 @@ import (
 var existingGroupingDriverPattern = regexp.MustCompile(`(?i)^\{88BAE032-5A81-49F0-BC3D-A4FF138216D6\}\\[0-9]{4}$`)
 
 func (b *groupingBackend) networkRoot() string {
+	if b.directTarget != nil {
+		return b.directTarget.rootID()
+	}
 	if b.existingTarget != nil {
 		return b.existingTarget.root
 	}
 	return b.j.RootID
 }
 func (b *groupingBackend) networkDriver() string {
+	if b.directTarget != nil {
+		return b.directTarget.driverKey()
+	}
 	if b.existingTarget != nil {
 		return b.existingTarget.driver
 	}
@@ -118,6 +125,48 @@ func (b *groupingBackend) existingNetworkMapping(s Snapshot, expected string, re
 	return NetworkAdapter{}, "EXISTING_GROUPING_UNIQUE_OPERATIONAL_MAPPING_REQUIRED"
 }
 
+// Shared by session admission and read-only startup wait completion. This does
+// not claim registry ownership or peer readiness, and creates no recovery state.
+func existingGroupingLiveProof(ctx context.Context, dir string, mode Result, s Snapshot, consent func() bool) (target existingNetworkTarget, admission existingGroupingAdmission, problem string) {
+	root := exactIPadRoot(s)
+	admission = existingGroupingAdmission{ContextActive: ctx != nil && ctx.Err() == nil, CurrentRoot: root != "" && networkOnlyUSBEligible(s) && sameRootInstance(mode.Before, s) && sameUSBTarget(mode.Before, s) && HasActiveNCM(s) && modeResultIdentity(mode, true)}
+	if !admission.ContextActive || !admission.CurrentRoot {
+		return target, admission, "EXISTING_GROUPING_CURRENT_ROOT_OR_CONTEXT_UNPROVEN"
+	}
+	admission.Consent = consent != nil && consent()
+	if !admission.Consent {
+		return target, admission, "EXISTING_GROUPING_CURRENT_CONSENT_REQUIRED"
+	}
+	if dir == "" {
+		return target, admission, "EXISTING_GROUPING_RECEIPT_DIRECTORY_REQUIRED"
+	}
+	_, _, receiptError := readStartupOwnedGrouping(dir, root)
+	admission.ReceiptsAbsent = os.IsNotExist(receiptError)
+	if !admission.ReceiptsAbsent {
+		return target, admission, "EXISTING_GROUPING_RECEIPT_STATE_CHANGED"
+	}
+	target, problem = readExistingNetworkTarget(root, "")
+	if problem != "" {
+		return target, admission, problem
+	}
+	admission.Driver = true
+	admission.CM, problem = existingGroupingCMProof(s, target)
+	if problem != "" {
+		return target, admission, problem
+	}
+	b := &groupingBackend{mode: mode, existingTarget: &target}
+	_, problem = b.existingNetworkMapping(s, "", func() []NetworkAdapter { return readNCMAdapters(s) })
+	if problem != "" {
+		return target, admission, problem
+	}
+	admission.Mapping = true
+	_, _, receiptError = readStartupOwnedGrouping(dir, root)
+	admission.ReceiptsAbsent = os.IsNotExist(receiptError)
+	admission.Consent = consent()
+	admission.ContextActive = ctx.Err() == nil
+	return target, admission, admission.failure()
+}
+
 // Handles an already grouped device without taking ownership of its registry
 // configuration. Only the ordinary application session can create network
 // changes, with its unchanged intent, original-value and cleanup checks.
@@ -142,39 +191,11 @@ func RunExistingGrouping(version, dir, system string, mode Result, consent func(
 		recordGroupingReuse(attempt, root != "", "EXISTING_LAYOUT_REJECTED")
 		return r, true
 	}
-	admission := existingGroupingAdmission{ContextActive: ctx != nil && ctx.Err() == nil, CurrentRoot: root != "" && networkOnlyUSBEligible(s) && sameRootInstance(mode.Before, s) && HasActiveNCM(s) && modeResultIdentity(mode, true)}
-	if !admission.ContextActive || !admission.CurrentRoot {
-		return fail("EXISTING_GROUPING_CURRENT_ROOT_OR_CONTEXT_UNPROVEN")
-	}
-	admission.Consent = consent != nil && consent()
-	if !admission.Consent {
-		return fail("EXISTING_GROUPING_CURRENT_CONSENT_REQUIRED")
-	}
-	_, _, receiptError := readStartupOwnedGrouping(dir, root)
-	admission.ReceiptsAbsent = os.IsNotExist(receiptError)
-	if !admission.ReceiptsAbsent {
-		return fail("EXISTING_GROUPING_RECEIPT_STATE_CHANGED")
-	}
-	target, problem := readExistingNetworkTarget(root, "")
-	if problem != "" {
-		return fail(problem)
-	}
-	admission.Driver = true
-	admission.CM, problem = existingGroupingCMProof(s, target)
+	target, admission, problem := existingGroupingLiveProof(ctx, dir, mode, s, consent)
 	if problem != "" {
 		return fail(problem)
 	}
 	b := &groupingBackend{version: version, dir: dir, system: system, mode: mode, result: &r, applicationConsent: consent, existingTarget: &target}
-	_, problem = b.existingNetworkMapping(s, "", func() []NetworkAdapter { return readNCMAdapters(s) })
-	if problem != "" {
-		return fail(problem)
-	}
-	admission.Mapping = true
-	_, _, receiptError = readStartupOwnedGrouping(dir, root)
-	admission.ReceiptsAbsent, admission.ContextActive = os.IsNotExist(receiptError), ctx.Err() == nil
-	if problem = admission.failure(); problem != "" {
-		return fail(problem)
-	}
 	r.GroupingObserved, r.NativeStartedNodes = true, admission.CM.StartedControls
 	r.Transaction.Observation = "EXISTING_OPERATIONAL_TOPOLOGY_PROVEN_NO_GROUPING_OWNERSHIP"
 	recordConnectionStage("native_ncm_started", "live_existing_grouping_no_registry_ownership")

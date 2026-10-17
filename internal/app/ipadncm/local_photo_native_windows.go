@@ -1,4 +1,4 @@
-//go:build windows && amd64 && usblink_local_remote
+//go:build windows && amd64
 
 package ipadncm
 

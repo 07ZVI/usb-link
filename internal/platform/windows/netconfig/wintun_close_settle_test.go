@@ -62,3 +62,30 @@ func TestWintunCloseSettleDoesNotTurnUnknownTimeoutOrCancellationIntoAbsence(t *
 		t.Fatal("cancelled owner admitted")
 	}
 }
+
+func TestWintunCloseSettleRejectsDeadlineBeforeOrDuringSuccessfulReads(t *testing.T) {
+	for _, expireAt := range []int{0, 1, 2} {
+		deadline := make(chan time.Time, 1)
+		if expireAt == 0 {
+			deadline <- time.Time{}
+		}
+		reads := 0
+		err := waitWintunCloseSettle(context.Background(), func() (bool, error) {
+			reads++
+			if reads == expireAt {
+				deadline <- time.Time{}
+			}
+			return true, nil
+		}, deadline, nil)
+		if err == nil || err.Error() != "USB_MAC_LIFETIME_CLOSE_ABSENCE_UNCONFIRMED" || reads != expireAt {
+			t.Fatalf("late absence accepted: expireAt=%d reads=%d err=%v", expireAt, reads, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	deadline := make(chan time.Time, 1)
+	deadline <- time.Time{}
+	cancel()
+	if err := waitWintunCloseSettle(ctx, func() (bool, error) { t.Fatal("cancelled query ran"); return true, nil }, deadline, nil); !errors.Is(err, context.Canceled) {
+		t.Fatal("cancellation did not take priority")
+	}
+}

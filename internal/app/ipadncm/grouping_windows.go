@@ -368,6 +368,15 @@ type groupingBackend struct {
 	applicationRestoreError string
 	eventStartup            bool
 	existingTarget          *existingNetworkTarget
+	directTarget            localDirectNetworkTarget
+	applicationContext      context.Context
+}
+
+func (b *groupingBackend) sessionContext() context.Context {
+	if b.applicationContext != nil {
+		return b.applicationContext
+	}
+	return connectionContext()
 }
 
 func (b *groupingBackend) Eligible() (status string) {

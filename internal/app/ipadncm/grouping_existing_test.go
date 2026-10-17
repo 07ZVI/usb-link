@@ -76,8 +76,20 @@ func TestExistingGroupingWindowsPathCannotOwnOrRestoreRegistry(t *testing.T) {
 	if strings.Index(flow, `"EXISTING_LAYOUT_VERIFIED_SESSION_STARTING"`) > strings.Index(flow, "b.runApplication(peer)") {
 		t.Fatal("live evidence only appears after session ends")
 	}
-	mapping := s[strings.Index(s, "func (b *groupingBackend) existingNetworkMapping("):start]
+	sharedStart := strings.Index(s, "func existingGroupingLiveProof(")
+	mapping := s[strings.Index(s, "func (b *groupingBackend) existingNetworkMapping("):sharedStart]
 	if strings.Count(mapping, "readExistingNetworkTarget(") != 2 || strings.LastIndex(mapping, "readExistingNetworkTarget(") < strings.Index(mapping, "adapters := readAdapters()") {
 		t.Fatal("registry identity not rechecked after mapping")
+	}
+	shared := s[sharedStart:start]
+	if strings.Count(shared, "readStartupOwnedGrouping(") != 2 || !strings.Contains(shared, "sameUSBTarget(mode.Before, s)") || !strings.Contains(shared, "admission.Consent = consent()") || !strings.Contains(flow, "existingGroupingLiveProof(ctx, dir, mode, s, consent)") {
+		t.Fatal("shared live proof lost fresh target, receipt or consent boundary")
+	}
+	startup, err := os.ReadFile("startup_windows.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(startup), "existingGroupingLiveProof(ctx, configuredDir, *mode, s, consent[0])") || strings.Contains(string(startup), "r.NetworkVerified = true") || strings.Contains(string(startup), "proof.ReceiptValid = true") || strings.Contains(string(startup), "proof.RegistryOwned = true") {
+		t.Fatal("startup wait must share complete proof without creating network or registry authority")
 	}
 }

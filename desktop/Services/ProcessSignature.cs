@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Formats.Asn1;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -119,9 +120,16 @@ internal static class NativeProcessSignature
                 if (catalog != null && (result.Code == $"0x{NoSignature:X8}" || catalog.Priority < result.Priority)) result = catalog;
             }
         }
+        bool? protectedFile = null;
+        string company = "", originalName = "";
+        try { protectedFile = SfcIsFileProtected(IntPtr.Zero,path); } catch { }
+        try { var version = FileVersionInfo.GetVersionInfo(path); company = ProcessInventory.Clean(new string((version.CompanyName ?? "").Take(512).ToArray())); originalName = ProcessInventory.Clean(new string((version.OriginalFilename ?? "").Take(512).ToArray())); } catch { }
         if (ProcessInventory.FileIdentity(file, path) != expectedIdentity) return new("unverified", "驗證期間檔案已變更。");
-        return result with { Hash = hash, CheckedAt = DateTimeOffset.UtcNow.ToString("O") };
+        return result with { Hash = hash, CheckedAt = DateTimeOffset.UtcNow.ToString("O"), WindowsProtected=protectedFile, ClaimedCompany=company, ClaimedOriginalName=originalName };
     }
+
+    [DllImport("sfc.dll",CharSet=CharSet.Unicode),DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return:MarshalAs(UnmanagedType.Bool)] static extern bool SfcIsFileProtected(IntPtr reserved,string path);
 
     static ProcessTrust? VerifyCatalog(FileStream file, string path, string algorithm) {
         var subsystem = CatalogSubsystem;
@@ -203,6 +211,7 @@ internal static class NativeProcessSignature
             var bytes = new byte[context.Size]; Marshal.Copy(context.Encoded, bytes, 0, bytes.Length);
             using var certificate = X509CertificateLoader.LoadCertificate(bytes);
             return result with {
+                VerifiedMicrosoft = result.Status == "valid" && IsMicrosoftOrganization(certificate.SubjectName),
                 Publisher = ProcessInventory.Clean(certificate.GetNameInfo(X509NameType.SimpleName, false)),
                 Subject = ProcessInventory.Clean(certificate.Subject), Issuer = ProcessInventory.Clean(certificate.Issuer),
                 Thumbprint = certificate.Thumbprint, NotBefore = certificate.NotBefore.ToUniversalTime().ToString("O"),
@@ -211,6 +220,23 @@ internal static class NativeProcessSignature
         } finally {
             data.StateAction = 2; WinVerifyTrust(new IntPtr(-1), ref action, ref data);
         }
+    }
+
+    // Read the actual organization RDN; a display name or text embedded in CN
+    // must not be mistaken for Microsoft's certificate organization.
+    internal static bool IsMicrosoftOrganization(X500DistinguishedName name) {
+        try {
+            var reader=new AsnReader(name.RawData,AsnEncodingRules.DER).ReadSequence();
+            var organizations=new List<string>();
+            while(reader.HasData) {
+                var set=reader.ReadSetOf();
+                while(set.HasData) {
+                    var attribute=set.ReadSequence();var oid=attribute.ReadObjectIdentifier();
+                    if(oid=="2.5.4.10")organizations.Add(attribute.ReadCharacterString((UniversalTagNumber)attribute.PeekTag().TagValue));
+                }
+            }
+            return organizations.Count==1&&organizations[0].Equals("Microsoft Corporation",StringComparison.OrdinalIgnoreCase);
+        } catch { return false; }
     }
 
     sealed class NativeValue<T> : IDisposable where T : struct {

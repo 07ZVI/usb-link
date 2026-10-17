@@ -7,14 +7,44 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"suhang/usbnet/internal/diagnostics/exitrecord"
 	"suhang/usbnet/internal/diagnostics/logfile"
 	"suhang/usbnet/internal/transport/ncm"
 	"testing"
 	"time"
 )
+
+func TestProgramExitEvidenceOnlyAcceptsFixedStages(t *testing.T) {
+	for _, stage := range []string{"APPLICATION_JOINED", "APPLICATION_CLEANUP_PENDING", "APPLICATION_CLEANUP_CONFIRMED", "DEFAULT_RESTORE_PENDING", "DEFAULT_RESTORE_CONFIRMED", "RESTORE_FAILED", "RESTORE_READY", "COMMIT_ACKNOWLEDGED"} {
+		body, err := programExitEvidenceRow("0.10.52", stage)
+		if err != nil || !json.Valid(body) || len(body) > 256 {
+			t.Fatalf("invalid fixed stage %s: %v", stage, err)
+		}
+		var row struct {
+			Version string `json:"core_version"`
+			Exit    struct {
+				Stage       string `json:"stage"`
+				RecordedUTC string `json:"recorded_utc"`
+			} `json:"program_exit"`
+		}
+		if json.Unmarshal(body, &row) != nil || row.Version != "0.10.52" || row.Exit.Stage != stage {
+			t.Fatal("fixed exit evidence changed")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, row.Exit.RecordedUTC); err != nil {
+			t.Fatal("exit evidence has no valid host timestamp")
+		}
+	}
+	for _, stage := range []string{"", "RESTORE_READY\nprivate", "file:///private", "UNKNOWN"} {
+		if body, err := programExitEvidenceRow("0.10.52", stage); err == nil || body != nil {
+			t.Fatal("unreviewed exit text persisted")
+		}
+	}
+}
 
 func TestMaximumIPadEvidenceRowsSurviveTailAndDiagnosticTransport(t *testing.T) {
 	maximumRow := func(section string) []byte {
@@ -32,6 +62,13 @@ func TestMaximumIPadEvidenceRowsSurviveTailAndDiagnosticTransport(t *testing.T) 
 	trust := maximumRow("ipad_trust_timeline")
 	timing := maximumRow("connection_timing")
 	photo := maximumRow("photo_isolation")
+	wpd := maximumRow("wpd_trace")
+	policy := maximumRow("photo_policy")
+	direct := maximumRow("ncm_direct")
+	hold := maximumRow("amds_hold")
+	usb := maximumRow("local_usb_trace")
+	pnp := maximumRow("pnp_native_trace")
+	exit := maximumRow("program_exit")
 	for _, installerPresent := range []bool{false, true} {
 		name := "service-only"
 		if installerPresent {
@@ -39,11 +76,11 @@ func TestMaximumIPadEvidenceRowsSurviveTailAndDiagnosticTransport(t *testing.T) 
 		}
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			// Include all five independent sections and an unrelated maximum row.
+			// Include all independent sections and an unrelated maximum row.
 			if err := os.WriteFile(filepath.Join(dir, "service.log"), []byte(strings.Repeat("old", 24000)+"\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			for _, row := range [][]byte{connection, network, trust, timing, photo, maximumRow("stage")} {
+			for _, row := range [][]byte{connection, network, trust, timing, photo, wpd, policy, direct, hold, usb, pnp, exit, maximumRow("stage")} {
 				if err := appendUpgradeEvidence(dir, row); err != nil {
 					t.Fatal(err)
 				}
@@ -103,12 +140,29 @@ func TestMaximumIPadEvidenceRowsSurviveTailAndDiagnosticTransport(t *testing.T) 
 			if err := json.Unmarshal(received, &result); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(result.Logs["installer.log"], "USB_LINK_UPGRADE_EVIDENCE "+string(connection)+"\n") ||
-				!strings.Contains(result.Logs["installer.log"], "USB_LINK_UPGRADE_EVIDENCE "+string(network)+"\n") ||
-				!strings.Contains(result.Logs["installer.log"], "USB_LINK_UPGRADE_EVIDENCE "+string(trust)+"\n") ||
-				!strings.Contains(result.Logs["installer.log"], "USB_LINK_UPGRADE_EVIDENCE "+string(timing)+"\n") ||
-				!strings.Contains(result.Logs["installer.log"], "USB_LINK_UPGRADE_EVIDENCE "+string(photo)+"\n") || len(result.Truncated) == 0 {
-				t.Fatal("latest complete connection/network evidence lost or truncation unreported")
+			for _, wanted := range [][]byte{connection, network, trust, timing, photo, wpd, policy, direct, hold, usb, pnp, exit} {
+				var expected map[string]json.RawMessage
+				_ = json.Unmarshal(wanted, &expected)
+				found := false
+				for _, line := range strings.Split(result.Logs["installer.log"], "\n") {
+					var row map[string]json.RawMessage
+					if !strings.HasPrefix(line, "USB_LINK_UPGRADE_EVIDENCE ") || json.Unmarshal([]byte(strings.TrimPrefix(line, "USB_LINK_UPGRADE_EVIDENCE ")), &row) != nil {
+						continue
+					}
+					delete(row, "evidence_from_rotated_log")
+					a, _ := json.Marshal(row)
+					b, _ := json.Marshal(expected)
+					if bytes.Equal(a, b) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("complete evidence lost: %s", string(wanted[:60]))
+				}
+			}
+			if len(result.Truncated) == 0 {
+				t.Fatal("truncation unreported")
 			}
 		})
 	}
@@ -191,5 +245,64 @@ func TestConnectionEvidenceWritesOnlyChangesAndRetriesFailedWrite(t *testing.T) 
 	last := previous
 	if err := appendChangedConnectionEvidence(dir, strings.Repeat("x", 8193), &previous, now.Add(45*time.Second)); err == nil || previous != last {
 		t.Fatal("oversized snapshot accepted or marked written", err)
+	}
+}
+
+func TestExitEvidenceOnlyWritesCurrentRuntimeOnce(t *testing.T) {
+	parent := t.TempDir()
+	current := "mac-runtime-0.10.53"
+	for i := 0; i < 50; i++ {
+		if e := os.Mkdir(filepath.Join(parent, fmt.Sprintf("mac-runtime-0.10.%d", i)), 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e := os.Mkdir(filepath.Join(parent, current), 0700); e != nil {
+		t.Fatal(e)
+	}
+	saves, logs := 0, 0
+	save := func(dir string, r exitrecord.Record) error {
+		saves++
+		if dir != filepath.Join(parent, current) || r.Version != "0.10.53" {
+			t.Fatal("wrong current scope")
+		}
+		return nil
+	}
+	appendRow := func(dir string, b []byte) error {
+		logs++
+		if dir != filepath.Join(parent, current) || !bytes.Contains(b, []byte(`"verified":true`)) {
+			t.Fatal("wrong log scope/status")
+		}
+		return nil
+	}
+	if e := recordProgramExitForRuntime(parent, current, "0.10.53", "RESTORE_READY", save, appendRow); e != nil {
+		t.Fatal(e)
+	}
+	if saves != 1 || logs != 1 {
+		t.Fatalf("multiplied IO: %d %d", saves, logs)
+	}
+	if e := recordProgramExitForRuntime(parent, "../"+current, "0.10.53", "RESTORE_READY", save, appendRow); e == nil {
+		t.Fatal("redirected name accepted")
+	}
+	if saves != 1 || logs != 1 {
+		t.Fatal("bad scope performed IO")
+	}
+}
+func TestExitEvidencePersistenceFailureRemainsVisible(t *testing.T) {
+	parent := t.TempDir()
+	current := "mac-runtime-0.10.53"
+	if e := os.Mkdir(filepath.Join(parent, current), 0700); e != nil {
+		t.Fatal(e)
+	}
+	failure := errors.New("fixed storage failure")
+	logs := 0
+	e := recordProgramExitForRuntime(parent, current, "0.10.53", "RESTORE_READY", func(string, exitrecord.Record) error { return failure }, func(_ string, b []byte) error {
+		logs++
+		if !bytes.Contains(b, []byte(`"verified":false`)) {
+			t.Fatal("persistence failure hidden")
+		}
+		return nil
+	})
+	if !errors.Is(e, failure) || logs != 1 {
+		t.Fatal("failure not propagated")
 	}
 }

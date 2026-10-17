@@ -156,12 +156,18 @@ func appSetText(hwnd uintptr, text string) {
 	appUser.NewProc("SetWindowTextW").Call(hwnd, uintptr(unsafe.Pointer(p)))
 }
 func (w *appWindow) stopSession() {
-	w.stopping = true
-	w.cancel()
 	if currentServiceUIProxy() != nil {
-		appSetText(w.notice, "正在退出介面；USB 連線繼續在背景運作。")
+		if w.modern != nil && w.modern.show("program-exit") {
+			go w.modern.sendEvent(map[string]string{"event": "program-exit-request"})
+		} else {
+			appSetText(w.notice, "無法開啟退出確認介面；尚未停止後台或確認恢復。請重新開啟連線介面後使用「退出程序」。")
+			appUser.NewProc("ShowWindow").Call(w.hwnd, 9)
+			appUser.NewProc("SetForegroundWindow").Call(w.hwnd)
+		}
 		return
 	}
+	w.stopping = true
+	w.cancel()
 	appSetText(w.notice, "正在恢復本輪設定，完成後會退出。請勿強制結束。")
 	w.refresh()
 }
@@ -394,8 +400,8 @@ func startApplicationUI(ctx context.Context, s *applicationState, cancel context
 		w.retry = child("BUTTON", "重試連線", 0x10000, 105)
 		w.stop = child("BUTTON", "結束程式", 0x10000, 101)
 		if currentServiceUIProxy() != nil {
-			appSetText(w.notice, "退出介面後，USB 連線繼續在背景運作。")
-			appSetText(w.stop, "退出介面")
+			appSetText(w.notice, "關閉視窗會縮至托盤；「退出程序」先停止連線並核對恢復。")
+			appSetText(w.stop, "退出程序")
 		}
 		if w.retry == 0 || w.settings == 0 || w.tx == 0 || w.rx == 0 || w.title == 0 || w.ip == 0 || w.copy == 0 || w.details == 0 || w.notice == 0 || w.stream == 0 || w.stop == 0 {
 			ready <- opened{err: "STATUS_WINDOW_CONTROLS_FAILED"}
@@ -478,6 +484,16 @@ type appTrayData struct {
 	BalloonIcon         uintptr
 }
 
+// A duplicate verified login asks this process to show its own existing UI.
+// Post to the UI thread rather than creating controls from the IPC reader.
+func ShowExistingConnectionUI() {
+	appWindows.Lock()
+	defer appWindows.Unlock()
+	for hwnd := range appWindows.byHandle {
+		appUser.NewProc("PostMessageW").Call(hwnd, 0x111, 104, 0)
+	}
+}
+
 func (w *appWindow) addTray() {
 	n := appTrayData{Window: w.hwnd, ID: 1, Flags: 7, Callback: 0x8002}
 	if unsafe.Sizeof(n) != 976 {
@@ -509,7 +525,7 @@ func (w *appWindow) trayMenu() {
 		label string
 	}{{104, "顯示連線狀態"}, {103, "設定"}, {105, "重試連線"}, {101, "結束程式"}} {
 		if v.id == 101 && currentServiceUIProxy() != nil {
-			v.label = "退出介面"
+			v.label = "退出程序"
 		}
 		p, _ := windows.UTF16PtrFromString(v.label)
 		flags := uintptr(0)

@@ -35,9 +35,10 @@ func approveRecoveryUpdate(next string) bool {
 	return yes
 }
 func runRecoveryMaintenance(r Result, recoveryDir, installed string, resident bool, stopStartup context.CancelFunc) {
+	applicationExitCleanupPending.Store(true)
 	parent := context.Background()
 	if owner := liveCore.Load(); owner != nil {
-		parent = owner.ctx
+		parent = owner.appCtx
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()

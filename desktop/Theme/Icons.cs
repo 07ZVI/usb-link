@@ -18,6 +18,7 @@ internal static class Icons
     public const string Laptop = "M5 5h14a1 1 0 0 1 1 1v10H4V6a1 1 0 0 1 1-1z M2 17h20l-2 3H4z M10 17h4";
     public const string Tablet = "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M10 19h4";
     public const string Plug = "M9.5 3v4 M14.5 3v4 M7 7h10v4a5 5 0 0 1-10 0z M12 16v5";
+    public const string Close = "M6 6l12 12 M18 6L6 18";
     public const string Copy = "M9.5 8.5h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z M15.5 5.5v-1a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1";
     public const string Folder = "M3.5 6.5a1.5 1.5 0 0 1 1.5-1.5h4.5l2 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5z";
     public const string Inbox = "M3.5 13.5l2.5-8h12l2.5 8v5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z M3.5 13.5h5l1.5 2.5h4l1.5-2.5h5";

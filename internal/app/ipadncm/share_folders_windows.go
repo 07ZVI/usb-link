@@ -65,12 +65,11 @@ func (u *modernUI) shareFoldersAction(v desktopRequest) bool {
 		var passwordSaved, nameSaved bool
 		switch v.Action {
 		case "share-folder-add":
-			active := connectioninstall.NativeSMBStatus().Enabled
 			err = connectioninstall.AddSharedFolder(v.Path)
 			if err == nil && v.AccountAccess != "" {
 				err = connectioninstall.SetNewNativeSMBAccess(v.Path, v.AccountAccess, v.GuestAccess)
 			}
-			if err == nil && active {
+			if err == nil {
 				err = connectioninstall.SetNativeSMB(true)
 			}
 		case "share-folder-remove":

@@ -73,18 +73,26 @@ func RunStartupCheckAfterModeEvents(version string, mode Result) StartupResult {
 	return runStartupCheck(version, &mode.Before, &mode, true, "", "initial_after_mode")
 }
 
-// The explicit protected recovery directory enables only a committed-layout
-// proof. Generic and ungrouped readiness remain unchanged.
-func RunStartupCheckAfterModeEventsForConfigured(version string, mode Result, recoveryDir string) StartupResult {
-	return runStartupCheck(version, &mode.Before, &mode, true, recoveryDir, "initial_after_mode")
+// The recovery directory enables an owned-layout proof. An explicit current
+// consent callback also enables strictly proven existing-layout wait completion.
+// Neither path changes generic readiness or grants network access.
+func RunStartupCheckAfterModeEventsForConfigured(version string, mode Result, recoveryDir string, consent ...func() bool) StartupResult {
+	return runStartupCheck(version, &mode.Before, &mode, true, recoveryDir, "initial_after_mode", consent...)
 }
 
-func runStartupCheck(version string, expected *Snapshot, mode *Result, eventMode bool, configuredDir, checkKind string) StartupResult {
+func runStartupCheck(version string, expected *Snapshot, mode *Result, eventMode bool, configuredDir, checkKind string, consent ...func() bool) StartupResult {
 	done := RecordConnectionOperation("native_start_check")
 	defer done()
 	ctx, cancel := context.WithTimeout(connectionContext(), 35*time.Second)
 	defer cancel()
 	r := StartupResult{Protocol: "SUHANG-IPAD-NCM-START-CHECK/1", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Status: "INCOMPLETE"}
+	defer func() {
+		RecordConnectionArchiveEvent("startup_result", struct {
+			Attempt uint64        `json:"software_attempt"`
+			Kind    string        `json:"check_kind"`
+			Result  StartupResult `json:"result"`
+		}{currentSoftwareAttempt(), checkKind, r})
+	}()
 	checkStarted := time.Now()
 	diagnostic := StartupReadinessDiagnostic{Attempt: currentSoftwareAttempt(), StartedUTC: r.Started, CheckKind: checkKind, EventMode: eventMode}
 	defer func() {
@@ -150,6 +158,11 @@ func runStartupCheck(version string, expected *Snapshot, mode *Result, eventMode
 		}
 		s := inventory(ctx)
 		r.Samples = append(r.Samples, StartupSample{ElapsedMS: time.Since(start).Milliseconds(), Snapshot: s})
+		RecordConnectionArchiveEvent("startup_sample", struct {
+			Attempt uint64        `json:"software_attempt"`
+			Kind    string        `json:"check_kind"`
+			Sample  StartupSample `json:"sample"`
+		}{currentSoftwareAttempt(), checkKind, r.Samples[len(r.Samples)-1]})
 		readiness := startupReadinessFromSnapshot(s)
 		diagnostic.add(startupDiagnosticSample(s, time.Since(start).Milliseconds(), readiness, configuredStartupEvidence{}, "IDENTITY_NOT_YET_RECHECKED"))
 		if s.Error != "" || len(s.Devices) != 1 || !sameRootInstance(r.Before, s) || s.Devices[0].hub != target.hub || s.Devices[0].port != target.port || s.Devices[0].pid != target.pid {
@@ -178,13 +191,26 @@ func runStartupCheck(version string, expected *Snapshot, mode *Result, eventMode
 		if configuredDir != "" && mode != nil && !readiness.settled() {
 			proof, reason = configuredStartupProof(ctx, configuredDir, *mode, s, readiness)
 		}
+		existingReady := false
+		if configuredDir != "" && mode != nil && !readiness.settled() && !proof.ready() && len(consent) == 1 && consent[0] != nil && SimplifiedIPadNetworkConfigured() && IPadCandidateFeatures().PersistentGrouping && IPadCandidateFeatures().EventStartup {
+			_, existing, existingReason := existingGroupingLiveProof(ctx, configuredDir, *mode, s, consent[0])
+			if existingReason == "" {
+				existingReady = true
+				// Report live proof without setting receipt/registry ownership.
+				proof = existing.CM
+				proof.SameUSBRoot, proof.MappingVerified = existing.CurrentRoot, existing.Mapping
+				reason = "EXISTING_OPERATIONAL_TOPOLOGY_PROVEN_NO_GROUPING_OWNERSHIP"
+			} else if reason == "CONFIGURED_RECEIPT_UNAVAILABLE_OR_INVALID" {
+				reason = existingReason
+			}
+		}
 		diagnostic.FastPathReason = reason
 		diagnostic.Samples[len(diagnostic.Samples)-1] = startupDiagnosticSample(s, time.Since(start).Milliseconds(), readiness, proof, reason)
 		if readiness.settled() {
 			diagnostic.ExitReason = "GENERIC_PREDICATE_SETTLED"
 			break
 		}
-		if proof.ready() {
+		if proof.ready() || existingReady {
 			diagnostic.FastPathQualified = true
 			diagnostic.ExitReason = reason
 			break

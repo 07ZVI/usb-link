@@ -108,13 +108,27 @@ func (g *idleNewDeviceGate) ready(now time.Time, previous string, p idlePresence
 // root can start a fresh session even if unplug/replug occurred during cleanup.
 // Failed attempts need an observed absence before the same root can rearm.
 type idleReattachGate struct {
-	absent bool
-	stable sameAttachmentGate
+	absent           bool
+	stable           sameAttachmentGate
+	confirmedAbsence idleReconnectGate
+	fastReplug       bool
 }
 
 func (g *idleReattachGate) ready(now time.Time, previous string, p idlePresence, completed bool) bool {
 	if p.readable && p.absent {
 		g.absent = true
+	}
+	// A previously running session and sustained absence separate the attempts.
+	// Do not spend another two seconds delaying that same, freshly read root.
+	if !p.readable || !p.absent && (!p.candidate || previous == "" || p.identity != previous) {
+		g.fastReplug = false
+	}
+	g.confirmedAbsence.minimum = 2 * time.Second
+	if g.confirmedAbsence.detached(now, p) {
+		g.fastReplug = true
+	}
+	if completed && g.fastReplug && p.readable && !p.absent && p.candidate && previous != "" && p.identity == previous {
+		return true
 	}
 	if !completed && !g.absent {
 		return false

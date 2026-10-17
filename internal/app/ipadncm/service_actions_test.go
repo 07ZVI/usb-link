@@ -11,7 +11,7 @@ import (
 
 func TestLocalControlFailureKeepsRequestIdentityWithoutClaimingOutcome(t *testing.T) {
 	id := strings.Repeat("a", 32)
-	for _, action := range []string{"local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off"} {
+	for _, action := range []string{"local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off"} {
 		event, ok := localControlFailureEvent(action, id)
 		if !ok || event.Event != "local-control-result" || event.Action != action || event.RequestID != id || event.Code != "CORE_UI_ACTION_FAILED" {
 			t.Fatal(action, event, ok)
@@ -34,12 +34,12 @@ func TestServiceTrustMarkerAdmission(t *testing.T) {
 	t.Cleanup(func() { buildinfo.LocalDiagnostics = old })
 	for _, profile := range []string{"true", "false", ""} {
 		buildinfo.LocalDiagnostics = profile
-		for _, action := range []string{"trust-prompt-first", "trust-prompt-second", "trust-service-trial-start", "trust-service-trial-cancel"} {
+		for _, action := range []string{"trust-service-trial-start", "trust-service-trial-cancel"} {
 			if serviceAdditionalAction(action) != (profile == "true") {
 				t.Fatalf("profile=%q action=%q", profile, action)
 			}
 		}
-		for _, action := range []string{"trust-prompt-third", "trust-prompt-first ", "trust-prompt", "trust-service-trial", "trust-service-trial-start "} {
+		for _, action := range []string{"trust-prompt-first", "trust-prompt-second", "trust-prompt-third", "trust-prompt-first ", "trust-prompt", "trust-service-trial", "trust-service-trial-start "} {
 			if serviceAdditionalAction(action) {
 				t.Fatalf("unexpected action accepted: %q", action)
 			}
@@ -70,7 +70,7 @@ func TestLocalTimingTrialActionAdmission(t *testing.T) {
 	t.Cleanup(func() { buildinfo.LocalDiagnostics = old })
 	for _, profile := range []string{"true", "false", ""} {
 		buildinfo.LocalDiagnostics = profile
-		for _, action := range []string{"trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off"} {
+		for _, action := range []string{"trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off"} {
 			if serviceAdditionalAction(action) != (buildinfo.LocalRemote && profile == "true") {
 				t.Fatal(profile, action)
 			}

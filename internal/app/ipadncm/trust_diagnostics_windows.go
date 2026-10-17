@@ -43,6 +43,9 @@ func StartTrustDiagnostics(ctx context.Context) {
 			trustDiagnostics.subscription(time.Now(), currentSoftwareAttempt(), "subscribed")
 		}
 		sample := func() {
+			if !connectionTimingMasterEnabled() {
+				return
+			}
 			service := queryTrustAMDS()
 			trustDiagnostics.amds(time.Now(), currentSoftwareAttempt(), service)
 			readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -124,6 +127,7 @@ func queryTrustAMDS() (r trustServiceState) {
 
 func queryTrustPNP(ctx context.Context) (r trustPNPState) {
 	s := inventoryPnP(ctx)
+	RecordConnectionEnvironmentPNP(s)
 	r.Read = "ok"
 	if s.Error != "" {
 		switch s.Error {

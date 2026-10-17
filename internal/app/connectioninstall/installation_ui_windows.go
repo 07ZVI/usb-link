@@ -84,7 +84,9 @@ func closeInstallationLoginClients(ctx context.Context, b CoreServiceBinding) er
 	if result != nil {
 		return result
 	}
-	wait, stop := context.WithTimeout(ctx, 20*time.Second)
+	// Older clients can need over twenty seconds to finish verified network
+	// restoration. Let them finish before replacing their files; never kill them.
+	wait, stop := context.WithTimeout(ctx, 60*time.Second)
 	defer stop()
 	for _, h := range handles {
 		for wait.Err() == nil {

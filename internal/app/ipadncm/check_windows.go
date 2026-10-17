@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"suhang/usbnet/internal/diagnostics/grouptrial"
+	"suhang/usbnet/internal/security/deviceguard"
 	"suhang/usbnet/internal/transport/winusb"
 	"time"
 	"unsafe"
@@ -38,6 +39,7 @@ type Device struct {
 	pid                           uint16
 	usbSerial                     string // Descriptor value is private; diagnostics export only its digest.
 	usbIdentityPortStable         bool
+	usbBCDDevice                  uint16 // Cached from the already-read device descriptor.
 }
 type Node struct {
 	IDPrefix            string   `json:"id_prefix"`
@@ -246,6 +248,7 @@ func inventoryProduct(ctx context.Context, product uint16) Snapshot {
 				continue
 			}
 			d := Device{VID: "05AC", PID: fmt.Sprintf("%04X", pid), CurrentConfiguration: info[22], USBSpeedCode: info[23], hub: path, port: uint32(p), pid: pid}
+			d.usbBCDDevice = binary.LittleEndian.Uint16(dd[12:14])
 			if product != 0 {
 				s.Devices = append(s.Devices, d)
 				continue
@@ -518,9 +521,19 @@ type modeControl interface {
 }
 
 func runWithControlLease(version string, consent func() bool, acquire func() (func(), bool), apple bool, previous *Result, networkOnly ...bool) Result {
+	return runWithSelectedControlLease(version, consent, acquire, apple, previous, nil, networkOnly...)
+}
+
+func runWithSelectedControlLease(version string, consent func() bool, acquire func() (func(), bool), apple bool, previous *Result, direct localNCMDirectAttempt, networkOnly ...bool) Result {
 	ctx, cancel := context.WithTimeout(connectionContext(), 60*time.Second)
 	defer cancel()
 	r := Result{Protocol: "SUHANG-IPAD-NCM-CHECK/1", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Status: "INCOMPLETE", Access: "NOT_TESTED"}
+	defer func() {
+		RecordConnectionArchiveEvent("mode_result", struct {
+			Attempt uint64 `json:"software_attempt"`
+			Result  Result `json:"result"`
+		}{currentSoftwareAttempt(), r})
+	}()
 	network := len(networkOnly) == 1 && networkOnly[0]
 	r.Before = inventory(ctx)
 	if r.Before.Error != "" {
@@ -566,7 +579,9 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 		}
 	}
 	if network && r.USBIdentifiersVerified {
-		if !consent() {
+		allowed := consent()
+		archiveUSBConsent("before_photo_target_bind", allowed, ctx.Err() == nil)
+		if !allowed {
 			r.Status = "MODE_CHANGE_DECLINED"
 			return r
 		}
@@ -574,6 +589,14 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 			r.Status = "PHOTO_ISOLATION_RECOVERY_OR_SCOPE_UNCONFIRMED"
 			return r
 		}
+		if err := BindLocalPhotoPolicyTarget(r.Before); err != nil {
+			r.Status = "PHOTO_POLICY_RECOVERY_OR_SCOPE_UNCONFIRMED"
+			return r
+		}
+	}
+	if direct != nil && r.Before.Devices[0].CurrentConfiguration != 3 {
+		r.Status = "DIRECT_INITIAL_LAYOUT_REQUIRED"
+		return r
 	}
 	if (!apple && hasNCM(r.Before)) || (apple && HasActiveNCM(r.Before) && (r.USBIdentifiersVerified || strings.HasPrefix(r.ProductType, "iPad"))) {
 		r.Status = "NCM_DESCRIPTORS_PRESENT"
@@ -630,7 +653,10 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 			var e error
 			transport := "WINUSB"
 			openDone := RecordConnectionOperation("usb_control_open")
-			if apple {
+			if direct != nil {
+				transport = "LOCAL_DIRECT_APPLE_MUX1_BUFFERED_CONTROL"
+				w, stage, e = direct.open(ctx, node, path)
+			} else if apple {
 				transport = "APPLE_MUX1_BUFFERED_CONTROL"
 				w, stage, e = openAppleControl(ctx, node, path)
 			} else {
@@ -679,6 +705,7 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 				return r
 			}
 			r.ModeConsent = consent()
+			archiveUSBConsent("before_mode_request", r.ModeConsent, ctx.Err() == nil)
 			if !r.ModeConsent {
 				r.Status = "MODE_CHANGE_DECLINED"
 				w.Close()
@@ -689,13 +716,44 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 				w.Close()
 				return r
 			}
+			if direct != nil {
+				if err := direct.prepare(ctx, r.Before, r.GetMode, consent); err != nil {
+					r.Status = err.Error()
+					w.Close()
+					return r
+				}
+			}
+			// Register before sending: re-enumeration can finish during Control.
+			// Registration failure retains the bounded polling fallback.
+			var arrivals <-chan struct{}
+			if direct == nil {
+				if changes, unsubscribe, err := deviceguard.SubscribeChanges(); err == nil {
+					arrivals = changes
+					defer unsubscribe()
+				}
+			}
+			allowed := ctx.Err() == nil && consent()
+			archiveUSBConsent("after_arrival_subscription", allowed, ctx.Err() == nil)
+			if !allowed {
+				r.Status = "MODE_CHANGE_DECLINED_OR_CANCELLED"
+				w.Close()
+				return r
+			}
 			// Include re-enumeration in the operation window. This records a
 			// possible prompt trigger, never an observation of the iPad's UI.
 			modeDone := RecordConnectionOperation("usb_mode_switch")
-			defer modeDone()
+			if direct == nil {
+				defer modeDone()
+			}
 			r.SetAttempted = true
 			reply := []byte{255}
-			n, e = w.Control(0xc0, 0x52, 0, 3, reply)
+			requestedMode := uint16(3)
+			if direct != nil {
+				requestedMode = 5
+			}
+			requestDone := RecordConnectionOperation("usb_set_mode_request")
+			n, e = w.Control(0xc0, 0x52, 0, requestedMode, reply)
+			requestDone()
 			w.Close()
 			r.SetAcknowledged = e == nil && n == 1 && reply[0] == 0
 			if e != nil {
@@ -703,27 +761,61 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 			} else if !r.SetAcknowledged {
 				r.SetError = "MODE_ACK_NOT_ZERO"
 			}
+			if direct != nil {
+				modeDone()
+				direct.observe(ctx, &r)
+				return r
+			}
 			// Observe only the same hub and physical port. Never confuse another
 			// attached device or a pre-existing Mac network adapter with this iPad.
-			for i := 0; i < 8 && ctx.Err() == nil; i++ {
-				time.Sleep(time.Second)
+			observed := false
+			var preflight func() bool
+			if apple && network && target.pid == 0x12ab && target.CurrentConfiguration == 3 {
+				preflight = func() bool { return modeArrivalCacheReady(ctx, target) }
+			}
+			observeModeArrival(ctx, arrivals, 8*time.Second, 250*time.Millisecond, preflight, func() bool {
+				started := time.Now()
 				after := inventory(ctx)
 				r.After = &after
+				RecordConnectionArchiveEvent("mode_sample", struct {
+					Attempt    uint64   `json:"software_attempt"`
+					StartedUTC string   `json:"read_started_utc"`
+					ElapsedMS  int64    `json:"read_elapsed_ms"`
+					USB        Snapshot `json:"usb"`
+				}{currentSoftwareAttempt(), started.UTC().Format(time.RFC3339Nano), time.Since(started).Milliseconds(), after})
+				if ctx.Err() != nil {
+					return false
+				}
 				for _, d := range after.Devices {
 					if d.hub == target.hub && d.port == target.port {
 						for _, cfg := range d.Configurations {
 							if cfg.NCMControls > 0 && (!apple || cfg.Value == d.CurrentConfiguration) && (!network || networkOnlyUSBEligible(after)) {
 								if network && (!sameRootInstance(r.Before, after) || BindPhotoIsolationTarget(after) != nil) {
 									r.Status = "PHOTO_ISOLATION_RECOVERY_OR_SCOPE_UNCONFIRMED"
-									return r
+									observed = true
+									return true
+								}
+								if network {
+									allowed := consent()
+									archiveUSBConsent("after_mode_same_root_and_photo_recovery", allowed, ctx.Err() == nil)
+									if !allowed || BindLocalPhotoPolicyTarget(after) != nil {
+										r.Status = "PHOTO_POLICY_RECOVERY_OR_SCOPE_UNCONFIRMED"
+										observed = true
+										return true
+									}
 								}
 								r.ReenumerationSeen = true
 								r.Status = "NCM_DESCRIPTORS_AFTER_REQUEST"
-								return r
+								observed = true
+								return true
 							}
 						}
 					}
 				}
+				return false
+			})
+			if observed {
+				return r
 			}
 			r.Status = "MODE_REQUEST_SENT_NCM_NOT_OBSERVED"
 			return r
