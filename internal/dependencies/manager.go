@@ -216,6 +216,35 @@ func (m *Manager) Ensure(ctx context.Context, id string) (path string, err error
 	}
 	return m.ensureAsset(ctx, a)
 }
+
+// DetectReady checks the current installation without downloading or installing.
+// A ready runtime should not open a preparation window on every app launch.
+func (m *Manager) DetectReady(ctx context.Context, id string) (string, bool, error) {
+	a, err := Lookup(id)
+	if err != nil {
+		return "", false, err
+	}
+	release, err := m.work.acquire(ctx, a.ID)
+	if err != nil {
+		return "", false, err
+	}
+	defer release()
+	root, err := m.root()
+	if err != nil {
+		return "", false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	path, ready := m.Platform.Detect(a, root)
+	state := "missing"
+	if ready {
+		state = "ready"
+	}
+	m.update(a, state, 0, 0, nil)
+	return path, ready, nil
+}
+
 func (m *Manager) ensureAsset(ctx context.Context, a Asset) (path string, err error) {
 	release, e := m.work.acquire(ctx, a.ID)
 	if e != nil {

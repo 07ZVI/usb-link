@@ -1,0 +1,396 @@
+[
+  {
+    "name": "current-two-devices",
+    "payload": {
+      "devices": [
+        {
+          "device": "Mac",
+          "connected": true,
+          "connection_state": "connected",
+          "peer_ipv4": "10.6.9.2",
+          "tx": 800,
+          "rx": 8,
+          "retry_available": false,
+          "benchmark_url": "http://10.6.9.1:10690/speed/",
+          "title": "Mac USB 已連接",
+          "subtitle": "verified",
+          "health": "healthy",
+          "peer_address_state": "已確認",
+          "speed": "SuperSpeed",
+          "latency": "1 ms",
+          "measurement_busy": true,
+          "measurement_progress": 50,
+          "benchmark_summary": "browser test"
+        },
+        {
+          "device": "iPad",
+          "connected": true,
+          "peer_ipv4": "10.6.9.3",
+          "tx": 64,
+          "rx": 16
+        }
+      ]
+    },
+    "expected": {
+      "connected": 2,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": true,
+        "connected": true,
+        "state": "connected",
+        "peer_ipv4": "10.6.9.2",
+        "tx": 800,
+        "rx": 8,
+        "retry_available": false,
+        "benchmark_url": "http://10.6.9.1:10690/speed/",
+        "title": "Mac USB 已連接",
+        "subtitle": "verified",
+        "health": "healthy",
+        "peer_address_state": "已確認",
+        "speed": "SuperSpeed",
+        "latency": "1 ms",
+        "measurement_busy": true,
+        "measurement_progress": 50,
+        "benchmark_summary": "browser test"
+      },
+      "ipad": {
+        "present": true,
+        "connected": true,
+        "state": "connected",
+        "peer_ipv4": "10.6.9.3",
+        "tx": 64,
+        "rx": 16,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "transport-active-but-peer-pending",
+    "payload": {
+      "devices": [
+        {
+          "device": "Mac",
+          "connected": true,
+          "connection_state": "connecting",
+          "retry_available": true
+        },
+        {
+          "device": "iPad",
+          "connection_state": "error"
+        }
+      ]
+    },
+    "expected": {
+      "connected": 0,
+      "connecting": 1,
+      "error": true,
+      "mac": {
+        "present": true,
+        "connected": true,
+        "state": "connecting",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": true,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": true,
+        "connected": false,
+        "state": "error",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "missing-ipad-clears-slot",
+    "payload": {
+      "devices": [
+        {
+          "device": "Mac",
+          "connected": true
+        }
+      ]
+    },
+    "expected": {
+      "connected": 1,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": true,
+        "connected": true,
+        "state": "connected",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "empty-array-clears-both",
+    "payload": {
+      "devices": []
+    },
+    "expected": {
+      "connected": 0,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "legacy-mac",
+    "payload": {
+      "device": "Mac",
+      "connected": true,
+      "tx": 40
+    },
+    "expected": {
+      "connected": 1,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": true,
+        "connected": true,
+        "state": "connected",
+        "peer_ipv4": "",
+        "tx": 40,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "legacy-ipad",
+    "payload": {
+      "device": "iPad",
+      "connected": true,
+      "rx": 24
+    },
+    "expected": {
+      "connected": 1,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": true,
+        "connected": true,
+        "state": "connected",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 24,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "legacy-summary-keeps-connected-flag",
+    "payload": {
+      "device": "iPad",
+      "connected": true,
+      "connection_state": "connecting"
+    },
+    "expected": {
+      "connected": 1,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": true,
+        "connected": true,
+        "state": "connecting",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "legacy-defaults-to-mac",
+    "payload": {
+      "connected": false
+    },
+    "expected": {
+      "connected": 0,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": true,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "unknown-state-does-not-claim-connected",
+    "payload": {
+      "devices": [
+        {
+          "device": "Mac",
+          "connected": true,
+          "connection_state": "future-state"
+        }
+      ]
+    },
+    "expected": {
+      "connected": 0,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": true,
+        "connected": true,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  },
+  {
+    "name": "unknown-and-malformed-slots-ignored",
+    "payload": {
+      "devices": [
+        null,
+        7,
+        {},
+        {
+          "device": 8
+        },
+        {
+          "device": "future",
+          "connected": true
+        },
+        {
+          "device": "iPad",
+          "connected": "true",
+          "tx": "32",
+          "rx": null,
+          "retry_available": 1,
+          "peer_ipv4": 3,
+          "benchmark_url": false
+        }
+      ]
+    },
+    "expected": {
+      "connected": 0,
+      "connecting": 0,
+      "error": false,
+      "mac": {
+        "present": false,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      },
+      "ipad": {
+        "present": true,
+        "connected": false,
+        "state": "offline",
+        "peer_ipv4": "",
+        "tx": 0,
+        "rx": 0,
+        "retry_available": false,
+        "benchmark_url": ""
+      }
+    }
+  }
+]

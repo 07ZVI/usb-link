@@ -19,6 +19,8 @@ import (
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/startuptelemetry"
 	"suhang/usbnet/internal/app/uistartup"
+	"suhang/usbnet/internal/buildinfo"
+	"suhang/usbnet/internal/contracts/desktopipc"
 	"suhang/usbnet/internal/dependencies"
 	"suhang/usbnet/internal/diagnostics/throughput"
 	"sync"
@@ -184,6 +186,9 @@ func (u *modernUI) show(reason string) bool {
 					continue
 				}
 				if !u.proxyAction(v) && !u.shareFoldersAction(v) && !u.gatewayAction(v) && !u.securityAction(v) {
+					if handleLocalRemoteAction(u, v) {
+						continue
+					}
 					if v.Action == "startup-on" || v.Action == "startup-off" {
 						u.startupAction(v.Action, v.ID)
 					} else {
@@ -283,6 +288,38 @@ func (u *modernUI) action(a string) {
 		return
 	}
 	switch a {
+	case "trust-timing-fast", "trust-timing-delayed", "trust-timing-reset":
+		if buildinfo.LocalRemote && buildinfo.LocalDiagnostics == "true" {
+			mode := "normal"
+			if a == "trust-timing-fast" {
+				mode = "fast"
+			} else if a == "trust-timing-delayed" {
+				mode = "delayed"
+			}
+			if err := SetConnectionTimingTrial(mode); err != nil {
+				u.setNotice("時序對照未變更：" + err.Error())
+			} else {
+				u.setNotice("時序對照已更新；不影響目前會話，請查看開發者調試中的背景狀態。")
+			}
+		}
+	case "trust-service-trial-start":
+		if buildinfo.LocalDiagnostics == "true" {
+			if err := StartLocalTrustServiceTrial(u.lifetime, productVersion); err != nil {
+				u.setNotice("臨時對照未開始：" + err.Error())
+			}
+		}
+	case "trust-service-trial-cancel":
+		if buildinfo.LocalDiagnostics == "true" {
+			CancelAMDSModeDiagnostic()
+		}
+	case "trust-prompt-first", "trust-prompt-second":
+		if buildinfo.LocalDiagnostics == "true" {
+			which := 1
+			if a == "trust-prompt-second" {
+				which = 2
+			}
+			RecordTrustPromptMarker(which)
+		}
 	case "select-mac":
 		selectDevice("Mac")
 	case "select-ipad":
@@ -412,29 +449,56 @@ func (u *modernUI) desktopStatus() any {
 		}
 		u.notice = fmt.Sprintf("正在結束 USB 連線並恢復設定 · 已等候 %d 秒", int(time.Since(u.stopStarted).Seconds()))
 	}
-	status := desktopDeviceStatus(r, stopping)
-	for k, v := range map[string]any{"event": "status", "connections": deviceSummary(), "version": productVersion, "stopping": stopping, "share_url": connectioninstall.NativeSMBServerURL, "native_smb": true, "native_account": nativeShare.Username, "share_problem": nativeShare.Problem, "share_ready": nativeShare.Ready, "share_enabled": nativeShare.Enabled, "notice": u.notice, "startup": ConnectionStartupEnabled(), "startup_busy": u.startupBusy, "startup_requested": u.startupRequested, "startup_request_id": u.startupRequestID, "startup_rejected_id": u.startupRejectedID, "independent": connectionPreferences().IndependentUSB, "ipad_network_policy": ipadPolicy} {
-		status[k] = v
+	status := desktopStatusSnapshot{
+		DeviceStatus: desktopDeviceStatus(r, stopping),
+		Event:        "status", Connections: deviceSummary(), Version: productVersion, Stopping: stopping,
+		ShareURL: connectioninstall.NativeSMBServerURL, NativeSMB: true, NativeAccount: nativeShare.Username,
+		ShareProblem: nativeShare.Problem, ShareReady: nativeShare.Ready, ShareEnabled: nativeShare.Enabled,
+		Notice: u.notice, Startup: ConnectionStartupEnabled(), StartupBusy: u.startupBusy,
+		StartupRequested: u.startupRequested, StartupRequestID: u.startupRequestID, StartupRejectedID: u.startupRejectedID,
+		Independent: connectionPreferences().IndependentUSB, IPadNetworkPolicy: ipadPolicy,
+		Devices:          make([]desktopipc.DeviceStatus, 0, 2),
+		DeveloperDebug:   localDeveloperDebugStatus(),
+		ConnectionTiming: ConnectionTimingDiagnostics(),
+		PhotoIsolation:   PhotoIsolationDiagnostics(),
 	}
-	devices := make([]map[string]any, 0, 2)
 	var details string
 	for _, snapshot := range deviceDisplaySnapshots() {
 		if deviceMonitor(snapshot.DeviceKind) == nil && r.DeviceKind == snapshot.DeviceKind {
 			snapshot = r
 		}
 		slot := desktopDeviceStatus(snapshot, stopping)
-		devices = append(devices, slot)
-		details += snapshot.DeviceKind + " USB\r\n" + slot["detail"].(string) + "\r\n\r\n"
-		delete(slot, "detail") // The shared diagnostics field carries both full reports.
+		details += snapshot.DeviceKind + " USB\r\n" + slot.Detail + "\r\n\r\n"
+		slot.Detail = "" // The shared diagnostics field carries both full reports.
+		status.Devices = append(status.Devices, slot)
 	}
-	status["devices"] = devices
-	status["detail"] = details + "啟動與安全\r\n" + startupTimingText(startuptelemetry.Snapshot()) + "\r\n安全檢查：" + securitySummary()
+	status.Detail = details + "啟動與安全\r\n" + startupTimingText(startuptelemetry.Snapshot()) + "\r\n安全檢查：" + securitySummary()
+	connectionEvidence := CompactConnectionEvidence()
+	if connectionEvidence.GroupingEligibility != nil || connectionEvidence.NativeStart != nil {
+		if b, err := json.Marshal(connectionEvidence); err == nil {
+			status.Detail += "\r\niPad 接入檢查（快取；請核對 software_attempt）：" + string(b)
+		}
+	}
+	if buildinfo.LocalDiagnostics == "true" {
+		if b, err := json.Marshal(PhotoIsolationDiagnostics()); err == nil {
+			status.Detail += "\r\niPad 照片介面隔離（不代表信任提示已消失）：" + string(b)
+		}
+		if b, err := json.Marshal(TrustDiagnosticsSnapshot()); err == nil {
+			status.Detail += "\r\niPad 信任提示對照時間線（不代表系統彈窗記錄）：" + string(b)
+		}
+		if b, err := json.Marshal(LocalTrustServiceTrialSnapshot()); err == nil {
+			status.Detail += "\r\nApple 服務臨時對照（恢復結果以此處為準）：" + string(b)
+		}
+		if b, err := json.Marshal(RuntimeNetworkDiagnostics()); err == nil {
+			status.Detail += "\r\niPad 系統網路診斷（獨立於連線結果）：" + string(b)
+		}
+	}
 	if problem := StartupSettingProblem(); problem != "" {
-		status["detail"] = status["detail"].(string) + "\r\n開機啟動設定：" + problem
+		status.Detail = status.Detail + "\r\n開機啟動設定：" + problem
 	}
 	if r.Status == "WAITING_SHARED_HOST" {
 		b, _ := json.Marshal(sharedHostWaitingDiagnostics())
-		status["detail"] = status["detail"].(string) + "\r\n共享網卡準備：" + string(b)
+		status.Detail = status.Detail + "\r\n共享網卡準備：" + string(b)
 	}
 	return status
 }

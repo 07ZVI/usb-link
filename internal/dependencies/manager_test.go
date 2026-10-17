@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -21,6 +22,29 @@ type testPlatform struct {
 	verifyErr error
 	installs  int
 	reads     bool
+}
+
+func TestDetectReadyDoesNotPrepareMissingRuntime(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		t.Run(fmt.Sprint(ready), func(t *testing.T) {
+			p := &testPlatform{root: t.TempDir(), ready: ready}
+			m := &Manager{Platform: p}
+			_, got, err := m.DetectReady(context.Background(), "dotnet")
+			if err != nil || got != ready || p.installs != 0 || p.reads {
+				t.Fatalf("readiness triggered preparation: ready=%v installs=%d reads=%v err=%v", got, p.installs, p.reads, err)
+			}
+			for _, s := range m.Snapshot() {
+				if s.ID == "dotnet" && (s.State == "ready") != ready {
+					t.Fatalf("incorrect readiness report: %+v", s)
+				}
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := (&Manager{}).DetectReady(ctx, "dotnet"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled check continued: %v", err)
+	}
 }
 
 type concurrentPlatform struct {

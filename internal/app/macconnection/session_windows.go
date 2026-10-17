@@ -48,6 +48,13 @@ import (
 // Assigned before sessions start. Contains status only, never connection credentials.
 var DeveloperStatus func() any
 
+// Assigned once before sessions start; provides bounded, memory-only evidence.
+var ConnectionEvidence func() any
+var RuntimeNetworkEvidence func() any
+var TrustEvidence func() any
+var TimingEvidence func() any
+var PhotoEvidence func() any
+
 func safeExisting(path string) bool {
 	v, e := os.Lstat(path)
 	if e != nil || v.Mode()&os.ModeSymlink != 0 || !v.Mode().IsRegular() {
@@ -696,6 +703,11 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	go func() { done <- cmd.Wait() }()
 	servicesRetry := serviceRetry{}
 	lastEvidence := ""
+	lastConnectionEvidence := connectionEvidenceLogState{}
+	lastRuntimeNetworkEvidence := connectionEvidenceLogState{}
+	lastTrustEvidence := connectionEvidenceLogState{}
+	lastTimingEvidence := connectionEvidenceLogState{}
+	lastPhotoEvidence := connectionEvidenceLogState{}
 	loops := 0
 	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
@@ -724,6 +736,21 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				update(func(r *Result) { r.SunshineTCPObserved = r.SunshineTCPObserved || ok; r.TCPQueryError = queryError })
 			}
 			if loops%5 == 0 {
+				if ConnectionEvidence != nil {
+					_ = appendChangedConnectionEvidence(dir, ConnectionEvidence(), &lastConnectionEvidence, time.Now())
+				}
+				if RuntimeNetworkEvidence != nil {
+					_ = appendChangedConnectionEvidence(dir, RuntimeNetworkEvidence(), &lastRuntimeNetworkEvidence, time.Now())
+				}
+				if TrustEvidence != nil {
+					_ = appendChangedConnectionEvidence(dir, TrustEvidence(), &lastTrustEvidence, time.Now())
+				}
+				if TimingEvidence != nil {
+					_ = appendChangedConnectionEvidence(dir, TimingEvidence(), &lastTimingEvidence, time.Now())
+				}
+				if PhotoEvidence != nil {
+					_ = appendChangedConnectionEvidence(dir, PhotoEvidence(), &lastPhotoEvidence, time.Now())
+				}
 				mu.Lock()
 				state := out
 				mu.Unlock()
@@ -889,7 +916,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					if share != nil {
 						smbHandler = share.ServeSMB
 					}
-					stop, er := usbhttp.RegisterWithBinary(ctx, "10.6.9.1:10690", "10.6.9.2", service, smbHandler)
+					stop, er := usbhttp.RegisterWithBinary(ctx, "10.6.9.1:10690", "10.6.9.2", localMaintenanceHandler(service, serviceGuard), smbHandler)
 					if er != nil {
 						test.Close()
 						if share != nil {

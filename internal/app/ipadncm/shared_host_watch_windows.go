@@ -20,6 +20,7 @@ func WatchSharedHostDeviceChanges(ctx context.Context) func() {
 		id = strings.ToUpper(id)
 		return strings.HasPrefix(id, `USB\VID_05AC&PID_`) && !strings.Contains(id, "&MI_") && (strings.HasPrefix(id, `USB\VID_05AC&PID_1903\`) || strings.HasPrefix(id, `USB\VID_05AC&PID_12`))
 	})
+	RecordConnectionTimingNativeRegistration(err == nil)
 	watchCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -56,6 +57,7 @@ func WatchSharedHostDeviceChanges(ctx context.Context) func() {
 			case <-watchCtx.Done():
 				return
 			case <-events:
+				RecordConnectionTimingNativeNotice(0)
 				// A native Apple root event triggers even when a fast same-root
 				// unplug/replug coalesces to an unchanged present-device inventory.
 				usbhost.NudgeSharedHost()

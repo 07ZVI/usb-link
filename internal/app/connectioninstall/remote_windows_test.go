@@ -19,6 +19,9 @@ func TestLegacyRemoteConfigNeverGrantsAutomaticInstallation(t *testing.T) {
 }
 
 func TestPublicBuildRejectsRemoteMaintenanceEvenWithOldConsent(t *testing.T) {
+	if localRemoteBuild {
+		t.Skip("public-build isolation test")
+	}
 	m := &RemoteManager{root: t.TempDir(), config: remoteConfig{Enabled: true, AutoUpgrade: true, Token: "old"}}
 	m.rawUSB.Store(true)
 	if m.Enabled() || m.AutoUpgrade() {

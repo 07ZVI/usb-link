@@ -45,62 +45,6 @@ public sealed partial class Dashboard : Window
 
     // ---------- building blocks ----------
 
-    static TextBlock Label(string text, double size = 14, FontWeight? weight = null, string key = "Ink")
-    {
-        var t = new TextBlock { Text = text, FontSize = size, FontWeight = weight ?? FontWeight.Normal, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
-        return t.Res(TextBlock.ForegroundProperty, key);
-    }
-    static ToggleSwitch Switch() => new() { OnContent = "", OffContent = "", MinWidth = 0, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
-    static Border Card(Control child, Thickness? padding = null) => new Border
-    {
-        Child = child, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = padding ?? new Thickness(20),
-    }.Res(Border.BackgroundProperty, "Card").Res(Border.BorderBrushProperty, "Stroke");
-    static Border Rule() => new Border { Height = 1 }.Res(Border.BackgroundProperty, "Stroke");
-    static Grid Columns(string defs, params Control[] children)
-    {
-        var g = new Grid { ColumnDefinitions = new ColumnDefinitions(defs) };
-        for (var i = 0; i < children.Length; i++) { Grid.SetColumn(children[i], i); g.Children.Add(children[i]); }
-        return g;
-    }
-    static Grid Rows(string defs, params Control[] children)
-    {
-        var g = new Grid { RowDefinitions = new RowDefinitions(defs) };
-        for (var i = 0; i < children.Length; i++) { Grid.SetRow(children[i], i); g.Children.Add(children[i]); }
-        return g;
-    }
-    static Control Gap(double h = 0) => new Border { Height = h };
-    static StackPanel Row(double spacing, params Control[] children)
-    {
-        var p = new StackPanel { Orientation = Orientation.Horizontal, Spacing = spacing };
-        foreach (var c in children) { c.VerticalAlignment = VerticalAlignment.Center; p.Children.Add(c); }
-        return p;
-    }
-    static StackPanel Column(double spacing, params Control[] children)
-    {
-        var p = new StackPanel { Spacing = spacing };
-        foreach (var c in children) p.Children.Add(c);
-        return p;
-    }
-    Button Action(string text, Action onClick, string? icon = null, bool primary = false)
-    {
-        var label = Label(text, 13, primary ? FontWeight.SemiBold : FontWeight.Normal, primary ? "Window" : "Ink");
-        Control content = icon is null ? label : Row(8, Icons.Make(icon, 16, primary ? "Window" : "Ink"), label);
-        var b = new Button { Content = content, Padding = new Thickness(14, 7), CornerRadius = new CornerRadius(4), MinHeight = 34 };
-        if (icon != null && text != "") Avalonia.Automation.AutomationProperties.SetName(b, text);
-        b.BorderThickness = new Thickness(1);
-        if (primary) b.Res(Button.BackgroundProperty, "Accent").Res(Button.BorderBrushProperty, "Accent");
-        else b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Stroke");
-        b.Click += (_, _) => onClick();
-        return b;
-    }
-    Button IconButton(string icon, string tip, Action onClick)
-    {
-        var b = new Button { Content = Icons.Make(icon, 16, "Muted"), Padding = new Thickness(8), CornerRadius = new CornerRadius(4), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
-        ToolTip.SetTip(b, tip);
-        Avalonia.Automation.AutomationProperties.SetName(b, tip);
-        b.Click += (_, _) => onClick();
-        return b;
-    }
     static Control Tile(string icon, string brush, string background, double size = 32)
     {
         var tile = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(6), Child = Icons.Make(icon, size * .56, brush) };
@@ -112,6 +56,7 @@ public sealed partial class Dashboard : Window
 
     void Send(string action)
     {
+        if (backendUnavailable && action != "stop") return;
         if (preview) { SetNotice("介面預覽，不會執行系統操作。"); return; }
         DesktopClient.SendRaw(JsonSerializer.Serialize(new { action })); 
     }
@@ -153,7 +98,10 @@ public sealed partial class Dashboard : Window
         AddAt(root, Header(), 0);
         connectionCard = ConnectionCard(); shareCard = ShareCard(); settingsCard = SettingsCard();
         body.Children.Add(connectionCard); body.Children.Add(shareCard); body.Children.Add(settingsCard);
-        bodyScroll.Content = body;
+        backendFailure.Res(TextBlock.ForegroundProperty, "Warn");
+        backendFailureBanner = Card(backendFailure, new Thickness(14));
+        backendFailureBanner.IsVisible = false;
+        bodyScroll.Content = Column(12, backendFailureBanner, body);
         AddAt(root, bodyScroll, 2);
         footerControl = Footer();
         AddAt(root, footerControl, 4);
@@ -260,8 +208,8 @@ public sealed partial class Dashboard : Window
 
     Control ConnectionCard()
     {
-        macStatus = new DeviceStatusView(this, "Mac");
-        ipadStatus = new DeviceStatusView(this, "iPad");
+        macStatus = new DeviceStatusView("Mac", Send, Copy);
+        ipadStatus = new DeviceStatusView("iPad", Send, Copy);
         var address = Column(2, Label("Windows 主機地址", 12, key: "Muted"), addressValue);
         return Card(Rows("Auto,16,*,12,*", address, Gap(), macStatus.View, Gap(), ipadStatus.View), new Thickness(20));
     }
@@ -296,7 +244,6 @@ public sealed partial class Dashboard : Window
         return Card(Column(12, head, field, open, help,scope));
     }
 
-    static T WithMargin<T>(T c, Thickness m) where T : Control { c.Margin = m; return c; }
 
     Control SettingsCard()
     {
@@ -372,6 +319,9 @@ public sealed partial class Dashboard : Window
         var head = Columns("*,Auto", Column(2, Label("連線診斷", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
         var diagnostics = Card(detailRows, new Thickness(4));
         var content = Column(16, InternetSection(), diagnostics, Gap(4));
+#if USBLINK_LOCAL_DIAGNOSTICS
+        content.Children.Insert(0, LocalDiagnosticsSection());
+#endif
         var scroll = new ScrollViewer { Content = content, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var body = scroll;
         var layout = Rows("Auto,14,*", head, Gap(), body);
@@ -384,6 +334,9 @@ public sealed partial class Dashboard : Window
         detailWindow.Closed += (_, _) =>
         {
             scroll.Content = null; diagnostics.Child = null;
+#if USBLINK_LOCAL_DIAGNOSTICS
+            localDiagnosticsRefresh = null;
+#endif
             content.Children.Clear(); detailWindow = null;
         };
         RenderDetails();
@@ -392,6 +345,9 @@ public sealed partial class Dashboard : Window
 
     void RenderDetails()
     {
+#if USBLINK_LOCAL_DIAGNOSTICS
+        localDiagnosticsRefresh?.Invoke();
+#endif
         var lines = new List<string>();
         if (detailText.Trim() == "")
         {
@@ -462,11 +418,30 @@ public sealed partial class Dashboard : Window
 
     void Update(JsonElement d)
     {
-        UpdateInternet(d);
         string S(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool B(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
-        if (S("version") != "") versionText.Text = S("version");
+        if (S("event") == "backend-unavailable") { MarkBackendUnavailable(S("code")); return; }
         if (S("event") == "shutdown") { (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(); return; }
+        if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
+#if USBLINK_LOCAL_DIAGNOSTICS
+        if (S("event") == "local-control-result") { UpdateLocalControlResult(d); return; }
+#endif
+        if (backendUnavailable)
+        {
+            if (S("event") != "status" || S("version") == "") return;
+#if USBLINK_LOCAL_DIAGNOSTICS
+            localDiagnosticsPendingID = "";
+            photoIsolationPendingID = "";
+#endif
+            backendUnavailable = false;
+            backendFailureBanner.IsVisible = false;
+            body.IsEnabled = true;
+        }
+#if USBLINK_LOCAL_DIAGNOSTICS
+        UpdateLocalDiagnostics(d);
+#endif
+        UpdateInternet(d);
+        if (S("version") != "") versionText.Text = verifiedBackendVersion = S("version");
         if (S("event") == "update-notice") { ShowUpdateNotice(d); return; }
         if (S("event") == "smb-account") { UpdateSMBAccount(d); return; }
         if (S("event") == "share-folders") { UpdateShareFolders(d); return; }
@@ -475,32 +450,11 @@ public sealed partial class Dashboard : Window
         if (S("event") == "security") { UpdateSecurity(d); return; }
         // The custom caption remains usable while the core finishes stopping.
         bodyScroll.IsEnabled = footerControl.IsEnabled = !B("stopping");
-        if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
 
         if (S("windows_ipv4") != "") { WindowsHostIp = S("windows_ipv4"); ShareUrl = S("share_url") != "" ? S("share_url") : "smb://" + WindowsHostIp; addressValue.Text = WindowsHostIp; shareUrlValue.Text = ShareUrl; }
-        JsonElement mac = default, ipad = default;
-        var connected = 0; var connecting = 0; var connectionError = false;
-        if (d.TryGetProperty("devices", out var devices) && devices.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var slot in devices.EnumerateArray())
-            {
-                if (!slot.TryGetProperty("device", out var kind)) continue;
-                var view = kind.GetString() switch { "Mac" => macStatus, "iPad" => ipadStatus, _ => null };
-                if (view == null) continue;
-                if (kind.GetString() == "Mac") mac = slot; else ipad = slot;
-                var state = Text(slot,"connection_state");
-                if(state=="connected"||state==""&&slot.TryGetProperty("connected",out var active)&&active.ValueKind==JsonValueKind.True)connected++;
-                else if(state=="connecting")connecting++;
-                else if(state=="error")connectionError=true;
-            }
-        }
-        else // Older cores can still display their one available snapshot.
-        {
-            if (S("device") == "iPad") ipad = d; else mac = d;
-            if (B("connected")) connected = 1;
-        }
-        macStatus.Update(mac); ipadStatus.Update(ipad);
-        ApplyConnectionSummary(connected,connecting,connectionError);
+        var devices = DeviceStatusSnapshot.Parse(d);
+        macStatus.Update(devices.Mac); ipadStatus.Update(devices.IPad);
+        ApplyConnectionSummary(devices.ConnectedCount, devices.ConnectingCount, devices.HasError);
 
         SetNotice(S("notice"));
         var detail = S("detail");

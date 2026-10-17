@@ -32,6 +32,7 @@ internal static class Program
     {
         if (args.Contains("--process-signature-worker")) { Environment.ExitCode = ProcessSignatureWorker.Run(); return; }
 #if USBLINK_DESIGN_TOOLS
+        if (args.Contains("--device-status-smoke")) { Environment.ExitCode = DeviceStatusSmoke.Run(args); return; }
         if (args.Contains("--process-native-smoke")) { Environment.ExitCode = ProcessNativeSmoke.Run(); return; }
         Preview = args.Contains("--preview");
         ProcessPreview = Preview && args.Contains("--process-preview");

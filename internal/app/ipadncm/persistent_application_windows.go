@@ -68,7 +68,7 @@ func (b *groupingBackend) prepareIPadConfiguration(ctx context.Context, a Networ
 	if len(b.mode.Before.Devices) != 1 || !b.mode.Before.Devices[0].USBDescriptorIdentityVerified || a.instanceID == "" {
 		return nil, p, errors.New("IPAD_CONFIGURATION_FRESH_DESCRIPTOR_UNPROVEN")
 	}
-	candidate := interfaceconfig.IPadPersistentBinding{Version: 1, Root: b.j.RootID, Driver: b.j.DriverKey, Instance: a.instanceID, SerialSHA256: b.mode.Before.Devices[0].USBSerialSHA256, Scope: scope, State: "pending", Plan: p, Persistent: interfaceconfig.PersistentEnabled()}
+	candidate := interfaceconfig.IPadPersistentBinding{Version: 1, Root: b.networkRoot(), Driver: b.networkDriver(), Instance: a.instanceID, SerialSHA256: b.mode.Before.Devices[0].USBSerialSHA256, Scope: scope, State: "pending", Plan: p, Persistent: interfaceconfig.PersistentEnabled()}
 	if found {
 		if !interfaceconfig.PersistentEnabled() || v.State != "ready" || v.Scope != scope || v.Root != candidate.Root || v.Driver != candidate.Driver || v.Instance != candidate.Instance || v.SerialSHA256 != candidate.SerialSHA256 {
 			return nil, p, errors.New("IPAD_CONFIGURATION_EXISTING_BINDING_NOT_REUSABLE")

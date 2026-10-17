@@ -2,11 +2,12 @@ package ipadncm
 
 import (
 	"fmt"
+	"suhang/usbnet/internal/contracts/desktopipc"
 	"suhang/usbnet/internal/diagnostics/throughput"
 )
 
 // Each slot derives its metrics and measurement state from its own USB session.
-func desktopDeviceStatus(r ApplicationResult, stopping bool) map[string]any {
+func desktopDeviceStatus(r ApplicationResult, stopping bool) desktopipc.DeviceStatus {
 	speedServer := throughput.DeviceCurrent(r.DeviceKind)
 	measurementReady, measurementBusy, measurementProgress := speedServer.MeasurementState()
 	measurementReport := speedServer.NativeReport()
@@ -52,16 +53,16 @@ func desktopDeviceStatus(r ApplicationResult, stopping bool) map[string]any {
 		}
 	}
 	peer, addressState := desktopPeerAddress(r, stopping)
-	return map[string]any{
-		"device": r.DeviceKind, "connection_state": desktopConnectionState(r, stopping), "title": title, "subtitle": connectionSubtitle(r),
-		"detail": detail, "windows_ipv4": r.WindowsIPv4, "connected": sessionRunning(r),
-		"peer_ipv4": peer, "peer_address_state": addressState, "retry_available": !stopping && desktopRetryAvailable(r),
-		"tx": r.ObservedTransmitMbps, "rx": r.ObservedReceiveMbps, "speed": speed, "health": health,
-		"latency": latencyText, "benchmark_url": benchmarkURL, "benchmark_summary": measurement,
-		"benchmark_ready":     measurementReady,
-		"benchmark_available": benchmarkURL != "",
-		"measurement_busy":    measuring, "measurement_progress": progress,
-		"benchmark_visible": r.DeviceKind != "iPad",
+	return desktopipc.DeviceStatus{
+		Device: r.DeviceKind, ConnectionState: desktopConnectionState(r, stopping), Title: title, Subtitle: connectionSubtitle(r),
+		Detail: detail, WindowsIPv4: r.WindowsIPv4, Connected: sessionRunning(r),
+		PeerIPv4: peer, PeerAddressState: addressState, RetryAvailable: !stopping && desktopRetryAvailable(r),
+		TX: r.ObservedTransmitMbps, RX: r.ObservedReceiveMbps, Speed: speed, Health: health,
+		Latency: latencyText, BenchmarkURL: benchmarkURL, BenchmarkSummary: measurement,
+		BenchmarkReady:     measurementReady,
+		BenchmarkAvailable: benchmarkURL != "",
+		MeasurementBusy:    measuring, MeasurementProgress: progress,
+		BenchmarkVisible: r.DeviceKind != "iPad",
 	}
 }
 

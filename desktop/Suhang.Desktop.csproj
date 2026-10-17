@@ -10,6 +10,9 @@
  <PropertyGroup Condition="'$(USBLinkDesignTools)' == 'true'">
   <DefineConstants>$(DefineConstants);USBLINK_DESIGN_TOOLS</DefineConstants>
  </PropertyGroup>
+ <PropertyGroup Condition="'$(USBLinkLocalDiagnostics)' == 'true'">
+  <DefineConstants>$(DefineConstants);USBLINK_LOCAL_DIAGNOSTICS</DefineConstants>
+ </PropertyGroup>
  <ItemGroup>
   <Compile Remove="obj/**/*.cs;bin/**/*.cs" />
   <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />

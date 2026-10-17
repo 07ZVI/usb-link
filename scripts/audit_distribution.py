@@ -94,10 +94,14 @@ def package(path):
  if assets.exists():
   for f in assets.glob('*.zip'):entry(f.name,f.read_bytes())
   for f in assets.glob('zadig-*.exe'):entry(f.name,f.read_bytes())
-parser=argparse.ArgumentParser();parser.add_argument('--source',action='store_true');parser.add_argument('--staged',action='store_true');parser.add_argument('--history',action='store_true');parser.add_argument('--package');a=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--source',action='store_true');parser.add_argument('--staged',action='store_true');parser.add_argument('--history',action='store_true');parser.add_argument('--package');parser.add_argument('--artifact');a=parser.parse_args()
 if a.source:source()
 if a.staged:staged()
 if a.history:history()
 if a.package:package(a.package)
+if a.artifact:
+ artifact=pathlib.Path(a.artifact)
+ if artifact.is_symlink() or not artifact.is_file():errors.append('artifact is redirected or missing')
+ else:entry(artifact.name,artifact.read_bytes())
 result={'status':'failed' if errors else 'passed','files_and_entries':entries,'archives_inspected':archives,'errors':errors}
 print(json.dumps(result,ensure_ascii=False,indent=2));sys.exit(bool(errors))

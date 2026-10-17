@@ -351,6 +351,9 @@ func inspect(r *Result, system, recoveryDir string) {
 	var configured bool
 	if persistent && r.Error == "" && r.Probe != nil {
 		reused, configured = ipadncm.RunConfiguredGrouping(version, recoveryDir, system, *r.Probe, applicationConsent)
+		if !configured {
+			reused, configured = ipadncm.RunExistingGrouping(version, recoveryDir, system, *r.Probe, applicationConsent)
+		}
 	}
 	if r.Error == "" && (configured || r.Startup != nil && r.Startup.Status == "NCM_PRESENT_NATIVE_DRIVER_START_FAILED") {
 		trial := reused
@@ -498,6 +501,9 @@ func Main() {
 func runApplication(ctx context.Context, cancel context.CancelFunc, service bool) {
 	memorydiag.RecordStage("parent_main_enter")
 	ipadncm.SetProductVersion(version)
+	if handleLocalRemoteCommand() {
+		return
+	}
 
 	if len(os.Args) == 2 && os.Args[1] == "--licenses" {
 		dir, e := os.Getwd()
@@ -554,7 +560,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 				return
 			}
 		}
-		err := dependencies.WithProgress(ctx, func(download context.Context) error { _, e := dependencies.Ensure(download, "dotnet"); return e })
+		err := dependencies.EnsureWithProgressIfMissing(ctx, "dotnet")
 		if err != nil {
 			dialog("桌面元件尚未齊備，核心仍可使用備用介面。\n請聯網後重試。\n"+err.Error(), 0x30)
 		}
@@ -772,6 +778,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		_ = ipadncm.InitSimplifiedIPadNetwork(recoveryDir)
 		r.Recovery = ipadncm.InspectPersistentNetworkGrouping(recoveryDir)
 		ipadncm.RecordSimplifiedGroupingWarning(r.Recovery.Error)
+		defer ipadncm.StartPhotoIsolation(ctx, recoveryDir)()
 	}
 	var macRecovery macconnection.RecoveryReport
 	var macRecoveryError error
@@ -858,6 +865,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	})
 	if e != nil {
 		fmt.Fprintln(os.Stderr, "LOCAL_UPDATE_JOURNAL_UNAVAILABLE:", e)
+		configureLocalRemoteUnavailable(e)
+		_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "LOCAL_REMOTE_INITIALIZATION_FAILED", connectioninstall.RemoteInitializationCode(e))
 	} else {
 		defer developerRemote.Close()
 		if service {
@@ -999,7 +1008,27 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		developerRemote.SetRuntimeDetails(func() any {
 			return map[string]any{"intentional_candidate_failure": intentionalCandidateFailure, "wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(), "firewall_shadow": netconfig.FirewallShadowDiagnostics(), "resident_firewall_failures": netconfig.ResidentFirewallFailureDiagnostics(), "ipad_address_projection": netconfig.IPadAddressProjectionSnapshot(), "owned_dad_observations": ownedDADDiagnostics(recoveryDir), "connections": ipadncm.ConnectionRuntimeDetails(), "mac_native_failure": macconnection.NativeStartupFailureDetails(), "recovery": lastRecovery.Load(), "startup_timing": startuptelemetry.Snapshot(), "startup_task": connectioninstall.LastStartupTaskObservation(), "startup_trigger_details": connectioninstall.NativeStartupTriggerDetails(), "core_service": connectioninstall.CoreServiceStatus(), "startup_options": startupopt.Snapshot(), "connection_measurement": ipadncm.ConnectionMonitorDiagnostics(), "native_firewall_schema": nativeFirewallSchema.Load(), "native_interface_schema": nativeInterfaceSchema.Load(), "native_read_compatibility": nativeReadCompatibility.Load(), "network_operation_timings": netconfig.NativeOperationTimingsSnapshot(), "interface_operation_timings": interfaceconfig.ObservationsSnapshot(), "shared_host_startup": sharedHostStartupDiagnostics(recoveryDir), "ui_events": ipadncm.UIEvents(), "ui_open_timings": uistartup.Snapshot(), "device_guard_watch": ipadncm.DeviceWatchDetails(), "ipad_network": ipadncm.SimplifiedIPadNetworkSnapshot(), "ipad_candidate": ipadncm.IPadCandidateSnapshot(), "ipad_unpaired_experiment": ipadncm.UnpairedExperimentSnapshot(), "ipad_software_reconnect": ipadncm.IPadSoftwareReconnectSnapshot()}
 		})
+		configureLocalRemote(developerRemote)
 		macconnection.DeveloperStatus = func() any { return developerRemote.ListenerStatus() }
+	}
+	if buildinfo.LocalDiagnostics == "true" {
+		ipadncm.StartRuntimeNetworkDiagnostics(ctx)
+		ipadncm.StartTrustDiagnostics(ctx)
+		macconnection.TrustEvidence = func() any {
+			return map[string]any{"core_version": version, "ipad_trust_timeline": ipadncm.TrustDiagnosticsSnapshot(), "apple_service_trial": ipadncm.LocalTrustServiceTrialSnapshot()}
+		}
+		macconnection.TimingEvidence = func() any {
+			return map[string]any{"core_version": version, "connection_timing": ipadncm.ConnectionTimingDiagnostics()}
+		}
+		macconnection.PhotoEvidence = func() any {
+			return map[string]any{"core_version": version, "photo_isolation": ipadncm.PhotoIsolationDiagnostics()}
+		}
+		macconnection.RuntimeNetworkEvidence = func() any {
+			return map[string]any{"core_version": version, "ipad_runtime_network": ipadncm.RuntimeNetworkDiagnostics()}
+		}
+	}
+	macconnection.ConnectionEvidence = func() any {
+		return map[string]any{"core_version": version, "local_diagnostics_enabled": buildinfo.LocalDiagnostics == "true", "ipad_connection": ipadncm.CompactConnectionEvidence(), "desktop_snapshot": ipadncm.DesktopSnapshotDiagnostics(), "developer_debug": ipadncm.DeveloperDebugDiagnostics()}
 	}
 	if remoteInstallID != "" {
 		_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "START_CONNECTION_MONITOR", "")
@@ -1192,7 +1221,10 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		ipadncm.SetMonitorStatus("WAITING_SHARED_HOST", "")
 		lease := usbhost.NewAttemptLease(ctx, usbhost.AcquireSharedHost)
 		if !startupopt.Enabled(startupopt.ParallelPrepare) {
-			if lease.Join() != nil {
+			ipadncm.RecordConnectionTimingStage("shared_host_wait_begin")
+			joinError := lease.Join()
+			ipadncm.RecordConnectionTimingStage("shared_host_wait_end")
+			if joinError != nil {
 				lease.Close()
 				break
 			}
@@ -1209,6 +1241,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		ipadncm.SetConnectionContext(attemptCtx)
 		r = Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "PREPARE", UpgradeStop: handoff, LegacyServiceRetired: retired, LegacyCleanupWarning: legacyWarning, MacRecovery: macRecovery, InstallVersionCleanup: pruned, ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest, Authorization: authorization, DeviceKind: kind, AppleSessionsNotRequested: true}
 		ipadncm.RecordConnectionAttemptFor(kind)
+		if kind == "iPad" {
+			ipadncm.RecordConnectionTimingAttemptStart()
+		}
 		if remoteInstallID != "" {
 			_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "BEGIN_"+kind+"_SESSION", "")
 		}
@@ -1321,6 +1356,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 // has cleaned up. No RPC handler mutates active driver/grouping state.
 func runIPadPending(ctx context.Context, dir, system string, safe bool) bool {
 	if ipadncm.RunPendingIPadSoftwareReconnect(ctx, safe) {
+		return true
+	}
+	if ipadncm.RunPendingAMDSModeDiagnostic(ctx, version, dir, safe) {
 		return true
 	}
 	return false

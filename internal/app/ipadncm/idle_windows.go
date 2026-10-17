@@ -75,7 +75,9 @@ func idleUSBPresence(ctx context.Context) (string, idlePresence) {
 	return kind, p
 }
 func WaitForUSBConnection(ctx context.Context) string {
+	connectionTimingWaitBegin()
 	for ctx.Err() == nil {
+		connectionTimingOwnerLoop()
 		if UnpairedExperimentPending() {
 			return "iPad unpaired experiment"
 		}
@@ -94,19 +96,33 @@ func WaitForUSBConnection(ctx context.Context) string {
 		if IPadModeDiagnosticHeld() {
 			return "iPad diagnostic hold"
 		}
+		plan := connectionTimingWaitPlan()
 		kind, p := idleUSBPresence(ctx)
 		if p.candidate && !AMDSModeDiagnosticActive() && NetworkOnlyCanConnect() && IPadSoftwareReconnectCanConnect() {
-			lastAttemptIdentity.Store(p.identity)
-			return kind
+			acceptedKind, acceptedPresence, accepted := connectionTimingAccept(ctx, plan, kind, p)
+			if !accepted {
+				continue
+			}
+			if !connectionTimingCandidateAllowed() {
+				continue
+			}
+			lastAttemptIdentity.Store(acceptedPresence.identity)
+			return acceptedKind
 		}
-		timer := time.NewTimer(30 * time.Second)
+		timer := time.NewTimer(plan.fallback)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			connectionTimingWake("context_cancelled")
 			return ""
+		case <-plan.changed:
+			timer.Stop()
+			connectionTimingWake("profile_changed")
 		case <-connectionChanged:
 			timer.Stop()
+			connectionTimingWake("owner_notice")
 		case <-timer.C:
+			connectionTimingWake("fallback")
 		}
 	}
 	return ""
@@ -218,4 +234,8 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 		}
 	}
 	return false
+}
+
+func connectionTimingCandidateAllowed() bool {
+	return !(UnpairedExperimentPending() || IPadSoftwareReconnectPending() || IPadCandidatePending() || NetworkOnlyPending() || AMDSModeDiagnosticPending() || IPadModeDiagnosticHeld() || AMDSModeDiagnosticActive() || !NetworkOnlyCanConnect() || !IPadSoftwareReconnectCanConnect())
 }

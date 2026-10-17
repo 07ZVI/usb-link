@@ -565,6 +565,16 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 			}
 		}
 	}
+	if network && r.USBIdentifiersVerified {
+		if !consent() {
+			r.Status = "MODE_CHANGE_DECLINED"
+			return r
+		}
+		if err := BindPhotoIsolationTarget(r.Before); err != nil {
+			r.Status = "PHOTO_ISOLATION_RECOVERY_OR_SCOPE_UNCONFIRMED"
+			return r
+		}
+	}
 	if (!apple && hasNCM(r.Before)) || (apple && HasActiveNCM(r.Before) && (r.USBIdentifiersVerified || strings.HasPrefix(r.ProductType, "iPad"))) {
 		r.Status = "NCM_DESCRIPTORS_PRESENT"
 		return r
@@ -619,12 +629,14 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 			var stage string
 			var e error
 			transport := "WINUSB"
+			openDone := RecordConnectionOperation("usb_control_open")
 			if apple {
 				transport = "APPLE_MUX1_BUFFERED_CONTROL"
 				w, stage, e = openAppleControl(ctx, node, path)
 			} else {
 				w, stage, e = openControl(path)
 			}
+			openDone()
 			r.ControlAttempts = append(r.ControlAttempts, ControlAttempt{Node: node.IDPrefix, Transport: transport, OpenStage: stage})
 			a := &r.ControlAttempts[len(r.ControlAttempts)-1]
 			if e != nil {
@@ -642,7 +654,9 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 				continue
 			}
 			b := make([]byte, 4)
+			getModeDone := RecordConnectionOperation("usb_get_mode")
 			n, e := w.Control(0xc0, 0x45, 0, 0, b)
+			getModeDone()
 			a.GetModeBytes = n
 			if e != nil {
 				a.GetModeError = eno(e)
@@ -675,6 +689,10 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 				w.Close()
 				return r
 			}
+			// Include re-enumeration in the operation window. This records a
+			// possible prompt trigger, never an observation of the iPad's UI.
+			modeDone := RecordConnectionOperation("usb_mode_switch")
+			defer modeDone()
 			r.SetAttempted = true
 			reply := []byte{255}
 			n, e = w.Control(0xc0, 0x52, 0, 3, reply)
@@ -695,6 +713,10 @@ func runWithControlLease(version string, consent func() bool, acquire func() (fu
 					if d.hub == target.hub && d.port == target.port {
 						for _, cfg := range d.Configurations {
 							if cfg.NCMControls > 0 && (!apple || cfg.Value == d.CurrentConfiguration) && (!network || networkOnlyUSBEligible(after)) {
+								if network && (!sameRootInstance(r.Before, after) || BindPhotoIsolationTarget(after) != nil) {
+									r.Status = "PHOTO_ISOLATION_RECOVERY_OR_SCOPE_UNCONFIRMED"
+									return r
+								}
 								r.ReenumerationSeen = true
 								r.Status = "NCM_DESCRIPTORS_AFTER_REQUEST"
 								return r

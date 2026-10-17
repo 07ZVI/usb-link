@@ -84,14 +84,34 @@ func readOwnedPendingNetworkGrouping(dir string) (j groupingJournal, found bool,
 }
 
 func readStartupOwnedGrouping(dir, root string) (j groupingJournal, pending bool, err error) {
+	diagnostic := GroupingReceiptDiagnostic{Attempt: currentSoftwareAttempt(), RootAvailable: root != "", ConfiguredRead: "NOT_READ", PendingRead: "NOT_READ"}
+	defer func() {
+		if err != nil {
+			diagnostic.LookupResult = groupingReceiptReadCode(err)
+			diagnostic.Directory = failureReceiptDirectory(diagnostic.Attempt, root, func() groupingReceiptDirectory { return inspectGroupingReceiptDirectory(dir, root) })
+		} else if pending {
+			diagnostic.LookupResult = "OWNED_PENDING"
+		} else {
+			diagnostic.LookupResult = "CONFIGURED_RECEIPT"
+		}
+		recordGroupingReceiptLookup(diagnostic)
+	}()
 	j, err = readConfiguredGrouping(configuredGroupingPath(dir, root))
+	diagnostic.ConfiguredRead = groupingReceiptReadCode(err)
+	diagnostic.ConfiguredRootMatch = err == nil && strings.EqualFold(j.RootID, root)
 	if !os.IsNotExist(err) {
 		return j, false, err
 	}
 	if !SimplifiedIPadNetworkConfigured() {
+		diagnostic.PendingRead = "FALLBACK_NOT_ENABLED"
 		return j, false, err
 	}
 	j, found, e := readOwnedPendingNetworkGrouping(dir)
+	diagnostic.PendingRead = groupingReceiptReadCode(e)
+	if e == nil && !found {
+		diagnostic.PendingRead = "ABSENT"
+	}
+	diagnostic.PendingRootMatch = found && e == nil && strings.EqualFold(j.RootID, root)
 	if e != nil {
 		return j, true, e
 	}
@@ -137,26 +157,34 @@ func RunPersistentGrouping(version, dir, system string, mode Result, consent fun
 
 func RunConfiguredGrouping(version, dir, system string, mode Result, applicationConsent func() bool) (r GroupingResult, found bool) {
 	root := exactIPadRoot(mode.Before)
+	attempt := currentSoftwareAttempt()
+	reuseResult := "IN_PROGRESS"
+	defer func() { recordGroupingReuse(attempt, root != "", reuseResult) }()
 	if root == "" {
+		reuseResult = "MODE_ROOT_UNAVAILABLE"
 		return r, false
 	}
 	j, pending, e := readStartupOwnedGrouping(dir, root)
 	if os.IsNotExist(e) {
+		reuseResult = "NO_MATCHING_RECEIPT_OR_PENDING"
 		return r, false
 	}
 	found = true
 	if e != nil || !strings.EqualFold(j.RootID, root) {
+		reuseResult = "RECEIPT_INVALID_OR_WRONG_ROOT"
 		r.Transaction.Error = "CONFIGURED_GROUPING_RECEIPT_INVALID"
 		return
 	}
 	k, err := recoveryKey(j)
 	if err != "" {
+		reuseResult = groupingReceiptReadCode(fmt.Errorf("%s", err))
 		r.Transaction.Error = err
 		return
 	}
 	v, _, e := k.GetBinaryValue("EnumeratorClass")
 	k.Close()
 	if e != nil || !bytes.Equal(v, groupingBytes) {
+		reuseResult = "REGISTRY_VALUE_CHANGED_OR_UNREADABLE"
 		r.Transaction.Error = "CONFIGURED_GROUPING_CHANGED"
 		return
 	}
@@ -176,6 +204,10 @@ func RunConfiguredGrouping(version, dir, system string, mode Result, application
 			r.Transaction.Error = problem
 			r.Transaction.Status = "OWNED_PRODUCT_PENDING_COMMIT_UNCONFIRMED_RETAINED"
 		}
+	}
+	reuseResult = "REUSED"
+	if r.Transaction.Error != "" {
+		reuseResult = "REUSED_OBSERVATION_OR_COMMIT_FAILED"
 	}
 	return
 }

@@ -26,4 +26,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: python scripts/project.py check
-      - run: python scripts/project.py package
+      - run: python scripts/project.py package --profile release

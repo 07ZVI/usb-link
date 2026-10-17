@@ -32,6 +32,14 @@ flowchart TD
 
 `architecture-map.json` records every original package path and its new owner. Package names remain stable; imports were updated together. Production commands for launcher, bridge worker, Mac agent contain no business implementations. Their implementations now belong to application modules. The desktop's original single-file classes are separated without changing their controls; outbound intent goes through one synchronized `DesktopClient` writer.
 
+Device display fields are defined in `internal/contracts/desktopipc`. The Go
+snapshot keeps the existing JSON names and legacy top-level device fields.
+`desktop/Models/DeviceStatus.cs` parses current two-device and older single-device
+messages once; `DeviceStatusView` receives that model and intent/copy callbacks,
+without accessing the dashboard or parsing JSON. Transport activity and verified
+peer connectivity remain separate fields. Shared fixtures check Go output and
+C# interpretation, including stale-slot removal and shutdown.
+
 Policy and native mutation have separate boundaries: `dependencies.Platform` controls detect/verify/install; `internet.Backend` controls preflight/journal/create/open/close/readback. Routing policy contains no system calls. Existing Windows implementations remain separated by build tags from pure policy/tests. Go's compiler rejects package cycles, and `scripts/check_architecture.py` checks ownership and lower-layer imports. Integration tests may import application fixtures without changing production dependencies.
 
 ## Native SMB and compatibility SMB
@@ -57,3 +65,9 @@ Temporary file transfer and developer remote-upgrade entry points have been remo
 ## Local Windows installation
 
 `connectioninstall` coordinates a durable local transaction around the existing authenticated SCM lifecycle. Publisher content is staged and independently verified before quiescing; the stable executable and desktop live in `Program Files/USB Link/App`. Machine settings, security and transactions use ProgramData. A stopped service temporarily references a verified backup during replacement, then an authenticated SYSTEM initialization record permits cleanup. Core background cleanup cannot retire legacy sources while this local transaction remains unfinished. Uninstall closes authenticated login clients before restoring owned hardware/network state and removing files. See [lifecycle specification](INSTALLATION-LIFECYCLE.zh-CN.md).
+
+### Desktop snapshot history budget
+
+The service-to-desktop projection sends current connection values and performance aggregates, not the core's per-second history or fault-event arrays. Full histories remain in core diagnostics; projected `older_samples_omitted` includes samples excluded from the desktop snapshot. This keeps session duration from exhausting the 48 KiB display snapshot budget. A regression fixture with a full 600-sample ring and 64 fault events exceeds the old limit and verifies identical rendered device status after projection.
+
+A failed service read produces a bounded `backend-unavailable` event with a fixed error code. The renderer marks existing values stale and disables business controls while retaining exit controls; only a normal version-bearing status clears that state. The core snapshot's status and encoded byte count are included in USB diagnostics. Missing status is never treated as successful version verification.

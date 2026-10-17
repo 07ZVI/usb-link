@@ -58,54 +58,11 @@ type statistics struct {
 }
 
 func diagnostics(dir, nonce string, stats statistics, topology []usbaddress.InterfaceProof) ([]byte, error) {
-	logs := map[string]string{}
-	for _, name := range []string{"installer.log", "ncm-probe.log"} {
-		path := name
-		if name == "ncm-probe.log" {
-			path = "usbnet-bridge.log"
-		}
-		f, err := os.Open(filepath.Join(dir, path))
-		if err != nil {
-			logs[name] = err.Error()
-			continue
-		}
-		info, err := f.Stat()
-		if err != nil {
-			f.Close()
-			return nil, err
-		}
-		if info.Size() > 64*1024 {
-			f.Seek(info.Size()-64*1024, io.SeekStart)
-		}
-		b, err := io.ReadAll(io.LimitReader(f, 64*1024))
-		f.Close()
-		if err != nil {
-			return nil, err
-		}
-		logs[name] = string(b)
-		if name == "installer.log" {
-			if serviceLog, e := os.Open(filepath.Join(dir, "service.log")); e == nil {
-				if info, e := serviceLog.Stat(); e == nil && info.Size() > 32*1024 {
-					serviceLog.Seek(info.Size()-32*1024, io.SeekStart)
-				}
-				tail, e := io.ReadAll(io.LimitReader(serviceLog, 32*1024))
-				serviceLog.Close()
-				if e == nil {
-					logs[name] += "\nBACKGROUND_SERVICE_LOG_BEGIN\n" + string(tail)
-				}
-			}
-		}
-	}
-	return json.Marshal(struct {
-		Version      string                           `json:"version"`
-		Group        int                              `json:"group"`
-		Nonce        string                           `json:"nonce"`
-		Stats        statistics                       `json:"stats"`
-		Logs         map[string]string                `json:"logs"`
-		Performance  performanceCounters              `json:"performance"`
-		Network      any                              `json:"usb_network"`
-		WintunModule wintun.ModuleLifetimeObservation `json:"wintun_module_lifetime"`
-	}{version, 0, nonce, stats, logs, performanceSnapshot(), usbaddress.NativeDetails(topology), wintun.ModuleLifetimeSnapshot()})
+	return logfile.MarshalDiagnosticSnapshot(map[string]any{
+		"version": version, "group": 0, "nonce": nonce, "stats": stats,
+		"performance": performanceSnapshot(), "usb_network": usbaddress.NativeDetails(topology),
+		"wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(),
+	}, logfile.ReadDiagnosticTails(dir))
 }
 
 func run(dir string, l *log.Logger) (runErr error) {

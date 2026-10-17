@@ -25,8 +25,8 @@ func TestDesktopPeerAddressDoesNotPresentPlannedOrStaleAddressAsAssigned(t *test
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status := desktopDeviceStatus(tc.r, tc.stopping)
-			if status["peer_ipv4"] != tc.address || status["peer_address_state"] != tc.state {
-				t.Fatalf("address=%v state=%v", status["peer_ipv4"], status["peer_address_state"])
+			if status.PeerIPv4 != tc.address || status.PeerAddressState != tc.state {
+				t.Fatalf("address=%v state=%v", status.PeerIPv4, status.PeerAddressState)
 			}
 		})
 	}
@@ -64,12 +64,12 @@ func TestDesktopDisplaysBothSessionsWithoutSelection(t *testing.T) {
 		t.Fatal("both slots required in stable order", r)
 	}
 	m, i := desktopDeviceStatus(r[0], false), desktopDeviceStatus(r[1], false)
-	if m["tx"] != float64(800) || i["tx"] != float64(160) || m["benchmark_available"] != true || i["benchmark_available"] != true || i["benchmark_url"] != "http://10.6.9.1:1234/" || m["benchmark_url"] != "http://10.6.9.1:10690/speed/" || m["benchmark_ready"] != false {
+	if m.TX != float64(800) || i.TX != float64(160) || m.BenchmarkAvailable != true || i.BenchmarkAvailable != true || i.BenchmarkURL != "http://10.6.9.1:1234/" || m.BenchmarkURL != "http://10.6.9.1:10690/speed/" || m.BenchmarkReady != false {
 		t.Fatal("device-specific traffic or benchmark state crossed sessions", m, i)
 	}
 	ipad.update(func(r *ApplicationResult) { r.Status = "MONITOR_WAITING"; r.ObservedTransmitMbps = 0 })
 	r = deviceDisplaySnapshots()
-	if desktopDeviceStatus(r[0], false)["connected"] != true || desktopDeviceStatus(r[1], false)["connected"] != false || r[0].ObservedTransmitMbps != 800 {
+	if desktopDeviceStatus(r[0], false).Connected != true || desktopDeviceStatus(r[1], false).Connected != false || r[0].ObservedTransmitMbps != 800 {
 		t.Fatal("iPad detach changed Mac display")
 	}
 	displaySessions.Lock()
@@ -97,7 +97,7 @@ func TestDesktopConnectionColorsFollowPeerEvidenceAndRecovery(t *testing.T) {
 		{ApplicationResult{DeviceKind: "Mac", Status: "USB_RECOVERY_MAINTENANCE"}, false, "error"},
 		{ApplicationResult{DeviceKind: "Mac", Status: "MAC_RUNNING", MacPeerResolved: true}, true, "offline"},
 	} {
-		if got := desktopDeviceStatus(tc.r, tc.stopping)["connection_state"]; got != tc.want {
+		if got := desktopDeviceStatus(tc.r, tc.stopping).ConnectionState; got != tc.want {
 			t.Fatalf("%s stopping=%v got=%s want=%s", tc.r.Status, tc.stopping, got, tc.want)
 		}
 	}
@@ -111,10 +111,10 @@ func TestMacBrowserLinkRequiresActiveServicesAndNeverDependsOnNativePolling(t *t
 		{"MAC_RUNNING", true, false, true}, {"MAC_RUNNING", false, false, false}, {"MONITOR_WAITING", true, false, false}, {"MAC_RUNNING", true, true, false},
 	} {
 		v := desktopDeviceStatus(ApplicationResult{DeviceKind: "Mac", Status: tc.status, ServicesReady: tc.services, BenchmarkURL: "stale"}, tc.stopping)
-		if (v["benchmark_url"] != "") != tc.want || v["benchmark_available"] != tc.want {
+		if (v.BenchmarkURL != "") != tc.want || v.BenchmarkAvailable != tc.want {
 			t.Fatal("incorrect browser link availability", v)
 		}
-		if strings.Contains(v["benchmark_summary"].(string), "測試程式尚未啟動") {
+		if strings.Contains(v.BenchmarkSummary, "測試程式尚未啟動") {
 			t.Fatal("native dependency in browser flow")
 		}
 	}

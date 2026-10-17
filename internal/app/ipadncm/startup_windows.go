@@ -86,7 +86,7 @@ func runStartupCheck(version string, expected *Snapshot, mode *Result, eventMode
 	defer cancel()
 	r := StartupResult{Protocol: "SUHANG-IPAD-NCM-START-CHECK/1", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Status: "INCOMPLETE"}
 	checkStarted := time.Now()
-	diagnostic := StartupReadinessDiagnostic{StartedUTC: r.Started, CheckKind: checkKind, EventMode: eventMode}
+	diagnostic := StartupReadinessDiagnostic{Attempt: currentSoftwareAttempt(), StartedUTC: r.Started, CheckKind: checkKind, EventMode: eventMode}
 	defer func() {
 		diagnostic.Status, diagnostic.ElapsedMS = r.Status, time.Since(checkStarted).Milliseconds()
 		if diagnostic.ExitReason == "" {

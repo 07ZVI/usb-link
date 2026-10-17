@@ -2,6 +2,7 @@
 """Single public build entry: python3 scripts/project.py check|build|package|verify."""
 import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfile,urllib.request
 from windows_resource import write_resource, verify_manifest
+from local_installer_retention import retain as retain_local_installers
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 VERSION=(ROOT/'VERSION').read_text().strip()
 OUT=ROOT/'out'
@@ -19,21 +20,46 @@ def zipped(path,files):
   for name,f in sorted(files.items()):
    info=zipfile.ZipInfo(name,(2020,1,1,0,0,0));info.compress_type=zipfile.ZIP_DEFLATED;info.external_attr=(0o100755 if f.stat().st_mode & 0o111 else 0o100644)<<16
    z.writestr(info,f.read_bytes())
-def go_build(target,path,windows=True,extra=''):
+def profile_tags(profile):
+ if profile not in ('local','release'):raise ValueError('Unknown build profile: '+profile)
+ # An explicit empty value overrides inherited GOFLAGS=-tags=... for release.
+ return '-tags='+('usblink_local_remote' if profile=='local' else '')
+def local_publisher_flags(profile):
+ if profile!='local':return ''
+ key=(ROOT/'.local/secrets/local-update.pub').read_text().strip()
+ if not re.fullmatch('[0-9a-f]{64}',key):raise ValueError('Invalid local developer public key')
+ return ' -X suhang/usbnet/internal/app/remoteupdate.LocalPublisherHex='+key
+
+def ensure_local_publisher():
+ directory=ROOT/'.local/secrets'
+ directory.mkdir(mode=0o700,parents=True,exist_ok=True)
+ private=directory/'local-update.ed25519';public=directory/'local-update.pub'
+ if public.exists():
+  local_publisher_flags('local')
+  if not private.is_file():raise RuntimeError('Local signing private key missing; restore it before building')
+  return
+ if private.exists():raise RuntimeError('Local private key exists without public file; preserve it and recover its public key')
+ key=subprocess.check_output([GO,'run',profile_tags('local'),'./cmd/usb-link-local-update','--init-key',str(private)],cwd=ROOT,env=ENV,text=True).strip()
+ if not re.fullmatch('[0-9a-f]{64}',key):raise RuntimeError('Local signing key generation failed')
+ with public.open('x') as f:f.write(key+'\n')
+ print('Local developer signing identity ready; private key stays in .local/secrets.',flush=True)
+
+def go_build(target,path,windows=True,extra='',profile='release'):
  env={**ENV,'GOOS':'windows' if windows else 'darwin','GOARCH':'amd64','CGO_ENABLED':'0'}
- run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION} '+extra,'-o',path,target],env)
-def verify_release_surface(bridge):
+ run([GO,'build',profile_tags(profile),'-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION} '+extra+local_publisher_flags(profile),'-o',path,target],env)
+def verify_release_surface(bridge, profile="release"):
  # Inspect a symbol-bearing twin built from the same source/assets/linker values.
  # The distributed launcher is then built with symbol stripping enabled.
  env={**ENV,'GOOS':'windows','GOARCH':'amd64','CGO_ENABLED':'0'}
- forbidden=['remoteupdate.(*Server).ServeHTTP','connectioninstall.RunUpdateWorker','usbrecovery.Run','filedrop.','webdav.(*Handler).ServeHTTP']
+ forbidden=['connectioninstall.RunUpdateWorker','usbrecovery.Run','filedrop.','webdav.(*Handler).ServeHTTP']
+ if profile=='release':forbidden+=['remoteupdate.(*Server).ServeHTTP','connectioninstall.LaunchLocalRemoteElevation','connectioninstall.DispatchLocalRemoteInstall','connectioninstall.RunLocalRemoteInstall','launcher.handleLocalRemoteCommand','ipadncm.(*localPhotoNativeBackend).disable']
  with tempfile.TemporaryDirectory(prefix='usb-link-release-check-') as directory:
   candidate=pathlib.Path(directory)/'launcher.exe'
-  run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-H windowsgui -X suhang/usbnet/internal/buildinfo.Version={VERSION} -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA={bridge}','-o',candidate,'./cmd/ipad-usb-easy'],env)
+  run([GO,'build',profile_tags(profile),'-trimpath','-buildvcs=false','-ldflags',f'-H windowsgui -X suhang/usbnet/internal/buildinfo.Version={VERSION} -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA={bridge} -X suhang/usbnet/internal/buildinfo.LocalDiagnostics={str(profile == "local").lower()}'+local_publisher_flags(profile),'-o',candidate,'./cmd/ipad-usb-easy'],env)
   symbols=subprocess.check_output([GO,'tool','nm',str(candidate)],cwd=ROOT,env=env,text=True)
   found=[name for name in forbidden if name in symbols]
-  if found:raise RuntimeError('Forbidden release functionality linked: '+', '.join(found))
- print('Release surface check passed: remote servers/workers and temporary file-transfer handlers absent.',flush=True)
+  if found:raise RuntimeError('Forbidden '+profile+' functionality linked: '+', '.join(found))
+ print(profile.capitalize()+' surface check passed: disallowed remote workers/servers and temporary file-transfer handlers absent.',flush=True)
 def notices():
  parts=[(ROOT/'LICENSE').read_text()+'\n'+(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(),'USB Link '+VERSION+'\nGPL-3.0-only with the official Wintun DLL linking exception. See LICENSE and LICENSE-WINTUN-EXCEPTION.\n']
  for f in sorted((ROOT/'licenses').rglob('*')):
@@ -64,7 +90,7 @@ def prepare_bundled_dependencies():
    raise ValueError('Official component hash mismatch: '+asset['id'])
   target.write_bytes(data)
   print('Verified redistributable official '+asset['id']+' package included.',flush=True)
-def prepare():
+def prepare(profile="release"):
  ASSETS.mkdir(parents=True,exist_ok=True);OUT.mkdir(exist_ok=True)
  prepare_bundled_dependencies()
  go_build('./cmd/suhang-usbnet',OUT/'suhang-usbnet.exe')
@@ -77,7 +103,7 @@ def prepare():
  # silently become authorized content in the next publisher inventory.
  with tempfile.TemporaryDirectory(prefix='desktop-publish-',dir=OUT) as directory:
   published=pathlib.Path(directory)
-  run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',published])
+  run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false',f'-p:USBLinkLocalDiagnostics={str(profile == "local").lower()}','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',published])
   files={f.relative_to(published).as_posix():f for f in published.rglob('*') if f.is_file() and f.suffix!='.pdb'}
   product=re.search(r'const ProductID = "([^"]+)"',(ROOT/'internal/app/connectioninstall/task.go').read_text()).group(1)
   manifest=published/'desktop-ownership.json'
@@ -89,32 +115,46 @@ def prepare():
  run([GO,'test','./internal/app/connectioninstall','-run','Test(IndexedDesktopShipped|InstallationShipped)','-count=1','-v'],{**ENV,'SUHANG_DESKTOP_BENCH_ARCHIVE':str(ASSETS/'desktop.zip'),'USBLINK_TEST_VERSION':VERSION})
  notices()
  return bridge
+def check_desktop_contract():
+ output=OUT/'desktop-contract'
+ run([DOTNET,'build','desktop/Suhang.Desktop.csproj','-c','Release','-p:RuntimeIdentifiers=win-x64','-p:USBLinkDesignTools=true','-p:RestoreLockedMode=true','-p:NuGetAudit=false','-o',output])
+ fixtures=ROOT/'internal/contracts/desktopipc/testdata'
+ run([DOTNET,output/'USBLink.Desktop.dll','--device-status-smoke',fixtures/'device-status.json',fixtures/'producer-status.json'])
 def check():
  run([sys.executable,'scripts/test_publication.py'])
  run([sys.executable,'scripts/test_windows_resource.py'])
+ run([sys.executable,'scripts/test_local_installer_retention.py'])
+ run([sys.executable,'scripts/test_build_profiles.py'])
  if os.name=='nt':prepare()
  run([GO,'test']+(['-race'] if os.name!='nt' else [])+['./...'])
  run([GO,'vet','./...'])
+ check_desktop_contract()
  run([sys.executable,'scripts/check_architecture.py'])
  run([sys.executable,'scripts/audit_distribution.py','--source','--history'])
 def setup():
  run(['git','config','--local','core.hooksPath','.githooks'])
  run(['git','config','--local','pull.ff','only'])
  print('Commit/push checks enabled; pulls require a fast-forward.')
-def build():
- bridge=prepare()
+def build(profile="release"):
+ if profile=="local":ensure_local_publisher()
+ bridge=prepare(profile)
+ installer=OUT/f'USB-Link-{VERSION}-windows-x64{"-local" if profile == "local" else ""}.exe'
  resource=write_resource(ROOT)
  try:
-  verify_release_surface(bridge)
-  go_build('./cmd/ipad-usb-easy',OUT/f'USB-Link-{VERSION}-windows-x64.exe',True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge)
-  verify_manifest(OUT/f'USB-Link-{VERSION}-windows-x64.exe',(ROOT/'cmd/ipad-usb-easy/setup.manifest').read_bytes())
-  run([GO,'test','./internal/app/connectioninstall','-run','TestInstallationShipped','-count=1','-v'],{**ENV,'SUHANG_DESKTOP_BENCH_ARCHIVE':str(ASSETS/'desktop.zip'),'USBLINK_TEST_VERSION':VERSION,'USBLINK_TEST_INSTALLER':str(OUT/f'USB-Link-{VERSION}-windows-x64.exe')})
+  verify_release_surface(bridge, profile)
+  go_build('./cmd/ipad-usb-easy',installer,True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge+' -X suhang/usbnet/internal/buildinfo.LocalDiagnostics='+str(profile == 'local').lower(),profile=profile)
+  verify_manifest(installer,(ROOT/'cmd/ipad-usb-easy/setup.manifest').read_bytes())
+  run([GO,'test','./internal/app/connectioninstall','-run','TestInstallationShipped','-count=1','-v'],{**ENV,'SUHANG_DESKTOP_BENCH_ARCHIVE':str(ASSETS/'desktop.zip'),'USBLINK_TEST_VERSION':VERSION,'USBLINK_TEST_INSTALLER':str(installer)})
  finally:
   resource.unlink(missing_ok=True)
  go_build('./cmd/mac-usbnet',OUT/'usb-link-mac-x64',False)
  env={**ENV,'GOOS':'darwin','GOARCH':'arm64','CGO_ENABLED':'0'}
- run([GO,'build','-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION}','-o',OUT/'usb-link-mac-arm64','./cmd/mac-usbnet'],env)
- run([GO,'vet','./...'],{**ENV,'GOOS':'windows','GOARCH':'amd64','CGO_ENABLED':'0'})
+ run([GO,'build',profile_tags('release'),'-trimpath','-buildvcs=false','-ldflags',f'-s -w -X suhang/usbnet/internal/buildinfo.Version={VERSION}','-o',OUT/'usb-link-mac-arm64','./cmd/mac-usbnet'],env)
+ run([GO,'vet',profile_tags(profile),'./...'],{**ENV,'GOOS':'windows','GOARCH':'amd64','CGO_ENABLED':'0'})
+ if profile=='local':
+  run([sys.executable,'scripts/audit_distribution.py','--artifact',str(installer)])
+  retain_local_installers(ROOT,VERSION,os.environ.get('USBLINK_ROLLBACK_VERSION'))
+  write_checksums()
 def package():
  build();release=OUT/f'USB-Link-{VERSION}';release.mkdir(exist_ok=True)
  for name in [f'USB-Link-{VERSION}-windows-x64.exe','usb-link-mac-x64','usb-link-mac-arm64']:
@@ -198,5 +238,10 @@ def write_checksums():
  files=sorted(f for f in OUT.iterdir() if f.is_file() and f.suffix in ['.zip','.exe'])
  (OUT/'SHA256SUMS').write_text(''.join(f'{sha(f)}  {f.name}\n' for f in files))
 if __name__=='__main__':
- a=argparse.ArgumentParser();a.add_argument('command',choices=['setup','check','build','package','verify']);args=a.parse_args()
- globals()[args.command]()
+ a=argparse.ArgumentParser();a.add_argument('command',choices=['setup','check','build','package','verify'])
+ a.add_argument('--profile',choices=['local','release'],help='build defaults to local; package requires release')
+ args=a.parse_args()
+ if args.command=='build':build(args.profile or 'local')
+ elif args.profile not in (None,'release') or (args.profile and args.command!='package'):
+  a.error('--profile is supported by build; package only accepts release')
+ else:globals()[args.command]()

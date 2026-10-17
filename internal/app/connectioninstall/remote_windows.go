@@ -50,6 +50,7 @@ type UpdateJob struct {
 	UpdatedUTC          string `json:"updated_utc,omitempty"`
 }
 type RemoteManager struct {
+	localRemote               localRemoteState
 	candidateStatusMu         sync.Mutex
 	startupFailureDetails     func() remoteupdate.CandidateStartupObservation
 	richStartupFailureDetails func() *remoteupdate.CandidateRichObservation
@@ -155,13 +156,13 @@ func NewRecoveryRemoteManager(version, installed string, stop context.CancelFunc
 func newRemoteManager(version, installed string, stop context.CancelFunc, usbGUID func() string, approve func(string) bool, recovery bool) (*RemoteManager, error) {
 	root, e := remoteRoot()
 	if e != nil {
-		return nil, e
+		return nil, remoteInitializationFailure("root", e)
 	}
 	m := &RemoteManager{root: root, version: version, installed: installed, stop: stop, usbGUID: usbGUID, approve: approve, done: make(chan struct{}), recoveryOnly: recovery}
 	m.upgradeGuard.enabled.Store(upgradeGuardInherited())
 	e = readRemote(filepath.Join(root, "config.json"), &m.config)
 	if e != nil && !os.IsNotExist(e) {
-		return nil, fmt.Errorf("read maintenance configuration: %w", e)
+		return nil, remoteInitializationFailure("config_read", e)
 	}
 	// Retain the protected local transaction journal for rollback compatibility,
 	// but never honor old network or automatic-install consent.
@@ -174,18 +175,20 @@ func newRemoteManager(version, installed string, stop context.CancelFunc, usbGUI
 		deferConsentClear = true
 	} else {
 		if e = writeRemote(filepath.Join(root, "config.json"), m.config); e != nil {
-			return nil, e
+			return nil, remoteInitializationFailure("config_clear", e)
 		}
 	}
-	activeUpgradeManager.Store(m)
+	if e = m.initializeLocalRemote(); e != nil {
+		return nil, e
+	}
 	if upgradeGuardInherited() {
 		if e = m.guardSet(900); e != nil {
-			return nil, e
+			return nil, remoteInitializationFailure("guard", e)
 		}
 	}
 	if !recovery {
-		if e = remoteFirewall(false, ""); e != nil {
-			return nil, e
+		if e = remoteFirewall(false, ""); e != nil && !m.deferLocalRemoteStartupCleanup(e) {
+			return nil, remoteInitializationFailure("legacy_firewall", e)
 		}
 	}
 	var previous UpdateJob
@@ -203,6 +206,8 @@ func newRemoteManager(version, installed string, stop context.CancelFunc, usbGUI
 	if deferConsentClear {
 		go m.retireLegacyConsentAfterCommit(pendingID)
 	}
+	activeUpgradeManager.Store(m)
+	m.startLocalRemoteWatcher()
 	return m, nil
 }
 
@@ -268,12 +273,13 @@ func remoteFirewall(enabled bool, guid string) error {
 	}
 	return netconfig.Run(script, log.New(io.Discard, "", 0))
 }
-func (m *RemoteManager) open() error { return errRemoteMaintenanceRemoved }
+func (m *RemoteManager) open() error { return m.openLocalRemote() }
 
 func (m *RemoteManager) Enable(enabled bool) error {
-	if enabled {
-		return errRemoteMaintenanceRemoved
-	}
+	return m.enableLocalRemote(enabled)
+}
+
+func (m *RemoteManager) disablePublicRemote() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.config = remoteConfig{}
@@ -335,6 +341,7 @@ func (m *RemoteManager) Close() {
 	m.candidateStatusMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.closeLocalRemoteConsentLocked()
 	if m.server != nil {
 		m.server.Close()
 		m.server = nil
@@ -345,7 +352,7 @@ func (m *RemoteManager) Close() {
 }
 func (m *RemoteManager) Requested() bool { return m != nil && m.requested.Load() }
 func (m *RemoteManager) Info() (string, string) {
-	return "Remote maintenance is not available in the public build", ""
+	return m.localRemoteInfo()
 }
 
 func (m *RemoteManager) status() any {
@@ -399,10 +406,12 @@ func (m *RemoteManager) apply(api *remoteupdate.Server, id string) error {
 	return errRemoteMaintenanceRemoved
 }
 
-func (m *RemoteManager) Enabled() bool { return false }
+func (m *RemoteManager) Enabled() bool { return m.localRemoteEnabled() }
 
 func (m *RemoteManager) Snapshot() any {
-	m.mu.Lock()
+	if !m.lockRemoteStatus() {
+		return m.localRemotePreparingSnapshot()
+	}
 	defer m.mu.Unlock()
 	return map[string]any{"enabled": m.config.Enabled, "auto_upgrade": m.config.AutoUpgrade, "listening": m.server != nil, "listener_error": m.lastError, "update": m.status()}
 }
@@ -446,13 +455,15 @@ func (m *RemoteManager) diagnostics() any {
 
 // ListenerStatus excludes update jobs, tokens and certificate/key material.
 func (m *RemoteManager) ListenerStatus() any {
-	m.mu.Lock()
+	if !m.lockRemoteStatus() {
+		return m.localRemotePreparingSnapshot()
+	}
 	defer m.mu.Unlock()
 	errText := m.lastError
 	if len(errText) > 512 {
 		errText = errText[:512]
 	}
-	return map[string]any{"version": m.version, "enabled": m.config.Enabled, "auto_upgrade": m.config.AutoUpgrade, "listening": m.server != nil || (m.rawUSB.Load() && m.config.Enabled), "recovery_transport": m.rawUSB.Load(), "listener_error": errText}
+	return map[string]any{"version": m.version, "enabled": m.config.Enabled, "auto_upgrade": m.config.AutoUpgrade, "listening": m.server != nil || (m.rawUSB.Load() && m.config.Enabled), "recovery_transport": m.rawUSB.Load(), "listener_error": errText, "local_install": m.localRemoteListenerStatus(), "local_remote_failure": m.localRemoteFailureStatus()}
 }
 
 // SetRecoveryAttached is set only after normal USB device admission and NCM

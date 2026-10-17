@@ -53,6 +53,7 @@ type StartupDiagnosticSample struct {
 	NodesTruncated  bool                      `json:"nodes_truncated"`
 }
 type StartupReadinessDiagnostic struct {
+	Attempt             uint64                    `json:"software_attempt"`
 	StartedUTC          string                    `json:"started_utc"`
 	CheckKind           string                    `json:"check_kind"`
 	EventMode           bool                      `json:"event_mode"`

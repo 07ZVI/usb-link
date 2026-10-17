@@ -367,9 +367,12 @@ type groupingBackend struct {
 	applicationConsent      func() bool
 	applicationRestoreError string
 	eventStartup            bool
+	existingTarget          *existingNetworkTarget
 }
 
-func (b *groupingBackend) Eligible() string {
+func (b *groupingBackend) Eligible() (status string) {
+	diagnostic := groupingEligibilityEvidence{Attempt: currentSoftwareAttempt()}
+	defer func() { recordGroupingEligibility(diagnostic, status) }()
 	s := Inspect()
 	b.result.Before = s
 	if !sameUSBTarget(b.mode.Before, s) || !HasActiveNCM(s) || len(s.Devices) != 1 || s.Devices[0].PID != "12AB" || s.Devices[0].CurrentConfiguration != 5 {
@@ -401,6 +404,15 @@ func (b *groupingBackend) Eligible() string {
 			data++
 		}
 	}
+	observed := groupingEligibilityInput{FailedControls: controls, UnboundData: data}
+	if root != nil {
+		observed.RootFound, observed.RootProblem = true, root.Problem
+		observed.RootStateError, observed.DriverVersion = root.StateError, root.DriverVersion
+		observed.EnumeratorError, observed.EnumeratorClass = root.EnumeratorError, root.EnumeratorClass
+	}
+	described := describeGroupingEligibility(observed)
+	described.Attempt = diagnostic.Attempt
+	diagnostic = described
 	if root == nil || root.Problem != 0 || root.StateError != "" || root.DriverVersion != "486.0.0.0" || root.EnumeratorError != "WIN32_2" || controls != 2 || data != 2 {
 		return "DIAGNOSED_UNGROUPED_NATIVE_FAILURE_REQUIRED"
 	}

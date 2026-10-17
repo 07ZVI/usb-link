@@ -266,7 +266,7 @@ func (b *groupingBackend) observeNetwork() NetworkObservation {
 	} else {
 		owned := false
 		for _, n := range fresh.Nodes {
-			if strings.EqualFold(n.instanceID, b.j.RootID) && n.EnumeratorClass == "020000" && n.StateError == "" && n.Problem == 0 && !grouptrial.NeedsWindowsRestart(n.DevNodeStatus) {
+			if strings.EqualFold(n.instanceID, b.networkRoot()) && n.EnumeratorClass == "020000" && n.StateError == "" && n.Problem == 0 && !grouptrial.NeedsWindowsRestart(n.DevNodeStatus) {
 				owned = true
 			}
 		}

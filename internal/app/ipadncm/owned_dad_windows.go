@@ -18,10 +18,10 @@ func (b *groupingBackend) applyOwnedIPadDAD(ctx context.Context, a NetworkAdapte
 	if !interfaceconfig.OwnedDADZeroEnabled() {
 		return nil
 	}
-	if len(b.mode.Before.Devices) != 1 || !b.mode.Before.Devices[0].USBDescriptorIdentityVerified || b.j.RootID == "" || a.instanceID == "" || preflight == nil {
+	if len(b.mode.Before.Devices) != 1 || !b.mode.Before.Devices[0].USBDescriptorIdentityVerified || b.networkRoot() == "" || a.instanceID == "" || preflight == nil {
 		return errors.New("IPAD_OWNED_DAD_DESCRIPTOR_UNPROVEN")
 	}
-	id := interfaceconfig.OwnedDADIdentity{Scope: interfaceconfig.Scope{Role: "ipad", GUID: p.GUID, Index: p.Index, LUID: p.LUID}, Instance: a.instanceID, RootInstance: b.j.RootID, Driver: b.j.DriverKey, Serial: b.mode.Before.Devices[0].USBSerialSHA256}
+	id := interfaceconfig.OwnedDADIdentity{Scope: interfaceconfig.Scope{Role: "ipad", GUID: p.GUID, Index: p.Index, LUID: p.LUID}, Instance: a.instanceID, RootInstance: b.networkRoot(), Driver: b.networkDriver(), Serial: b.mode.Before.Devices[0].USBSerialSHA256}
 	owner := func() error {
 		fresh, code := preflight()
 		if code != "" {

@@ -210,13 +210,13 @@ func (b *groupingBackend) currentActivePeerAdapter(expected string) (NetworkAdap
 	for i := range s.Nodes {
 		n := &s.Nodes[i]
 		ids = append(ids, n.instanceID)
-		if strings.EqualFold(n.instanceID, b.j.RootID) {
+		if strings.EqualFold(n.instanceID, b.networkRoot()) {
 			current = n
 		}
 	}
 	for i := range b.mode.Before.Nodes {
 		n := &b.mode.Before.Nodes[i]
-		if strings.EqualFold(n.instanceID, b.j.RootID) {
+		if strings.EqualFold(n.instanceID, b.networkRoot()) {
 			original = n
 		}
 	}
@@ -234,9 +234,12 @@ func (b *groupingBackend) mappedPeerAdapter(s Snapshot, expected string) (Networ
 // Shared evaluator allows a read-only startup proof to reuse the already read
 // exact-node mappings. All ordinary peer admission checks remain unchanged.
 func (b *groupingBackend) mappedPeerAdapterFrom(s Snapshot, expected string, readAdapters func() []NetworkAdapter) (NetworkAdapter, string) {
+	if b.existingTarget != nil {
+		return b.existingNetworkMapping(s, expected, readAdapters)
+	}
 	owned := false
 	for _, n := range s.Nodes {
-		if strings.EqualFold(n.instanceID, b.j.RootID) && n.EnumeratorClass == "020000" && n.Problem == 0 && n.StateError == "" && !grouptrial.NeedsWindowsRestart(n.DevNodeStatus) {
+		if strings.EqualFold(n.instanceID, b.networkRoot()) && n.EnumeratorClass == "020000" && n.Problem == 0 && n.StateError == "" && !grouptrial.NeedsWindowsRestart(n.DevNodeStatus) {
 			owned = true
 		}
 	}

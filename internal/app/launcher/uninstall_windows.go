@@ -73,6 +73,9 @@ func recoverUninstallInterfaces(parent context.Context, dir, system string, lock
 			if err := verifyOwner(); err != nil {
 				return err
 			}
+			if err := ipadncm.RestorePhotoIsolation(dir); err != nil {
+				return fmt.Errorf("PHOTO_ISOLATION_UNINSTALL_RESTORE_PENDING: %w", err)
+			}
 			deps, err := connectioninstall.DependencyDirectory()
 			if err != nil {
 				return err

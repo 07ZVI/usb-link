@@ -1,0 +1,397 @@
+[
+  {
+    "expected": {
+      "connected": 2,
+      "connecting": 0,
+      "error": false,
+      "ipad": {
+        "benchmark_url": "http://10.6.9.1:1234/",
+        "connected": true,
+        "peer_ipv4": "10.6.9.3",
+        "present": true,
+        "retry_available": false,
+        "rx": 8,
+        "state": "connected",
+        "tx": 160
+      },
+      "mac": {
+        "benchmark_url": "http://10.6.9.1:10690/speed/",
+        "connected": true,
+        "peer_ipv4": "10.6.9.2",
+        "present": true,
+        "retry_available": false,
+        "rx": 24,
+        "state": "connected",
+        "tx": 800
+      }
+    },
+    "name": "both-connected",
+    "payload": {
+      "devices": [
+        {
+          "benchmark_available": true,
+          "benchmark_ready": false,
+          "benchmark_summary": "在 Mac 瀏覽器開啟下方網址測速，無需安裝程式。",
+          "benchmark_url": "http://10.6.9.1:10690/speed/",
+          "benchmark_visible": true,
+          "connected": true,
+          "connection_state": "connected",
+          "device": "Mac",
+          "health": "橋接過濾計數不代表串流丟包；客戶端丟包率尚未直接取得。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "已確認",
+          "peer_ipv4": "10.6.9.2",
+          "retry_available": false,
+          "rx": 24,
+          "speed": "USB 協商速率：SuperSpeed",
+          "subtitle": "Mac · USB 網路已啟動",
+          "title": "已識別 Mac USB 網路對端",
+          "tx": 800,
+          "windows_ipv4": "10.6.9.1"
+        },
+        {
+          "benchmark_available": true,
+          "benchmark_ready": false,
+          "benchmark_summary": "在 iPad 瀏覽器開啟下方網址測速，無需安裝程式。",
+          "benchmark_url": "http://10.6.9.1:1234/",
+          "benchmark_visible": false,
+          "connected": true,
+          "connection_state": "connected",
+          "device": "iPad",
+          "health": "尚未取得本輪介面錯誤統計。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "已確認",
+          "peer_ipv4": "10.6.9.3",
+          "retry_available": false,
+          "rx": 8,
+          "speed": "USB 協商速率尚未取得；即時流量不代表頻寬上限。",
+          "subtitle": "iPad · USB 已連接",
+          "title": "iPad 的 USB IPv4 通信已驗證",
+          "tx": 160,
+          "windows_ipv4": "10.6.9.1"
+        }
+      ],
+      "event": "status"
+    }
+  },
+  {
+    "expected": {
+      "connected": 1,
+      "connecting": 0,
+      "error": false,
+      "ipad": {
+        "benchmark_url": "",
+        "connected": false,
+        "peer_ipv4": "",
+        "present": true,
+        "retry_available": false,
+        "rx": 0,
+        "state": "offline",
+        "tx": 0
+      },
+      "mac": {
+        "benchmark_url": "http://10.6.9.1:10690/speed/",
+        "connected": true,
+        "peer_ipv4": "10.6.9.2",
+        "present": true,
+        "retry_available": false,
+        "rx": 24,
+        "state": "connected",
+        "tx": 800
+      }
+    },
+    "name": "ipad-removed",
+    "payload": {
+      "devices": [
+        {
+          "benchmark_available": true,
+          "benchmark_ready": false,
+          "benchmark_summary": "在 Mac 瀏覽器開啟下方網址測速，無需安裝程式。",
+          "benchmark_url": "http://10.6.9.1:10690/speed/",
+          "benchmark_visible": true,
+          "connected": true,
+          "connection_state": "connected",
+          "device": "Mac",
+          "health": "橋接過濾計數不代表串流丟包；客戶端丟包率尚未直接取得。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "已確認",
+          "peer_ipv4": "10.6.9.2",
+          "retry_available": false,
+          "rx": 24,
+          "speed": "USB 協商速率：SuperSpeed",
+          "subtitle": "Mac · USB 網路已啟動",
+          "title": "已識別 Mac USB 網路對端",
+          "tx": 800,
+          "windows_ipv4": "10.6.9.1"
+        },
+        {
+          "benchmark_available": false,
+          "benchmark_ready": false,
+          "benchmark_summary": "連接後可在 iPad 瀏覽器測速。",
+          "benchmark_url": "",
+          "benchmark_visible": false,
+          "connected": false,
+          "connection_state": "offline",
+          "device": "iPad",
+          "health": "尚未取得本輪介面錯誤統計。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "尚未分配",
+          "peer_ipv4": "",
+          "retry_available": false,
+          "rx": 0,
+          "speed": "USB 協商速率尚未取得；即時流量不代表頻寬上限。",
+          "subtitle": "等候 USB 裝置",
+          "title": "等候 USB 接線",
+          "tx": 0,
+          "windows_ipv4": ""
+        }
+      ],
+      "event": "status"
+    }
+  },
+  {
+    "expected": {
+      "connected": 1,
+      "connecting": 1,
+      "error": false,
+      "ipad": {
+        "benchmark_url": "http://10.6.9.1:1234/",
+        "connected": true,
+        "peer_ipv4": "10.6.9.3",
+        "present": true,
+        "retry_available": false,
+        "rx": 8,
+        "state": "connecting",
+        "tx": 160
+      },
+      "mac": {
+        "benchmark_url": "http://10.6.9.1:10690/speed/",
+        "connected": true,
+        "peer_ipv4": "10.6.9.2",
+        "present": true,
+        "retry_available": false,
+        "rx": 24,
+        "state": "connected",
+        "tx": 800
+      }
+    },
+    "name": "ipad-address-pending",
+    "payload": {
+      "devices": [
+        {
+          "benchmark_available": true,
+          "benchmark_ready": false,
+          "benchmark_summary": "在 Mac 瀏覽器開啟下方網址測速，無需安裝程式。",
+          "benchmark_url": "http://10.6.9.1:10690/speed/",
+          "benchmark_visible": true,
+          "connected": true,
+          "connection_state": "connected",
+          "device": "Mac",
+          "health": "橋接過濾計數不代表串流丟包；客戶端丟包率尚未直接取得。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "已確認",
+          "peer_ipv4": "10.6.9.2",
+          "retry_available": false,
+          "rx": 24,
+          "speed": "USB 協商速率：SuperSpeed",
+          "subtitle": "Mac · USB 網路已啟動",
+          "title": "已識別 Mac USB 網路對端",
+          "tx": 800,
+          "windows_ipv4": "10.6.9.1"
+        },
+        {
+          "benchmark_available": true,
+          "benchmark_ready": false,
+          "benchmark_summary": "在 iPad 瀏覽器開啟下方網址測速，無需安裝程式。",
+          "benchmark_url": "http://10.6.9.1:1234/",
+          "benchmark_visible": false,
+          "connected": true,
+          "connection_state": "connecting",
+          "device": "iPad",
+          "health": "尚未取得本輪介面錯誤統計。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "待確認",
+          "peer_ipv4": "10.6.9.3",
+          "retry_available": false,
+          "rx": 8,
+          "speed": "USB 協商速率尚未取得；即時流量不代表頻寬上限。",
+          "subtitle": "iPad · 已識別，正在準備",
+          "title": "USB 網卡已啟動，等候 iPad 連接",
+          "tx": 160,
+          "windows_ipv4": "10.6.9.1"
+        }
+      ],
+      "event": "status"
+    }
+  },
+  {
+    "expected": {
+      "connected": 1,
+      "connecting": 0,
+      "error": true,
+      "ipad": {
+        "benchmark_url": "",
+        "connected": false,
+        "peer_ipv4": "",
+        "present": true,
+        "retry_available": true,
+        "rx": 8,
+        "state": "error",
+        "tx": 160
+      },
+      "mac": {
+        "benchmark_url": "http://10.6.9.1:10690/speed/",
+        "connected": true,
+        "peer_ipv4": "10.6.9.2",
+        "present": true,
+        "retry_available": false,
+        "rx": 24,
+        "state": "connected",
+        "tx": 800
+      }
+    },
+    "name": "ipad-paused",
+    "payload": {
+      "devices": [
+        {
+          "benchmark_available": true,
+          "benchmark_ready": false,
+          "benchmark_summary": "在 Mac 瀏覽器開啟下方網址測速，無需安裝程式。",
+          "benchmark_url": "http://10.6.9.1:10690/speed/",
+          "benchmark_visible": true,
+          "connected": true,
+          "connection_state": "connected",
+          "device": "Mac",
+          "health": "橋接過濾計數不代表串流丟包；客戶端丟包率尚未直接取得。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "已確認",
+          "peer_ipv4": "10.6.9.2",
+          "retry_available": false,
+          "rx": 24,
+          "speed": "USB 協商速率：SuperSpeed",
+          "subtitle": "Mac · USB 網路已啟動",
+          "title": "已識別 Mac USB 網路對端",
+          "tx": 800,
+          "windows_ipv4": "10.6.9.1"
+        },
+        {
+          "benchmark_available": false,
+          "benchmark_ready": false,
+          "benchmark_summary": "連接後可在 iPad 瀏覽器測速。",
+          "benchmark_url": "",
+          "benchmark_visible": false,
+          "connected": false,
+          "connection_state": "error",
+          "device": "iPad",
+          "health": "尚未取得本輪介面錯誤統計。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "尚未分配",
+          "peer_ipv4": "",
+          "retry_available": true,
+          "rx": 8,
+          "speed": "USB 協商速率尚未取得；即時流量不代表頻寬上限。",
+          "subtitle": "iPad · 連線已暫停",
+          "title": "連線暫停 · 可查看原因或按「重試連線」",
+          "tx": 160,
+          "windows_ipv4": "10.6.9.1"
+        }
+      ],
+      "event": "status"
+    }
+  },
+  {
+    "expected": {
+      "connected": 0,
+      "connecting": 0,
+      "error": false,
+      "ipad": {
+        "benchmark_url": "",
+        "connected": true,
+        "peer_ipv4": "",
+        "present": true,
+        "retry_available": false,
+        "rx": 8,
+        "state": "offline",
+        "tx": 160
+      },
+      "mac": {
+        "benchmark_url": "",
+        "connected": true,
+        "peer_ipv4": "",
+        "present": true,
+        "retry_available": false,
+        "rx": 24,
+        "state": "offline",
+        "tx": 800
+      }
+    },
+    "name": "stopping",
+    "payload": {
+      "devices": [
+        {
+          "benchmark_available": false,
+          "benchmark_ready": false,
+          "benchmark_summary": "連接後可在 Mac 瀏覽器測速。",
+          "benchmark_url": "",
+          "benchmark_visible": true,
+          "connected": true,
+          "connection_state": "offline",
+          "device": "Mac",
+          "health": "橋接過濾計數不代表串流丟包；客戶端丟包率尚未直接取得。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "尚未分配",
+          "peer_ipv4": "",
+          "retry_available": false,
+          "rx": 24,
+          "speed": "USB 協商速率：SuperSpeed",
+          "subtitle": "Mac · USB 網路已啟動",
+          "title": "正在結束並清理 Mac USB 連線…",
+          "tx": 800,
+          "windows_ipv4": "10.6.9.1"
+        },
+        {
+          "benchmark_available": false,
+          "benchmark_ready": false,
+          "benchmark_summary": "連接後可在 iPad 瀏覽器測速。",
+          "benchmark_url": "",
+          "benchmark_visible": false,
+          "connected": true,
+          "connection_state": "offline",
+          "device": "iPad",
+          "health": "尚未取得本輪介面錯誤統計。",
+          "latency": "延遲 · 未測得",
+          "measurement_busy": false,
+          "measurement_progress": 0,
+          "peer_address_state": "尚未分配",
+          "peer_ipv4": "",
+          "retry_available": false,
+          "rx": 8,
+          "speed": "USB 協商速率尚未取得；即時流量不代表頻寬上限。",
+          "subtitle": "iPad · USB 已連接",
+          "title": "正在結束連線、恢復設定，請稍候…",
+          "tx": 160,
+          "windows_ipv4": "10.6.9.1"
+        }
+      ],
+      "event": "status"
+    }
+  }
+]

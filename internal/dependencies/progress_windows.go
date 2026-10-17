@@ -14,6 +14,16 @@ import (
 
 var user32 = windows.NewLazySystemDLL("user32.dll")
 
+func EnsureWithProgressIfMissing(ctx context.Context, id string) error {
+	if _, ready, err := Default.DetectReady(ctx, id); err != nil || ready {
+		return err
+	}
+	return WithProgress(ctx, func(work context.Context) error {
+		_, err := Ensure(work, id)
+		return err
+	})
+}
+
 // WithProgress needs no CLR. Closing the window cancels downloads; official
 // installers already running finish their own transaction and license UI.
 func WithProgress(ctx context.Context, work func(context.Context) error) error {

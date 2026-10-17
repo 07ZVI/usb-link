@@ -1,11 +1,33 @@
 package macconnection
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"suhang/usbnet/internal/diagnostics/logfile"
+	"time"
 )
+
+type connectionEvidenceLogState struct {
+	body    string
+	written time.Time
+}
+
+// Keep this row independent of the larger bridge evidence and retry failures.
+// Refresh at most every 30 seconds so tail readers can recover after an upgrade
+// disconnect. The caller uses its existing five-second loop, with no device IO.
+func appendChangedConnectionEvidence(dir string, evidence any, previous *connectionEvidenceLogState, now time.Time) error {
+	body, err := json.Marshal(evidence)
+	if err != nil || string(body) == previous.body && now.Sub(previous.written) < 30*time.Second {
+		return err
+	}
+	if err = appendUpgradeEvidence(dir, body); err != nil {
+		return err
+	}
+	*previous = connectionEvidenceLogState{body: string(body), written: now}
+	return nil
+}
 
 func appendUpgradeEvidence(dir string, body []byte) error {
 	if len(body) > 8192 {

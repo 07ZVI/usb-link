@@ -14,6 +14,8 @@ type ConnectionEvent struct {
 
 func validConnectionStage(stage string) bool {
 	switch stage {
+	case "usb_mode_switch_begin", "usb_mode_switch_end":
+		return true
 	case "usb_enumerated", "grouping_applied", "native_ncm_started", "adapter_mapped", "ip_configured", "dhcp_ack_sent", "ipv4_neighbor_verified", "sunshine_peer_tcp_observed", "native_start_check_begin", "native_start_check_end", "passive_network_observation_begin", "passive_network_observation_end", "grouping_write_begin", "grouping_write_end", "device_restart_begin", "device_restart_end", "grouping_restore_begin", "grouping_restore_end", "apple_service_lease_begin", "apple_service_lease_end", "application_firewall_begin", "application_firewall_end", "core_permissions_begin", "core_permissions_end", "sunshine_local_probe_begin", "sunshine_local_probe_end", "dhcp_listener_started", "optional_application_services_ready", "application_permission_batch_begin", "application_permission_batch_end":
 		return true
 	}
@@ -60,6 +62,7 @@ func recordConnectionStage(stage, evidence string) { monitorDiagnostics.stage(st
 // device notifications. It does not claim that the action caused a notice.
 func RecordConnectionOperation(operation string) func() {
 	switch operation {
+	case "usb_control_open", "usb_get_mode", "usb_mode_switch":
 	case "grouping_write", "device_restart", "grouping_restore", "apple_service_lease", "passive_network_observation", "native_start_check", "application_firewall", "core_permissions", "sunshine_local_probe", "application_permission_batch":
 	default:
 		return func() {}
@@ -79,6 +82,7 @@ func RecordConnectionOperation(operation string) func() {
 	m.operationAt = time.Now()
 	m.Unlock()
 	m.stageFor(attempt, operation+"_begin", "own_operation_started", false)
+	RecordTrustOperation(attempt, operation+"_begin")
 	return func() {
 		m.Lock()
 		same := m.attempt == attempt
@@ -92,6 +96,7 @@ func RecordConnectionOperation(operation string) func() {
 			}
 		}
 		m.Unlock()
+		RecordTrustOperation(attempt, operation+"_end")
 		if same {
 			m.stageFor(attempt, operation+"_end", "own_operation_returned; result in existing diagnostics", false)
 		}

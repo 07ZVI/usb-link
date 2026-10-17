@@ -13,21 +13,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"suhang/usbnet/internal/buildinfo"
 	"sync"
 	"time"
 )
 
 type AMDSModeDiagnostic struct {
-	RequestedState    string  `json:"requested_amds_state"`
-	Before            uint32  `json:"service_state_before"`
-	During            uint32  `json:"service_state_during"`
-	After             uint32  `json:"service_state_after"`
-	OriginalStartType uint32  `json:"original_start_type"`
-	ElapsedMS         int64   `json:"elapsed_ms"`
-	Restored          bool    `json:"original_service_state_and_start_type_restored"`
-	Mode              *Result `json:"mode,omitempty"`
-	Error             string  `json:"error,omitempty"`
-	RestoreError      string  `json:"restore_error,omitempty"`
+	RequestedState           string  `json:"requested_amds_state"`
+	Before                   uint32  `json:"service_state_before"`
+	During                   uint32  `json:"service_state_during"`
+	After                    uint32  `json:"service_state_after"`
+	OriginalStartType        uint32  `json:"original_start_type"`
+	ElapsedMS                int64   `json:"elapsed_ms"`
+	Restored                 bool    `json:"original_service_state_and_start_type_restored"`
+	Mode                     *Result `json:"mode,omitempty"`
+	Error                    string  `json:"error,omitempty"`
+	RestoreError             string  `json:"restore_error,omitempty"`
+	CancelledBeforeChange    bool    `json:"cancelled_before_service_change_no_receipt,omitempty"`
+	NoServiceChangeNoReceipt bool    `json:"no_service_change_no_recovery_receipt,omitempty"`
 }
 
 var amdsDiagnosticMu sync.Mutex
@@ -45,6 +48,10 @@ var amdsDiagnosticJob struct {
 	AttemptGeneration uint64
 	JobContext        context.Context
 	JobCancel         context.CancelFunc
+	LocalTrustTrial   bool
+	AttemptBefore     uint64
+	AttemptAfter      uint64
+	TrialObservation  LocalTrustServiceTrial
 }
 
 type AMDSModeDiagnosticJob struct {
@@ -79,8 +86,26 @@ func AttachAMDSDiagnosticAttempt(stop context.CancelFunc) func() {
 // Only enqueue and stop the current iPad attempt. Main runs the diagnostic
 // after that attempt's grouping and address cleanup; the Mac is independent.
 func StartAMDSModeDiagnostic(ctx context.Context, version, requested string) error {
+	return startAMDSModeDiagnostic(ctx, version, requested, false)
+}
+
+// Fixed local action; ordinary/public builds cannot control the service here.
+func StartLocalTrustServiceTrial(ctx context.Context, version string) error {
+	if buildinfo.LocalDiagnostics != "true" {
+		return fmt.Errorf("LOCAL_DIAGNOSTICS_REQUIRED")
+	}
+	return startAMDSModeDiagnostic(ctx, version, "stopped", true)
+}
+
+func startAMDSModeDiagnostic(ctx context.Context, version, requested string, localTrial bool) error {
 	ipadActionAdmission.Lock()
 	defer ipadActionAdmission.Unlock()
+	if ctx == nil || ctx.Err() != nil {
+		return fmt.Errorf("DIAGNOSTIC_CONTEXT_CANCELLED")
+	}
+	if localTrial && (IPadModeDiagnosticHeld() || !IPadCandidateCanConnect() || !NetworkOnlyCanConnect()) {
+		return fmt.Errorf("IPAD_DIAGNOSTIC_OR_RESTORATION_UNRESOLVED")
+	}
 	if UnpairedExperimentBusy() {
 		return fmt.Errorf("unpaired experiment owner active")
 	}
@@ -111,6 +136,7 @@ func StartAMDSModeDiagnostic(ctx context.Context, version, requested string) err
 	if target == "" || !strings.HasPrefix(strings.ToUpper(target), `USB\VID_05AC&PID_12AB\`) {
 		return fmt.Errorf("current or previously authorized iPad required")
 	}
+	attemptBefore := currentSoftwareAttempt()
 	amdsDiagnosticJob.Lock()
 	if amdsDiagnosticJob.Running {
 		amdsDiagnosticJob.Unlock()
@@ -123,6 +149,9 @@ func StartAMDSModeDiagnostic(ctx context.Context, version, requested string) err
 	amdsDiagnosticJob.StartedUTC = time.Now().UTC().Format(time.RFC3339Nano)
 	amdsDiagnosticJob.Phase, amdsDiagnosticJob.Requested, amdsDiagnosticJob.TargetRoot = "awaiting_cleanup", requested, target
 	amdsDiagnosticJob.Result = nil
+	amdsDiagnosticJob.LocalTrustTrial = localTrial
+	amdsDiagnosticJob.AttemptBefore, amdsDiagnosticJob.AttemptAfter = attemptBefore, 0
+	amdsDiagnosticJob.TrialObservation = LocalTrustServiceTrial{}
 	amdsDiagnosticJob.JobContext, amdsDiagnosticJob.JobCancel = context.WithCancel(ctx)
 	stop := amdsDiagnosticJob.AttemptStop
 	amdsDiagnosticJob.Unlock()
@@ -170,6 +199,7 @@ func RunPendingAMDSModeDiagnostic(ctx context.Context, version, dir string, clea
 	}
 	amdsDiagnosticJob.Pending = false
 	requested, root := amdsDiagnosticJob.Requested, amdsDiagnosticJob.TargetRoot
+	localTrial := amdsDiagnosticJob.LocalTrustTrial
 	jobCtx, jobCancel := amdsDiagnosticJob.JobContext, amdsDiagnosticJob.JobCancel
 	amdsDiagnosticJob.Unlock()
 	defer jobCancel()
@@ -177,11 +207,38 @@ func RunPendingAMDSModeDiagnostic(ctx context.Context, version, dir string, clea
 	if !cleanupSafe {
 		r.Error = "PREVIOUS_IPAD_CLEANUP_UNCONFIRMED"
 	} else {
+		// The previous attempt has been cancelled and cleaned up. Mode control
+		// must use this job's context, never that previous attempt's context.
+		// Reserve ten seconds of the 120-second local trial budget for recovery.
+		// A blocked Windows API is not evidence that restoration completed.
+		budget := 120 * time.Second
+		if localTrial {
+			budget = 110 * time.Second
+		}
+		jobCtx, cancelTrial := context.WithTimeout(jobCtx, budget)
+		defer cancelTrial()
+		SetConnectionContext(jobCtx)
+		defer SetConnectionContext(ctx)
 		r = runAMDSModeDiagnostic(jobCtx, version, requested, dir, root)
 	}
+	afterAttempt := currentSoftwareAttempt()
+	noChangeSafe := localTrustTrialSafeNoChange(cleanupSafe, r.Error, r.NoServiceChangeNoReceipt)
 	amdsDiagnosticJob.Lock()
 	amdsDiagnosticJob.Result, amdsDiagnosticJob.Running, amdsDiagnosticJob.Phase = &r, false, "complete"
+	amdsDiagnosticJob.AttemptAfter = afterAttempt
+	if localTrial {
+		amdsDiagnosticJob.Phase = localTrustTrialCompletion(cleanupSafe, r.Restored, r.RestoreError)
+		if noChangeSafe {
+			amdsDiagnosticJob.Phase = "failed_before_service_change"
+			if r.Error == "DIAGNOSTIC_CANCELLED_BEFORE_CHANGE" {
+				amdsDiagnosticJob.Phase = "cancelled_before_service_change"
+			}
+		}
+	}
 	amdsDiagnosticJob.Unlock()
+	if localTrial && (localTrustTrialCanResume(cleanupSafe, r.Restored, r.RestoreError) || noChangeSafe) {
+		ReleaseIPadModeDiagnosticHoldAfterRecovery(true)
+	}
 	signalDiagnosticLoop()
 	return true
 }
@@ -197,6 +254,15 @@ func runAMDSModeDiagnostic(ctx context.Context, version, requested, dir, root st
 	started := time.Now()
 	defer func() { r.ElapsedMS = time.Since(started).Milliseconds() }()
 	r.RequestedState = requested
+	journalAttempted := false
+	defer func() {
+		r.NoServiceChangeNoReceipt = localTrustTrialNoChangeProof(journalAttempted, r.Error, func() error {
+			_, err := readAMDSDiagnosticReceipt(filepath.Join(dir, "amds-diagnostic.json"))
+			return err
+		})
+		// Preserve the older cancellation field without calling other failures cancellation.
+		r.CancelledBeforeChange = r.Error == "DIAGNOSTIC_CANCELLED_BEFORE_CHANGE" && r.NoServiceChangeNoReceipt
+	}()
 	if ctx.Err() != nil {
 		r.Error = "DIAGNOSTIC_CANCELLED_BEFORE_CHANGE"
 		return
@@ -224,11 +290,16 @@ func runAMDSModeDiagnostic(ctx context.Context, version, requested, dir, root st
 		return
 	}
 	r.Before, r.OriginalStartType = uint32(status.State), config.StartType
+	publishLocalTrustTrialObservation(r)
+	journalAttempted = true
 	if e := saveAMDSDiagnosticJournal(dir, r.Before, r.OriginalStartType); e != nil {
 		r.Error = "SERVICE_RESTORE_JOURNAL_UNAVAILABLE"
 		return
 	}
+	RecordTrustOperation(currentSoftwareAttempt(), "apple_service_lease_begin")
+	defer func() { RecordTrustOperation(currentSoftwareAttempt(), "apple_service_lease_end") }()
 	defer func() {
+		diagnosticPhase("restoring_service")
 		restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if e := diagnosticServiceState(restoreCtx, s, status.State); e != nil {
@@ -244,6 +315,7 @@ func runAMDSModeDiagnostic(ctx context.Context, version, requested, dir, root st
 		} else if os.Remove(filepath.Join(dir, "amds-diagnostic.json")) != nil {
 			r.RestoreError = "SERVICE_RESTORE_JOURNAL_REMOVE_FAILED"
 		}
+		publishLocalTrustTrialObservation(r)
 	}()
 	wanted := svc.Running
 	if requested == "stopped" {
@@ -253,6 +325,8 @@ func runAMDSModeDiagnostic(ctx context.Context, version, requested, dir, root st
 		r.Error = "SERVICE_TEST_STATE_UNAVAILABLE"
 		return
 	}
+	r.During = uint32(wanted) // diagnosticServiceState returned only after readback.
+	publishLocalTrustTrialObservation(r)
 	if err := waitDiagnosticReplug(ctx, root); err != "" {
 		r.Error = err
 		return

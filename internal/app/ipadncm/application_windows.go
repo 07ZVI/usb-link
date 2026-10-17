@@ -323,7 +323,7 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 		return
 	}
 	plan = configuredPlan
-	j := applicationJournal{Root: b.j.RootID, Driver: b.j.DriverKey, Plan: plan, ResidentFirewall: netconfig.ResidentFirewallEnabled()}
+	j := applicationJournal{Root: b.networkRoot(), Driver: b.networkDriver(), Plan: plan, ResidentFirewall: netconfig.ResidentFirewallEnabled()}
 	var gateStop func() error
 	if ctx.Err() != nil {
 		return

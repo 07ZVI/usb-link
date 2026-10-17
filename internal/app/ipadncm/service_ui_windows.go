@@ -70,11 +70,7 @@ func ServiceDesktopSnapshot(ctx context.Context) (json.RawMessage, error) {
 		}
 	}
 drained:
-	b, err := json.Marshal(ServiceDisplaySnapshot{Desktop: u.desktopStatus(), Connections: ServiceMonitorResults(), Events: events})
-	if err != nil || len(b) > 48<<10 {
-		return nil, fmt.Errorf("CORE_DESKTOP_STATUS_TOO_LARGE")
-	}
-	return b, nil
+	return encodeServiceDisplaySnapshot(ServiceDisplaySnapshot{Desktop: u.desktopStatus(), Connections: ServiceMonitorResults(), Events: events})
 }
 
 func ServiceMonitorResults() map[string]ApplicationResult {
@@ -138,6 +134,9 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 		return err
 	}
 	if !u.shareFoldersAction(request) && !u.gatewayAction(request) && !u.securityAction(request) {
+		if handleLocalRemoteAction(u, request) {
+			return nil
+		}
 		if request.Action == "startup-on" || request.Action == "startup-off" {
 			u.startupAction(request.Action, request.ID)
 		} else {
@@ -172,21 +171,6 @@ func ServiceSMBAccountRead(ctx context.Context, payload json.RawMessage) (json.R
 	return b, true, err
 }
 
-func serviceAdditionalAction(action string) bool {
-	// Exact existing command names only; no shell/SCM/filename endpoint.
-	switch action {
-	case "share-folders-refresh", "share-folder-add", "share-folder-remove", "native-smb-access-save", "native-smb-acl-forget", "native-smb-release", "native-smb-account-read", "native-smb-account-save", "native-smb-account-create", "native-smb-account-reset", "native-smb-account-rename", "native-smb-guest-on", "native-smb-guest-off", "native-smb-repair", "native-smb-retry", "gateway-refresh", "gateway-decide", "gateway-forget":
-		return true
-	}
-	return false
-}
-
-type ServiceDisplaySnapshot struct {
-	Desktop     any                          `json:"desktop"`
-	Connections map[string]ApplicationResult `json:"connections"`
-	Events      []any                        `json:"events,omitempty"`
-}
-
 // UI replays pending gateway requests on opening. A lost display message
 // never approves a request: the authoritative pending record stays in core.
 func ServiceReplayDesktopRequests(ctx context.Context) error {
@@ -213,6 +197,10 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 			go func() {
 				reply, err := p.Action(u.lifetime, b)
 				if err != nil {
+					if failure, ok := localControlFailureEvent(v.Action, v.ID); ok {
+						u.sendEvent(failure)
+						return
+					}
 					u.setNotice("CORE_UI_ACTION_FAILED: " + err.Error())
 					if v.RequestID != "" {
 						u.sendEvent(map[string]any{"event": desktopRequestResultEvent(v.Action), "action": v.Action, "request_id": v.RequestID, "problem": err.Error()})
@@ -257,7 +245,7 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 func (u *modernUI) proxyPush(p *ServiceUIProxy) {
 	b, err := p.Read(u.lifetime)
 	if err != nil {
-		u.setNotice("CORE_UI_WAITING: " + err.Error())
+		u.publishStatus(map[string]string{"event": "backend-unavailable", "code": desktopReadErrorCode(err)})
 		return
 	}
 	var snapshot struct {
@@ -266,6 +254,7 @@ func (u *modernUI) proxyPush(p *ServiceUIProxy) {
 		Events      []json.RawMessage            `json:"events"`
 	}
 	if json.Unmarshal(b, &snapshot) != nil || len(snapshot.Desktop) == 0 {
+		u.publishStatus(map[string]string{"event": "backend-unavailable", "code": "CORE_DESKTOP_RESPONSE_INVALID"})
 		return
 	}
 	ApplyServiceMonitorResults(snapshot.Connections)
