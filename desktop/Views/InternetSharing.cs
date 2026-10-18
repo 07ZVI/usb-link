@@ -35,6 +35,9 @@ public sealed partial class Dashboard
   var index=n>=0&&n<internetIndices.Count?internetIndices[n]:0;
   DesktopClient.Send(new{action,upstream=index});
  }
+ static string InternetProblemText(string p)=>p.Contains("INTERNET_MOBILE_HOTSPOT_CONFLICT")?"Windows 行動熱點已開啟，與 USB 網際網路共享衝突；請先自行關閉行動熱點（本程式不會更改）。\n"+p
+  :p.Contains("INTERNET_EXISTING_ICS_CONFLICT")?"Windows 已有網際網路連線共用（ICS）；請先自行關閉（本程式不會更改）。\n"+p
+  :p.Contains("INTERNET_EXISTING_NAT_CONFLICT")?"Windows 已有 NAT 設定；請先自行移除（本程式不會更改）。\n"+p:p;
  void UpdateInternet(JsonElement d)
  {
   if(InternetSharingState.Read(d) is { } state) {
@@ -44,7 +47,7 @@ public sealed partial class Dashboard
    internetToggle.IsEnabled=state.State!="preparing";
    internetToggle.OnContent=internetToggle.OffContent=internetRecovery?"重試關閉":"";
    var message=state.State switch {"ready"=>"共享可用：已觀察到本次 DHCP 配置及網際網路雙向流量。","waiting_client"=>"已準備，等待 Mac 更新 DHCP 租約及產生網際網路流量。","off"=>"共享關閉。","recovery_required"=>"清理待恢復，請重試關閉共享。",_=>"共享狀態："+state.State};
-   if(state.Problem!="")message+="\n"+state.Problem;internetState.Text=message;
+   if(state.Problem!="")message+="\n"+InternetProblemText(state.Problem);internetState.Text=message;
    var indices=new List<uint>{0};var names=new List<string>{"目前的非 USB 網際網路出口"};
    foreach(var up in state.Upstreams){indices.Add(up.Index);names.Add(up.Name);}
    if(!indices.SequenceEqual(internetIndices)){internetIndices=indices;internetUpstream.ItemsSource=names;internetUpstream.SelectedIndex=0;}

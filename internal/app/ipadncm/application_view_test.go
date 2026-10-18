@@ -117,3 +117,14 @@ func TestIPadPeerProofDoesNotOverridePausedOrDisconnectedState(t *testing.T) {
 		}
 	}
 }
+
+func TestIPadWaitingViewHintsUSBRestrictedMode(t *testing.T) {
+	_, _, d := applicationView(ApplicationResult{DeviceKind: "iPad", Status: "MONITOR_WAITING", RemainingSeconds: -1}, false)
+	if !strings.Contains(d, "USB 受限模式") || !strings.Contains(d, "解鎖 iPad") || !strings.Contains(d, "資料傳輸") {
+		t.Fatal(d)
+	}
+	_, _, d = applicationView(ApplicationResult{DeviceKind: "iPad", Status: "MONITOR_PAUSED", RemainingSeconds: -1}, false)
+	if strings.Contains(d, "USB 受限模式") {
+		t.Fatal("hint only while waiting for a device")
+	}
+}
