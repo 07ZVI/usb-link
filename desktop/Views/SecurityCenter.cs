@@ -270,7 +270,7 @@ public sealed partial class Dashboard
     void FailSecurityRequest(string problem){
         securityTimer?.Stop();securityPendingID=securityPendingAction="";securityBusy=false;securityRefresh.IsEnabled=true;
         securityProblem.Text=problem;securityProblem.IsVisible=true;securityCount.Text="安全資料尚未確認 · 可重新整理核對";
-        if(securitySnapshot.ValueKind!=JsonValueKind.Object)foreach(var rows in new[]{firewallRows,connectionRows,usbRows}){rows.Children.Clear();rows.Children.Add(SMBHint("未取得 Windows 安全資料，請重新整理。"));}
+        if(securitySnapshot.ValueKind!=JsonValueKind.Object)foreach(var rows in new[]{firewallRows,connectionRows,usbRows}){rows.Children.Clear();rows.Children.Add(Hint("未取得 Windows 安全資料，請重新整理。"));}
     }
     void RenderSecurityTab()
     {

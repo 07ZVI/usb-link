@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 namespace Suhang.Desktop;
@@ -11,7 +12,8 @@ public sealed partial class Dashboard
     const string SMBServerAddress = "smb://10.6.9.1/";
     Window? smbAccountWindow;
     TextBox smbAccountName = null!, smbPassword = null!, smbNewPassword = null!, smbConfirmPassword = null!;
-    TextBlock smbAccountProblem = null!, smbAccountStatus = null!, smbPasswordHint = null!;
+    Notice smbAccountProblem = null!;
+    TextBlock smbAccountStatus = null!, smbPasswordHint = null!;
     CheckBox smbShowNewPassword = null!;
     Button smbCreate = null!, smbRefresh = null!;
     DispatcherTimer? smbAccountTimer;
@@ -24,13 +26,11 @@ public sealed partial class Dashboard
     void OpenSMBManager()
     {
         if (smbAccountWindow != null) { smbAccountWindow.Activate(); return; }
-        smbAccountWindow = new Window { Title = "USB Link · SMB 共享", Width = 940, Height = 790, MinWidth = 560, MinHeight = 420, FontFamily = new FontFamily(Palette.FontStack), WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        smbAccountWindow = AppWindow.Create("SMB 共享", 900, 780, 600, 420);
         shareFoldersWindow = smbAccountWindow;
-        smbAccountWindow.Res(BackgroundProperty, "Window");
         var account = BuildSMBAccountPanel(); var guest = BuildSMBGuestPanel(); var folders = BuildShareFoldersPanel(); var repair = BuildSMBRepairPanel();
-        smbAccountWindow.Content = new Border { Padding = new Thickness(24), Child = Rows("Auto,*",
-            Column(5, Label("SMB 共享", 24, FontWeight.SemiBold), SMBHint("管理共享資料夾、帳戶、訪客連線與 Windows SMB 修復。"), Gap(16)),
-            new ScrollViewer { Content = Column(20, account, guest, folders, repair), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled }) };
+        smbAccountWindow.Content = AppWindow.Page(AppWindow.Header("SMB 共享", "讓 Mac 與 iPad 透過網路讀取這台電腦上的資料夾。", smbRefresh),
+            new ScrollViewer { Content = Column(16, BuildSMBAddressCard(), folders, account, guest, repair), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         smbAccountWindow.Closed += (_, _) => {
             smbAccountTimer?.Stop(); smbAccountTimer = null; smbPendingID = smbPendingAction = smbPasswordPurpose = ""; smbAccountBusy = false;
             ClearNewSMBPassword(); smbAccountWindow!.Content = null; smbAccountWindow = null; smbAccountActions.Clear();
@@ -39,6 +39,14 @@ public sealed partial class Dashboard
             CloseSMBMaintenance(smbGuestState); CloseSMBMaintenance(smbRepairState);
         };
         smbAccountWindow.Show(this); UpdateSMBControls(); RequestSMBAccount("native-smb-account-read"); RequestShareFolders("share-folders-refresh");
+    }
+    /// The one address every device connects to; the steps below only decide what it shows.
+    Control BuildSMBAddressCard()
+    {
+        var address = Label(ShareUrl, Scale.Title, FontWeight.SemiBold);
+        var row = Columns("Auto,*,Auto", IconTile.Make(Icons.Link, "Accent", "AccentSoft", 36), Column(2, Label("連線位址", Scale.Secondary, key: "Muted"), address), Action("複製位址", () => Copy(ShareUrl, "共享地址"), Icons.Copy));
+        row.ColumnSpacing = 12; foreach (var c in row.Children) c.VerticalAlignment = VerticalAlignment.Center;
+        return Card(Column(8, row, Hint("在 Mac 的 Finder 或 iPad 的「檔案」連線到這個位址，再以下方的專用帳戶登入；也可讓訪客免密碼連線。")), new Thickness(Scale.Inset + 2));
     }
     Control BuildSMBAccountPanel()
     {
@@ -49,7 +57,7 @@ public sealed partial class Dashboard
         smbConfirmPassword = new TextBox { PasswordChar = '●', MaxLength = 256, Watermark = "再次輸入密碼" };
         TextCopyMenu(smbAccountName); TextCopyMenu(smbPassword); TextCopyMenu(smbConfirmPassword);
         smbShowNewPassword = new CheckBox { Content = "顯示密碼" };
-        smbAccountStatus = Label("正在讀取帳戶狀態…", 12, key: "Muted"); smbAccountProblem = SMBHint(""); smbPasswordHint = SMBHint("");
+        smbAccountStatus = Label("正在讀取帳戶狀態…", Scale.Secondary, key: "Muted"); smbAccountProblem = new Notice(); smbPasswordHint = Hint("");
         smbAccountName.TextChanged += (_, _) => { if (smbAccountLoaded) smbNameEdited = smbAccountName.Text != smbSavedAccountName; UpdateSMBControls(); };
         smbPassword.TextChanged += (_, _) => { if (!smbSettingPassword) UpdateSMBControls(); };
         smbConfirmPassword.TextChanged += (_, _) => UpdateSMBControls();
@@ -62,13 +70,12 @@ public sealed partial class Dashboard
         smbRefresh = AccountAction("重新整理", () => RequestSMBAccount("native-smb-account-read"));
         var generate = AccountAction("生成密碼", () => { var password = "Usb!" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant(); smbPassword.Text = smbConfirmPassword.Text = password; });
         smbCreate = AccountAction("保存帳戶", SaveSMBAccountForm, primary: true);
-        smbConfirmationRow = Column(5, Label("確認新密碼", 12, key: "Muted"), smbConfirmPassword);
-        smbPasswordEditor = Column(10,
-            Columns("*,16,*", Column(5, Label("使用者名稱", 12, key: "Muted"), smbAccountName), Gap(), Column(5, Label("密碼", 12, key: "Muted"), smbPassword)),
-            smbConfirmationRow, Row(12, smbShowNewPassword, generate), smbPasswordHint);
+        smbConfirmationRow = Field("確認新密碼", smbConfirmPassword);
+        var names = Columns("*,*", Field("使用者名稱", smbAccountName), Field("密碼", smbPassword)); names.ColumnSpacing = 16;
+        smbPasswordEditor = Column(10, names, smbConfirmationRow, Row(12, smbShowNewPassword, generate), smbPasswordHint);
         smbAccountActions.AddRange(new Control[] { smbAccountName, smbPassword, smbConfirmPassword, smbShowNewPassword });
-        return Card(Column(12, Columns("*,Auto", Column(3, Label("帳戶與密碼", 18, FontWeight.SemiBold), smbAccountStatus), smbRefresh),
-            smbPasswordEditor, Columns("*,Auto", smbAccountProblem, smbCreate)), new Thickness(18));
+        var save = Columns("*,Auto", smbAccountProblem, smbCreate); save.ColumnSpacing = 12;
+        return Section.Make("帳戶與密碼", "Mac 與 iPad 以這個專用帳戶登入。名稱與密碼會一起保存。", Column(12, smbPasswordEditor, save), status: smbAccountStatus);
     }
     static void TextCopyMenu(TextBox box)
     {
@@ -78,7 +85,6 @@ public sealed partial class Dashboard
         menu.Opened += (_, _) => copy.IsEnabled = box.CanCopy;
         box.ContextMenu = menu;
     }
-    static TextBlock SMBHint(string text) { var label = Label(text, 12, key: "Muted"); label.TextWrapping = TextWrapping.Wrap; return label; }
     static bool ValidSMBName(string text) => text.Length is > 0 and <= 20 && text.Trim() == text && !text.EndsWith('.') && text.IndexOfAny("\"/\\[]:;|=,+*?<>@".ToCharArray()) < 0 && !text.Any(char.IsControl);
     static bool ValidSMBPassword(string text) => text.Length <= 256 && text.EnumerateRunes().Count() >= 8 && !text.Contains('\0');
     void UpdateSMBControls()
@@ -93,7 +99,7 @@ public sealed partial class Dashboard
         var password = smbPassword.Text ?? ""; var confirmation = smbConfirmPassword.Text ?? "";
         var passwordValid = smbAccountExists && !SMBPasswordChanged || ValidSMBPassword(password) && password == confirmation;
         smbCreate.IsEnabled = smbAccountLoaded && !smbAccountBusy && ValidSMBName(smbAccountName.Text ?? "") && passwordValid && (!smbAccountExists || smbAccountName.Text != smbSavedAccountName || SMBPasswordChanged);
-        smbPasswordHint.Text = !ValidSMBName(smbAccountName.Text ?? "") ? "名稱需為 1–20 個字元，不能包含網域、路徑或 Windows 禁用符號。" : SMBPasswordChanged && confirmation != "" && password != confirmation ? "兩次密碼不一致。" : SMBPasswordChanged && password != "" && !ValidSMBPassword(password) ? "密碼至少 8 個字元。" : "名稱與密碼一起保存。顯示後可選取文字複製；修改後請更新裝置的登入資訊；iPad 切換帳戶前請先彈出此伺服器的所有共享。";
+        smbPasswordHint.Text = !ValidSMBName(smbAccountName.Text ?? "") ? "名稱需為 1–20 個字元，不能包含網域、路徑或 Windows 禁用符號。" : SMBPasswordChanged && confirmation != "" && password != confirmation ? "兩次密碼不一致。" : SMBPasswordChanged && password != "" && !ValidSMBPassword(password) ? "密碼至少 8 個字元。" : "修改後，請在 Mac 與 iPad 更新登入資訊；iPad 切換帳戶前請先在「檔案」彈出此伺服器。";
     }
     void HideSMBPassword() { smbShowNewPassword.IsChecked = false; smbPassword.PasswordChar = smbConfirmPassword.PasswordChar = '●'; }
     void ClearNewSMBPassword() { smbSavedPassword = ""; smbSettingPassword = true; smbPassword.Text = ""; smbSettingPassword = false; smbConfirmPassword.Text = ""; HideSMBPassword(); }
@@ -102,7 +108,7 @@ public sealed partial class Dashboard
         if (smbAccountWindow == null || smbAccountBusy || preview) return;
         smbPendingID = Guid.NewGuid().ToString("N"); smbPendingAction = action; smbPasswordPurpose = purpose; smbAccountBusy = true;
         if (purpose == "") HideSMBPassword();
-        smbAccountProblem.Text = action == "native-smb-account-read" ? "正在讀取帳戶…" : "正在保存 Windows 設定…"; UpdateSMBControls();
+        smbAccountProblem.Show("Busy", action == "native-smb-account-read" ? "正在讀取帳戶…" : "正在保存 Windows 設定…"); UpdateSMBControls();
         smbAccountTimer?.Stop(); var id = smbPendingID; var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) }; smbAccountTimer = timer;
         timer.Tick += (_, _) => { timer.Stop(); if (smbPendingID == id) FailSMBAccountRequest("等待 Windows 回覆逾時。請重新整理核對狀態；不要重複保存。", action); }; timer.Start();
         ShareRequest(new { action, id, password, username, remember = purpose != "" });
@@ -111,7 +117,7 @@ public sealed partial class Dashboard
     {
         smbAccountTimer?.Stop(); smbPendingID = smbPendingAction = smbPasswordPurpose = ""; smbAccountBusy = false; smbAccountLoaded = false; HideSMBPassword();
         smbAccountStatus.Text = action == "native-smb-account-read" ? "帳戶狀態無法讀取" : "保存結果尚未確認";
-        smbAccountProblem.Text = problem + (action == "native-smb-account-read" ? "" : "\n輸入內容已保留。"); smbAccountProblem.Res(TextBlock.ForegroundProperty, "Warn"); UpdateSMBControls();
+        smbAccountProblem.Show("Warn", problem + (action == "native-smb-account-read" ? "" : "\n輸入內容已保留。")); UpdateSMBControls();
         SynchronizeSMBGuest(false, smbGuestEnabled);
     }
     void SaveSMBAccountForm() { if (smbCreate.IsEnabled) RequestSMBAccount("native-smb-account-save", SMBPasswordChanged ? smbPassword.Text ?? "" : "", smbAccountName.Text); }
@@ -144,7 +150,8 @@ public sealed partial class Dashboard
         if (passwordSaved) ClearNewSMBPassword();
         smbAccountStatus.Text = problem != "" ? (smbAccountExists ? "帳戶已建立 · 需要處理" : "帳戶狀態無法確認") : smbAccountExists ? "專用帳戶已建立" : "尚未建立專用帳戶";
         smbAccountStatus.Res(TextBlock.ForegroundProperty, problem != "" ? "Warn" : smbAccountExists ? "Ok" : "Muted");
-        smbAccountProblem.Text = problem != "" ? problem : nameSaved || passwordSaved ? "帳戶已保存。" : ""; smbAccountProblem.Res(TextBlock.ForegroundProperty, problem == "" ? "Muted" : "Warn"); UpdateSMBControls();
+        if (problem != "") smbAccountProblem.Show("Warn", problem); else if (nameSaved || passwordSaved) smbAccountProblem.Show("Ok", "帳戶已保存。"); else smbAccountProblem.Hide();
+        UpdateSMBControls();
         if (matched) ShareRequest(new { action = "smb-ui-result-ack", id, decision = "smb-account" });
         if (Program.SMBWireSmoke && matched) ContinueSMBWireSmoke();
     }

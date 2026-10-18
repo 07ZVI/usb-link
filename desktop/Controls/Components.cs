@@ -232,7 +232,7 @@ internal sealed class Notice : Border
         if (text == "") { Hide(); return; }
         message.Text = text; code.Text = technical == "" ? "" : "技術代碼：" + technical; code.IsVisible = technical != "";
         this.Res(BackgroundProperty, tone + "Soft");
-        icon.Child = Icons.Make(tone switch { "Ok" => Icons.Check, "Busy" => Icons.Info, _ => Icons.Warning }, 16, tone);
+        icon.Child = Icons.Make(tone switch { "Ok" => Icons.Check, "Busy" or "Idle" => Icons.Info, _ => Icons.Warning }, 16, tone);
         IsVisible = true;
     }
 }
