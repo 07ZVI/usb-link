@@ -4,7 +4,7 @@ import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfil
 from windows_resource import write_resource, verify_manifest
 from local_installer_retention import retain as retain_local_installers
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-VERSION=(ROOT/'VERSION').read_text().strip()
+VERSION=(ROOT/'VERSION').read_text(encoding='utf-8').strip()
 OUT=ROOT/'out'
 ASSETS=ROOT/'internal/app/launcher/assets'
 GO=os.environ.get('USBLINK_GO','go')
@@ -26,7 +26,7 @@ def profile_tags(profile):
  return '-tags='+('usblink_local_remote' if profile=='local' else '')
 def local_publisher_flags(profile):
  if profile!='local':return ''
- key=(ROOT/'.local/secrets/local-update.pub').read_text().strip()
+ key=(ROOT/'.local/secrets/local-update.pub').read_text(encoding='utf-8').strip()
  if not re.fullmatch('[0-9a-f]{64}',key):raise ValueError('Invalid local developer public key')
  return ' -X suhang/usbnet/internal/app/remoteupdate.LocalPublisherHex='+key
 
@@ -63,18 +63,18 @@ def verify_release_surface(bridge, profile="release"):
   if found:raise RuntimeError('Forbidden '+profile+' functionality linked: '+', '.join(found))
  print(profile.capitalize()+' surface check passed: disallowed remote workers/servers and temporary file-transfer handlers absent.',flush=True)
 def notices():
- parts=[(ROOT/'LICENSE').read_text()+'\n'+(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(),'USB Link '+VERSION+'\nGPL-3.0-only with the official Wintun DLL linking exception. See LICENSE and LICENSE-WINTUN-EXCEPTION.\n']
+ parts=[(ROOT/'LICENSE').read_text(encoding='utf-8')+'\n'+(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(encoding='utf-8'),'USB Link '+VERSION+'\nGPL-3.0-only with the official Wintun DLL linking exception. See LICENSE and LICENSE-WINTUN-EXCEPTION.\n']
  for f in sorted((ROOT/'licenses').rglob('*')):
-  if f.is_file() and f.suffix.lower()=='.txt':parts+=['\n--- '+f.relative_to(ROOT).as_posix()+' ---\n',f.read_text()]
- (ASSETS/'notices.txt').write_text(''.join(parts))
- wizard_terms=[(ROOT/'LICENSE').read_text(),(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(),(ROOT/'licenses/Wintun-Binary-LICENSE.txt').read_text(),(ROOT/'licenses/libwdi-LGPL-LICENSE.txt').read_text(),'Zadig 2.9 / libwdi 1.5.1: GPL-3.0-or-later / LGPL-3.0-or-later. Unmodified official binary. Source: https://github.com/pbatard/libwdi/archive/refs/tags/v1.5.1.zip\nComplete third-party notices can be exported with --licenses.\n']
- (ASSETS/'setup-license.txt').write_text('\n\n'.join(wizard_terms))
- (ASSETS/'sources.json').write_text(json.dumps({'version':VERSION,'external_dependencies':json.loads((ROOT/'internal/dependencies/catalog.json').read_text()),'go_module':'go.mod','go_lock':'go.sum','desktop_lock':'desktop/packages.lock.json'},indent=2)+'\n')
+  if f.is_file() and f.suffix.lower()=='.txt':parts+=['\n--- '+f.relative_to(ROOT).as_posix()+' ---\n',f.read_text(encoding='utf-8')]
+ (ASSETS/'notices.txt').write_text(''.join(parts), encoding='utf-8')
+ wizard_terms=[(ROOT/'LICENSE').read_text(encoding='utf-8'),(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(encoding='utf-8'),(ROOT/'licenses/Wintun-Binary-LICENSE.txt').read_text(encoding='utf-8'),(ROOT/'licenses/libwdi-LGPL-LICENSE.txt').read_text(encoding='utf-8'),'Zadig 2.9 / libwdi 1.5.1: GPL-3.0-or-later / LGPL-3.0-or-later. Unmodified official binary. Source: https://github.com/pbatard/libwdi/archive/refs/tags/v1.5.1.zip\nComplete third-party notices can be exported with --licenses.\n']
+ (ASSETS/'setup-license.txt').write_text('\n\n'.join(wizard_terms), encoding='utf-8')
+ (ASSETS/'sources.json').write_text(json.dumps({'version':VERSION,'external_dependencies':json.loads((ROOT/'internal/dependencies/catalog.json').read_text(encoding='utf-8')),'go_module':'go.mod','go_lock':'go.sum','desktop_lock':'desktop/packages.lock.json'},indent=2)+'\n', encoding='utf-8')
  shutil.copyfile(ROOT/'licenses/provenance/SMB-LICENSES-0.8.36.txt',ASSETS/'smb-licenses.txt')
  shutil.copyfile(ROOT/'licenses/provenance/SMB-SOURCES-0.8.36.json',ASSETS/'smb-sources.json')
 def prepare_bundled_dependencies():
  # Official redistributable driver/tool bytes; no proprietary Apple package.
- for asset in json.loads((ROOT/'internal/dependencies/catalog.json').read_text())['assets']:
+ for asset in json.loads((ROOT/'internal/dependencies/catalog.json').read_text(encoding='utf-8'))['assets']:
   if asset['id'] not in ('wintun','zadig'):continue
   name=asset['url'].rsplit('/',1)[1]
   target=ASSETS/name
@@ -99,7 +99,7 @@ def prepare(profile="release"):
  go_build('./cmd/usb-resource',ASSETS/'usb-resource.exe')
  zipped(ASSETS/'mac-payload.zip',{'suhang-usbnet.exe':OUT/'suhang-usbnet.exe'})
  bridge=sha(OUT/'suhang-usbnet.exe')
- (ASSETS/'mac-sources.json').write_text(json.dumps({'version':VERSION,'files':{'suhang-usbnet.exe':bridge},'payload_sha256':sha(ASSETS/'mac-payload.zip')},indent=2)+'\n')
+ (ASSETS/'mac-sources.json').write_text(json.dumps({'version':VERSION,'files':{'suhang-usbnet.exe':bridge},'payload_sha256':sha(ASSETS/'mac-payload.zip')},indent=2)+'\n', encoding='utf-8')
  run([DOTNET,'restore','desktop/Suhang.Desktop.csproj','--locked-mode','-r','win-x64','-p:NuGetAudit=false'])
  # Publish into a fresh directory: stale DLLs from an earlier release must not
  # silently become authorized content in the next publisher inventory.
@@ -107,9 +107,9 @@ def prepare(profile="release"):
   published=pathlib.Path(directory)
   run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false',f'-p:USBLinkLocalDiagnostics={str(profile == "local").lower()}','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',published])
   files={f.relative_to(published).as_posix():f for f in published.rglob('*') if f.is_file() and f.suffix!='.pdb'}
-  product=re.search(r'const ProductID = "([^"]+)"',(ROOT/'internal/app/connectioninstall/task.go').read_text()).group(1)
+  product=re.search(r'const ProductID = "([^"]+)"',(ROOT/'internal/app/connectioninstall/task.go').read_text(encoding='utf-8')).group(1)
   manifest=published/'desktop-ownership.json'
-  manifest.write_text(json.dumps({'product':product,'files':{n:sha(f) for n,f in sorted(files.items())}},sort_keys=True,separators=(',',':'))+'\n')
+  manifest.write_text(json.dumps({'product':product,'files':{n:sha(f) for n,f in sorted(files.items())}},sort_keys=True,separators=(',',':'))+'\n', encoding='utf-8')
   files[manifest.name]=manifest
   zipped(ASSETS/'desktop.zip',files)
  # Mandatory production-consumer verification; a missing index used to pass
@@ -182,7 +182,7 @@ def deliver_installer():
  shutil.copyfile(source,temporary)
  if sha(temporary)!=sha(source):raise ValueError('Installer delivery hash mismatch')
  temporary.replace(target)
- retention=json.loads((OUT/'installer-retention.json').read_text())
+ retention=json.loads((OUT/'installer-retention.json').read_text(encoding='utf-8'))
  removed=[]
  for item in retention['removed']:
   match=re.fullmatch(r'USB-Link-(\d+\.\d+\.\d+)-windows-x64\.exe',item['path'])
@@ -190,7 +190,7 @@ def deliver_installer():
   old=ROOT/f'USB-Link-Setup-{match[1]}.exe'
   if old.is_file() and not old.is_symlink() and sha(old)==item['sha256']:
    removed.append({'name':old.name,'sha256':item['sha256']});old.unlink()
- (OUT/'installer-delivery.json').write_text(json.dumps({'version':VERSION,'name':target.name,'bytes':target.stat().st_size,'sha256':sha(target),'removed':removed},indent=2)+'\n')
+ (OUT/'installer-delivery.json').write_text(json.dumps({'version':VERSION,'name':target.name,'bytes':target.stat().st_size,'sha256':sha(target),'removed':removed},indent=2)+'\n', encoding='utf-8')
  print('Installer delivered at repository root: '+target.name,flush=True)
 def retain_installers():
  # Run only after the complete package passes inspection. An explicitly chosen
@@ -202,7 +202,7 @@ def retain_installers():
  receipt=OUT/'installer-retention.json'
  if receipt.is_symlink():raise ValueError('Refusing redirected installer receipt')
  if previous is None and receipt.is_file() and not receipt.is_symlink():
-  saved=json.loads(receipt.read_text())
+  saved=json.loads(receipt.read_text(encoding='utf-8'))
   if saved.get('previous_selection')=='selected':
    previous=saved.get('previous')
    if not isinstance(previous,str):raise ValueError('Invalid saved rollback selection')
@@ -231,14 +231,14 @@ def retain_installers():
    if item.is_file() and not item.is_symlink():
     removed.append({'path':item.relative_to(OUT).as_posix(),'sha256':sha(item)})
     item.unlink()
- receipt.write_text(json.dumps({'current':VERSION,'previous':previous,'previous_selection':'selected' if selected else 'previous_build','removed':removed},indent=2)+'\n')
+ receipt.write_text(json.dumps({'current':VERSION,'previous':previous,'previous_selection':'selected' if selected else 'previous_build','removed':removed},indent=2)+'\n', encoding='utf-8')
  print(f'Installer retention: current={VERSION}, previous={previous}; removed {len(removed)} generated files.',flush=True)
 def verify():
  run([sys.executable,'scripts/audit_distribution.py','--package',str(OUT)])
  write_checksums()
 def write_checksums():
  files=sorted(f for f in OUT.iterdir() if f.is_file() and f.suffix in ['.zip','.exe'])
- (OUT/'SHA256SUMS').write_text(''.join(f'{sha(f)}  {f.name}\n' for f in files))
+ (OUT/'SHA256SUMS').write_text(''.join(f'{sha(f)}  {f.name}\n' for f in files), encoding='utf-8')
 if __name__=='__main__':
  a=argparse.ArgumentParser();a.add_argument('command',choices=['setup','check','build','package','verify'])
  a.add_argument('--profile',choices=['local','release'],help='build defaults to local; package requires release')
