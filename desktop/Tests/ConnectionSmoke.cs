@@ -64,6 +64,9 @@ public sealed partial class Dashboard
             if(identities.Single(b=>AutomationProperties.GetName(b)=="Mac · 正在連線").Background?.ToString()==identities.Single(b=>AutomationProperties.GetName(b)=="iPad · 連線異常").Background?.ToString())throw new InvalidOperationException("connection and error colors must differ");
             if(chipText.Text!="正在連線 · 1 台裝置")throw new InvalidOperationException("host transport alone must not claim a connected peer");
             CaptureConnectionPreview(this,"connecting-error");
+            using(var waiting=JsonDocument.Parse("""{"event":"status","devices":[{"device":"Mac","title":"等候 USB 接線","connected":false},{"device":"iPad","title":"等候 USB 接線","connected":false}]}"""))Update(waiting.RootElement);
+            if(chipText.Text!="等候裝置")throw new InvalidOperationException("no device must show the waiting summary");
+            CaptureConnectionPreview(this,"waiting");
             SeedPreview();
 
             var retainedAddress = addressValue.Text;
@@ -356,7 +359,7 @@ public sealed partial class Dashboard
                 throw new InvalidOperationException("one device detach must preserve the other slot");
             CaptureConnectionPreview(this, "one-device");
             ResizeAndSettle(720, 500); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
-            if (compactLayout != true || this.GetVisualDescendants().OfType<LayoutTransformControl>().Any() || addressValue.FontSize != 34 || bodyScroll.Extent.Height <= bodyScroll.Viewport.Height)
+            if (compactLayout != true || this.GetVisualDescendants().OfType<LayoutTransformControl>().Any() || addressValue.FontSize != Scale.Hero || bodyScroll.Extent.Height <= bodyScroll.Viewport.Height)
                 throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
             CaptureConnectionPreview(this, "compact");
             ResizeAndSettle(520, 420); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
@@ -492,6 +495,6 @@ public sealed partial class Dashboard
         window.UpdateLayout();
         using var bitmap = new RenderTargetBitmap(new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height), new Vector(96, 96));
         bitmap.Render(window);
-        bitmap.Save(System.IO.Path.Combine("/private/tmp", "usb-link-unified-" + name + ".png"));
+        bitmap.Save(System.IO.Path.Combine("/private/tmp", "usb-link-unified-" + (Program.DarkPreview ? "dark-" : "") + name + ".png"));
     }
 }

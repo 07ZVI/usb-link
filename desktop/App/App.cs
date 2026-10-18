@@ -19,7 +19,7 @@ public sealed class App : Application
     {
         LaunchTelemetry.Mark("renderer-app-initialize");
         // Follow the Windows light/dark setting; every brush below is a theme resource.
-        RequestedThemeVariant = ThemeVariant.Default;
+        RequestedThemeVariant = Program.DarkPreview ? ThemeVariant.Dark : ThemeVariant.Default;
         Styles.Add(new FluentTheme());
         Palette.Install(Resources);
         LaunchTelemetry.Mark("renderer-theme-ready");

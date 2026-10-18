@@ -43,11 +43,35 @@ internal static class Palette
         ("ErrorSoft", "#FDE7E9", "#442726"),
     };
 
+    // Fluent's own switch keys, restated from the palette: a filled neutral track
+    // with a white knob when off and the accent when on, in both themes.
+    static readonly (string Key, string Light, string Dark)[] SwitchTokens =
+    {
+        ("ButtonBackgroundDisabled", "#80FDFDFD", "#08FFFFFF"), ("ButtonBorderBrushDisabled", "#14000000", "#17FFFFFF"),
+        ("ToggleSwitchFillOff", "#C8C8C8", "#5A5A5A"), ("ToggleSwitchFillOffPointerOver", "#BBBBBB", "#686868"),
+        ("ToggleSwitchFillOffPressed", "#AEAEAE", "#767676"), ("ToggleSwitchFillOffDisabled", "#E6E6E6", "#383838"),
+        ("ToggleSwitchStrokeOff", "#C8C8C8", "#5A5A5A"), ("ToggleSwitchStrokeOffPointerOver", "#BBBBBB", "#686868"),
+        ("ToggleSwitchStrokeOffPressed", "#AEAEAE", "#767676"), ("ToggleSwitchStrokeOffDisabled", "#E6E6E6", "#383838"),
+        ("ToggleSwitchKnobFillOff", "#FFFFFF", "#F2F2F2"), ("ToggleSwitchKnobFillOffPointerOver", "#FFFFFF", "#FFFFFF"),
+        ("ToggleSwitchKnobFillOffPressed", "#F4F4F4", "#E4E4E4"), ("ToggleSwitchKnobFillOffDisabled", "#F7F7F7", "#8A8A8A"),
+        ("ToggleSwitchFillOn", "#0F6CBD", "#4CC2FF"), ("ToggleSwitchFillOnPointerOver", "#115EA3", "#6BCDFF"),
+        ("ToggleSwitchFillOnPressed", "#0F548C", "#3AAEEB"), ("ToggleSwitchFillOnDisabled", "#A9C9E6", "#2B4F61"),
+        ("ToggleSwitchStrokeOn", "#0F6CBD", "#4CC2FF"), ("ToggleSwitchStrokeOnPointerOver", "#115EA3", "#6BCDFF"),
+        ("ToggleSwitchStrokeOnPressed", "#0F548C", "#3AAEEB"), ("ToggleSwitchStrokeOnDisabled", "#A9C9E6", "#2B4F61"),
+        ("ToggleSwitchKnobFillOn", "#FFFFFF", "#10222E"), ("ToggleSwitchKnobFillOnPointerOver", "#FFFFFF", "#10222E"),
+        ("ToggleSwitchKnobFillOnPressed", "#F4F4F4", "#10222E"), ("ToggleSwitchKnobFillOnDisabled", "#FFFFFF", "#6F8795"),
+    };
+
     public static void Install(IResourceDictionary resources)
     {
         var light = new ResourceDictionary();
         var dark = new ResourceDictionary();
         foreach (var (key, l, d) in Tokens)
+        {
+            light[key] = new SolidColorBrush(Color.Parse(l));
+            dark[key] = new SolidColorBrush(Color.Parse(d));
+        }
+        foreach (var (key, l, d) in SwitchTokens)
         {
             light[key] = new SolidColorBrush(Color.Parse(l));
             dark[key] = new SolidColorBrush(Color.Parse(d));

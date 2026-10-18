@@ -54,6 +54,8 @@ internal static class ViewControls
         if (primary) b.Res(Button.BackgroundProperty, "Accent").Res(Button.BorderBrushProperty, "Accent");
         else b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Stroke");
         b.Click += (_, _) => onClick();
+        // Fluent's disabled grey fill fights the palette; dim the whole button instead.
+        b.PropertyChanged += (_, e) => { if (e.Property == Button.IsEnabledProperty) b.Opacity = b.IsEnabled ? 1 : .45; };
         return b;
     }
     internal static Button IconButton(string icon, string tip, Action onClick)

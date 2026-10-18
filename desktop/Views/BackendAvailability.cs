@@ -26,11 +26,9 @@ public sealed partial class Dashboard
             : $"後台狀態讀取失敗 · {code}\n下方資料已過期，操作已暫停；正在重試讀取。後台連線狀態尚未確認。";
         backendFailure.Res(TextBlock.ForegroundProperty, initializing ? "Muted" : "Warn");
         backendFailureBanner.IsVisible = true;
+        ((Border)backendFailureBanner).Res(Border.BackgroundProperty, initializing ? "IdleSoft" : "WarnSoft");
         versionText.Text = verifiedBackendVersion == "" ? "版本尚未核對" : verifiedBackendVersion + "（上次核對）";
-        chipText.Text = initializing ? "後台啟動中" : "狀態已過期";
-        chip.Res(Border.BackgroundProperty, initializing ? "IdleSoft" : "WarnSoft");
-        chipDot.Res(Border.BackgroundProperty, initializing ? "Idle" : "Warn");
-        chipText.Res(TextBlock.ForegroundProperty, initializing ? "Muted" : "Warn");
+        chip.Set(initializing ? "Idle" : "Warn", initializing ? "後台啟動中" : "狀態已過期");
         body.IsEnabled = false;
         bodyScroll.IsEnabled = footerControl.IsEnabled = true;
         SetNotice("");
