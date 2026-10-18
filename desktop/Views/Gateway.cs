@@ -71,6 +71,10 @@ public sealed partial class Dashboard
   dialog.Closed+=(_,_)=>{signatureCancellation.Cancel();signatureCancellation.Dispose();if(!answered)GatewayRequest(new{action="gateway-decide",id,decision="block",remember=false});gatewayPrompt=null;NextGatewayRequest();};
   _=dialog.ShowDialog(this);if(!preview)_=CheckSignature();else signature.Text="數位簽章：未簽署（介面預覽）";
  }
+ string gatewayRevoked="";
+ /// Revoking is reversible (the program is asked again next time), so the confirmation uses the accent, not the destructive red.
+ void RevokeGateway(string path)=>AppWindow.Confirm(securityWindow,"撤銷授權？","「"+System.IO.Path.GetFileName(path)+"」之後要使用 USB 網路時，會再次詢問你是否允許。",
+  "撤銷授權",()=>{gatewayRevoked=path;GatewayRequest(new{action="gateway-forget",path});},detail:path);
  Control GatewayPanel(){gatewayRows=new(){Spacing=10};gatewayState=Hint("正在讀取 USB 授權…");
   var head=Column(6,Hint("尚未授權的程式預設被阻止，有連線請求時由你決定。授權只作用於 USB 網路（TCP、UDP、IPv4、IPv6）；本程式自己的通信會自動放行。"),gatewayState);head.Margin=new Thickness(0,12,0,12);
   return Rows("Auto,*",head,new ScrollViewer{Content=gatewayRows,HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled});}
@@ -86,7 +90,7 @@ public sealed partial class Dashboard
   foreach(var grant in Entries(d,"grants")){var path=Text(grant,"path");var allow=Text(grant,"decision")=="allow";
    var signature=Hint(preview?"數位簽章：需由 Windows 驗證（介面預覽）":"數位簽章：正在驗證…");
    var decision=new StatusPill(allow?"允許":"阻止",Scale.Caption);decision.Set(allow?"Ok":"Error");
-   gatewayRows.Children.Add(ListItem.Make(System.IO.Path.GetFileName(path),path,Row(8,decision,Action("撤銷授權",()=>GatewayRequest(new{action="gateway-forget",path}),danger:true)),body:signature));
+   gatewayRows.Children.Add(ListItem.Make(System.IO.Path.GetFileName(path),path,Row(8,decision,Action("撤銷授權",()=>RevokeGateway(path),danger:true)),body:signature));
    if(!preview&&securityWindow!=null)_=CheckGrantSignature(signature,path,Text(grant,"sha256"),generation,token);
   }
   if(gatewayRows.Children.Count==0)gatewayRows.Children.Add(EmptyState.Make(Icons.Shield,"尚無程式授權","程式第一次要求使用 USB 網路時，會在這裡詢問你。"));

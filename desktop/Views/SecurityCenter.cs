@@ -92,6 +92,18 @@ public sealed partial class Dashboard
             var signerFixtures=new[]{("Valid","Example publisher"),("HashMismatch","Claimed publisher"),("NotSigned","")};
             for(var i=0;i<3;i++)ShowSignature(signatureLabels[i],ExecutableSignature.Parse(JsonSerializer.Serialize(new{status=signerFixtures[i].Item1,publisher=signerFixtures[i].Item2})));
             if(signatureLabels[1].Foreground is not SolidColorBrush red||red.Color!=Color.Parse(Program.DarkPreview ? "#FF99A4" : "#C42B1C")||!signatureLabels[0].Text!.Contains("Example publisher"))throw new InvalidOperationException("signer and red invalid warning must be visible");
+            var revoke=Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(gatewayRows).OfType<Button>().First(b=>b.Content is Control{} c&&Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(c).Prepend(c).OfType<TextBlock>().Any(t=>t.Text=="撤銷授權"));
+            revoke.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            var revokeDialog=securityWindow.OwnedWindows.SingleOrDefault(w=>w.Title=="USB Link · 撤銷授權？")??throw new InvalidOperationException("revoking a grant must ask first");
+            var revokeButtons=Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(revokeDialog).OfType<Button>().ToArray();
+            var revokeConfirm=revokeButtons.Single(b=>Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<TextBlock>().Any(t=>t.Text=="撤銷授權"));
+            if(gatewayRevoked!=""||revokeConfirm.Background is not ISolidColorBrush fill||fill.Color==Color.Parse(Program.DarkPreview ? "#FF99A4" : "#C42B1C"))throw new InvalidOperationException("revoke confirmation must not send before confirming or use the destructive red");
+            if(!Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(revokeDialog).OfType<TextBlock>().Any(t=>t.Text?.Contains("再次詢問")==true))throw new InvalidOperationException("revoke confirmation must say the program is asked again");
+            revokeButtons.Single(b=>Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<TextBlock>().Any(t=>t.Text=="取消")).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            if(securityWindow.OwnedWindows.Count!=0||gatewayRevoked!="")throw new InvalidOperationException("cancelling the revoke confirmation must not revoke");
+            revoke.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(securityWindow.OwnedWindows.Single()).OfType<Button>().Single(b=>Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<TextBlock>().Any(t=>t.Text=="撤銷授權")).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            if(securityWindow.OwnedWindows.Count!=0||gatewayRevoked!=@"C:\Programs\Trusted.exe")throw new InvalidOperationException("confirming the revoke dialog must revoke the selected program");
             securityMode.Text="介面預覽 · 簽章範例，不代表實際程式驗證";
             SaveSecurityPreview(securityWindow,"usb-link-gateway-signatures-0138.png");
             securityWindow.Close();
