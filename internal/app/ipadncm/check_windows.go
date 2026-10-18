@@ -739,6 +739,11 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 				w.Close()
 				return r
 			}
+			if network {
+				// The configuration that appears after SET_MODE has its own photo
+				// instance: isolate the remembered one before it can arrive.
+				ApplyPhotoIsolationBeforeModeRequest()
+			}
 			// Include re-enumeration in the operation window. This records a
 			// possible prompt trigger, never an observation of the iPad's UI.
 			modeDone := RecordConnectionOperation("usb_mode_switch")

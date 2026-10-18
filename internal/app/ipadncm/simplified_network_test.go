@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,7 +45,7 @@ func TestLegacyIsolationMigrationReadbackFailureKeepsRemainingOriginals(t *testi
 	}
 }
 func TestSimplifiedDefaultCannotPairOrApplyRetiredPolicy(t *testing.T) {
-	for _, item := range []struct{ path, name string }{{"../launcher/main_windows.go", "inspect"}, {"../launcher/main_windows.go", "executeMode"}, {"simplified_network_windows.go", "PrepareSimplifiedIPadNetworkAfterConsent"}} {
+	for _, item := range []struct{ path, name string }{{"../launcher/inspect_windows.go", "inspect"}, {"../launcher/inspect_windows.go", "executeMode"}, {"simplified_network_windows.go", "PrepareSimplifiedIPadNetworkAfterConsent"}} {
 		c := unpairedCalls(unpairedSourceFunction(t, item.path, item.name))
 		for _, name := range []string{"AuthenticateCurrentUSB", "queryModel", "muxDial", "InspectUnpairedPairMetadata", "BindUnpairedExperimentAfterConsent", "EnsureNetworkOnlyForPhase", "applyNetworkOnlyService", "saveUnpairedProductOwner", "writeNetworkOnlyFile", "Begin", "New", "OpenService", "UpdateConfig", "setPortableDisabled"} {
 			if c[name] != 0 {
@@ -52,12 +53,12 @@ func TestSimplifiedDefaultCannotPairOrApplyRetiredPolicy(t *testing.T) {
 			}
 		}
 	}
-	fn := unpairedSourceFunction(t, "../launcher/main_windows.go", "inspect")
+	fn := unpairedSourceFunction(t, "../launcher/inspect_windows.go", "inspect")
 	first, ok := fn.Body.List[0].(*ast.IfStmt)
 	if !ok || unpairedCalls(first)["applicationConsent"] == 0 {
 		t.Fatal("fresh actual consent must precede preparation")
 	}
-	mode := unpairedCalls(unpairedSourceFunction(t, "../launcher/main_windows.go", "executeMode"))
+	mode := unpairedCalls(unpairedSourceFunction(t, "../launcher/inspect_windows.go", "executeMode"))
 	if mode["RunSelectedNetworkOnlyAppleControl"] == 0 {
 		t.Fatal("default bypassed no-session USB control")
 	}
@@ -99,11 +100,21 @@ func TestSimplifiedStartupGroupingNeverRestoresOrRestarts(t *testing.T) {
 			}
 		}
 	}
-	b, e := os.ReadFile("../launcher/main_windows.go")
-	if e != nil {
-		t.Fatal(e)
+	files, e := filepath.Glob("../launcher/*.go")
+	if e != nil || len(files) == 0 {
+		t.Fatal("launcher sources", e)
 	}
-	s := string(b)
+	var s string
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		b, e := os.ReadFile(file)
+		if e != nil {
+			t.Fatal(e)
+		}
+		s += string(b)
+	}
 	for _, forbidden := range []string{"ipadncm.RestoreNetworkOnly(", "ipadncm.UnpairedNetworkOnlyStartupProtection(", "ipadncm.RestoreNetworkOnlyPortableNodes(", "ipadncm.InitUnpairedNetworkOnlyProduct(", "ipadncm.RestoreUnpairedNetworkOnlyProduct("} {
 		if strings.Contains(s, forbidden) {
 			t.Fatal("production main retains old policy", forbidden)

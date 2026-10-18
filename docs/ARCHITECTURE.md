@@ -71,3 +71,47 @@ Temporary file transfer and developer remote-upgrade entry points have been remo
 The service-to-desktop projection sends current connection values and performance aggregates, not the core's per-second history or fault-event arrays. Full histories remain in core diagnostics; projected `older_samples_omitted` includes samples excluded from the desktop snapshot. This keeps session duration from exhausting the 48 KiB display snapshot budget. A regression fixture with a full 600-sample ring and 64 fault events exceeds the old limit and verifies identical rendered device status after projection.
 
 A failed service read produces a bounded `backend-unavailable` event with a fixed error code. The renderer marks existing values stale and disables business controls while retaining exit controls; only a normal version-bearing status clears that state. The core snapshot's status and encoded byte count are included in USB diagnostics. Missing status is never treated as successful version verification.
+
+## ipadncm package decomposition plan
+
+Status: plan only; no code moved. `internal/app/ipadncm` holds 360 files (126 tests). Filename prefixes (`ls | cut`) show the subdomains. Lines count all files with the prefix, including tests.
+
+| Prefix | Files (tests) | Lines | Proposed package |
+|---|---|---|---|
+| `local_wpd_*` | 36 (19) | ~6,400 | `ipadncm/wpdtrace` |
+| `local_photo_*` | 19 (4) | ~2,800 | `ipadncm/photoprobe` |
+| `network_only_*` | 14 (5) | ~2,000 | `ipadncm/networkonly` |
+| `software_reconnect_*` | 13 (5) | ~1,850 | `ipadncm/softreconnect` |
+
+Smaller clusters (`local_ncm_*` 12, `local_usb_*` 10, `local_amds_*` 10, `usb_descriptor_*` 9, `connection_timing_*` 8, `trust_revoke_*` 6) are later candidates and are not planned here.
+
+### Coupling estimate
+
+Method: collect top-level `func`/`type`/`var`/`const` names defined in each prefix's non-test files, then grep them (word match) in the other non-test ipadncm files. This is an upper bound, because method names such as `snapshot`, `record` and `allowed` match unrelated receivers. The reverse count is identifiers from the rest of the package that the prefix's files reference.
+
+| Prefix | Names referenced from outside | Of which exported | Reverse references | Notes |
+|---|---|---|---|---|
+| `connection_timing_*` (reference) | 12 | 5 | 24 | Only 2 files outside use it. |
+| `local_wpd_*` | 33 | 3 | 55 | Mostly diagnostic helpers (`snapshot`, `record`, `sample`, `publish`). |
+| `local_photo_*` | 26 | 9 | 62 | Shares `snapshot`/`restore`/`allowed` conventions with `local_wpd_*`. |
+| `software_reconnect_*` | 15 | 7 | 57 | Entry points such as `IPadSoftwareReconnectCanConnect` are already exported; the unexported ones are trust handles and property helpers. |
+| `network_only_*` | 41 | 12 | 71 | Highest outbound use: `networkOnlyDriverStoreProtected`, `portableNodeReceipt`, `portableCfg` (12-14 files each). |
+
+What would need exporting: the 3 to 12 exported-or-newly-exported entry points per package above, plus the small set of types in their signatures. The reverse references (55 to 71 names) show that each subpackage needs a lower-level shared package first (for example `ipadncm/internal/devicecore` for USB handle, registry/property and logging helpers), otherwise the new package would import `ipadncm` and create a cycle.
+
+Test caveat: tests in these prefixes use unexported helpers and several tests read sibling source files by path (for example `simplified_network_test.go` parses launcher sources). Tests move with their package, and source-scanning paths must be updated in the same PR.
+
+### Suggested order (least coupled first)
+
+1. Extract the shared lower-level package (helpers only, no behaviour). This is a prerequisite for all steps below.
+2. `wpdtrace`: largest and mostly diagnostic; few exported entry points.
+3. `photoprobe`: similar shape to `wpdtrace`, so it reuses the same pattern.
+4. `softreconnect`: small surface, but it touches trust and consent paths.
+5. `networkonly`: most coupled and security-sensitive; last.
+
+### Process
+
+- One subpackage per PR; no behaviour change, no renames of exported behaviour.
+- Windows CI (`python scripts/project.py check`, then `package --profile release`) must be green before merge.
+- Hardware acceptance checks (Windows with iPad and Mac) must pass after each PR, before starting the next.
+- Run `scripts/check_architecture.py` in each PR; new subpackages stay under the `app` layer.

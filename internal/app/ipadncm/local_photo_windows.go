@@ -45,6 +45,16 @@ func SetPhotoIsolationMaster(bool)                                        {}
 func SetPhotoIsolation(bool, string) error                                { return errors.New("PHOTO_AUTOMATIC_RUNTIME_POLICY") }
 func PhotoIsolationDiagnostics() any                                      { return localPhoto.snapshot() }
 
+// Before a mode request: put every remembered instance of the bound iPad into
+// the isolated state so the instance that arrives afterwards starts disabled.
+// Best effort by design; a failure is reported in status and never blocks the
+// network path.
+func ApplyPhotoIsolationBeforeModeRequest() {
+	if defaultIsolationAdmission() == nil {
+		localPhoto.applyKnown()
+	}
+}
+
 // Callers must already hold the normal network/identity consent scope. This
 // binding does not infer such authority from a preference or display prefix.
 func BindPhotoIsolationTarget(s Snapshot) error {

@@ -748,7 +748,8 @@ func nativeAliasMatches(s Scope, alias string) bool {
 }
 func PersistentEnabled() bool { return persistentEnabled.Load() }
 func ApplyPersistentHost(ctx context.Context, dir string, s Scope, verifyOwner func() error, profile ProfileOps) (Observation, error) {
-	if s.Role != "host" {
+	// A disabled feature reports DISABLED for any scope; the host-only rule applies once it is enabled.
+	if s.Role != "host" && persistentEnabled.Load() {
 		return Observation{}, errors.New("USB_PERSISTENT_HOST_SCOPE_REQUIRED")
 	}
 	return ApplyPersistent(ctx, dir, s, verifyOwner, profile)

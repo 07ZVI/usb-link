@@ -7,17 +7,18 @@ import "suhang/usbnet/internal/contracts/desktopipc"
 // The embedded device fields preserve older single-device renderer support.
 // Detail overrides the selected device report with the combined diagnostics.
 type desktopStatusSnapshot struct {
-	DefaultNetworkIsolation any `json:"default_network_isolation,omitempty"`
-	LocalUSBTrace           any `json:"local_usb_trace,omitempty"`
-	PnPNativeTrace          any `json:"pnp_native_trace,omitempty"`
-	DeveloperDebug          any `json:"developer_debug,omitempty"`
-	ConnectionTiming        any `json:"connection_timing,omitempty"`
-	PhotoIsolation          any `json:"photo_isolation,omitempty"`
-	WPDTrace                any `json:"wpd_trace,omitempty"`
-	PhotoPolicy             any `json:"photo_policy,omitempty"`
-	NCMDirect               any `json:"ncm_direct,omitempty"`
-	AMDSHold                any `json:"amds_hold,omitempty"`
-	ConnectionArchive       any `json:"connection_archive,omitempty"`
+	DefaultNetworkIsolation any                        `json:"default_network_isolation,omitempty"`
+	LocalUSBTrace           any                        `json:"local_usb_trace,omitempty"`
+	PnPNativeTrace          any                        `json:"pnp_native_trace,omitempty"`
+	NetworkOnly             networkOnlyIsolationStatus `json:"network_only"`
+	DeveloperDebug          any                        `json:"developer_debug,omitempty"`
+	ConnectionTiming        any                        `json:"connection_timing,omitempty"`
+	PhotoIsolation          any                        `json:"photo_isolation,omitempty"`
+	WPDTrace                any                        `json:"wpd_trace,omitempty"`
+	PhotoPolicy             any                        `json:"photo_policy,omitempty"`
+	NCMDirect               any                        `json:"ncm_direct,omitempty"`
+	AMDSHold                any                        `json:"amds_hold,omitempty"`
+	ConnectionArchive       any                        `json:"connection_archive,omitempty"`
 	desktopipc.DeviceStatus
 	Event             string                      `json:"event"`
 	Connections       string                      `json:"connections"`

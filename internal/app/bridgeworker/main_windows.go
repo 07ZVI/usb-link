@@ -45,25 +45,9 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
 )
 
 var version = buildinfo.Version + "-shared-subnet"
-
-type statistics struct {
-	USBReads, USBWrites, ToWindows, ToMac, ToWindowsBytes, ToMacBytes, Dropped, Filtered, RingOverflow, PendingOverflow uint64
-	ToWindowsProfile, ToMacProfile                                                                                      bridge.PacketProfile
-	MTUExceeded, MTUExceededBytes                                                                                       uint64
-	MaxRejectedIPLength                                                                                                 uint32
-}
-
-func diagnostics(dir, nonce string, stats statistics, topology []usbaddress.InterfaceProof) ([]byte, error) {
-	return logfile.MarshalDiagnosticSnapshot(map[string]any{
-		"version": version, "group": 0, "nonce": nonce, "stats": stats,
-		"performance": performanceSnapshot(), "usb_network": usbaddress.NativeDetails(topology),
-		"wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(),
-	}, logfile.ReadDiagnosticTails(dir))
-}
 
 func run(dir string, l *log.Logger) (runErr error) {
 	reportInterfaceOperations := func() {
@@ -1392,21 +1376,4 @@ func Main() {
 	if e != nil {
 		os.Exit(1)
 	}
-}
-
-// Only the successful current factory/address phase can call this checkpoint.
-// The persistent package independently repeats the complete native/Store proof.
-func macOwnedAddressCreated(p usbaddress.InterfaceProof) (int64, error) {
-	row := windows.MibUnicastIpAddressRow{InterfaceLuid: p.LUID, InterfaceIndex: p.Index}
-	a := (*windows.RawSockaddrInet4)(unsafe.Pointer(&row.Address))
-	a.Family = windows.AF_INET
-	a.Addr = [4]byte{10, 6, 9, 253}
-	if windows.GetUnicastIpAddressEntry(&row) != nil || row.InterfaceLuid != p.LUID || row.InterfaceIndex != p.Index || row.OnLinkPrefixLength != 32 || row.PrefixOrigin != 1 || row.SuffixOrigin != 1 || row.DadState != 4 || row.SkipAsSource != 1 {
-		return 0, fmt.Errorf("USB_MAC_PERSISTENT_ADDRESS_CHECKPOINT_UNPROVEN")
-	}
-	created := int64(uint64(row.CreationTimeStamp.HighDateTime)<<32 | uint64(row.CreationTimeStamp.LowDateTime))
-	if created <= 0 {
-		return 0, fmt.Errorf("USB_MAC_PERSISTENT_CREATED_UNPROVEN")
-	}
-	return created, nil
 }

@@ -20,14 +20,14 @@ public sealed partial class Dashboard
             if (kind == 0) View = Gap(10);
             else if (kind == 1)
             {
-                key = Label("", 12, key: "Muted");
-                value = Label("", 13);
+                key = Label("", Scale.Secondary, key: "Muted");
+                value = Label("", Scale.Body);
                 value.TextWrapping = TextWrapping.Wrap; value.TextTrimming = TextTrimming.None;
                 View = Columns("150,*", key, value);
             }
             else
             {
-                value = Label("", kind == 3 ? 13 : 12, key: kind == 3 ? "Muted" : "Subtle");
+                value = Label("", kind == 3 ? Scale.Body : Scale.Secondary, key: kind == 3 ? "Muted" : "Subtle");
                 value.TextWrapping = TextWrapping.Wrap; value.TextTrimming = TextTrimming.None;
                 View = value;
             }

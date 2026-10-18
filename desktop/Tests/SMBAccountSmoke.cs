@@ -9,7 +9,7 @@ public sealed partial class Dashboard
     void RunSMBAccountSmoke()
     {
         OpenSMBManager(); var window = smbAccountWindow!;
-        OpenShareFolders(); if (!ReferenceEquals(window,shareFoldersWindow)) throw new InvalidOperationException("SMB windows not combined");
+        OpenSMBManager(); if (!ReferenceEquals(window,shareFoldersWindow)) throw new InvalidOperationException("SMB windows not combined");
         OpenSMBGuest(); OpenSMBRepair();
         if (!ReferenceEquals(window,smbGuestState.Window) || !ReferenceEquals(window,smbRepairState.Window) || window.Title != "USB Link · SMB 共享")
             throw new InvalidOperationException("guest and repair must share the SMB window");

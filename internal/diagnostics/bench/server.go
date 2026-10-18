@@ -100,7 +100,10 @@ func handleContext(ctx context.Context, conn net.Conn, profileOnly bool) (Result
 		}
 	}
 	result.Seconds = time.Since(start).Seconds()
-	result.Mbps = float64(result.Bytes) * 8 / result.Seconds / 1e6
+	// Coarse Windows clocks can report no elapsed time; +Inf is not valid JSON.
+	if result.Seconds > 0 {
+		result.Mbps = float64(result.Bytes) * 8 / result.Seconds / 1e6
+	}
 	result.SHA256 = hex.EncodeToString(hash.Sum(nil))
 	if err != nil {
 		return result, err

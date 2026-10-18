@@ -13,9 +13,11 @@ import (
 
 func fileFixture(t *testing.T) (*Catalog, *smbCatalog, Folder) {
 	t.Helper()
+	// Close the catalog before TempDir cleanup: Windows cannot delete a pinned root.
+	dir := realTemp(t)
 	c := NewCatalog(nil)
 	t.Cleanup(c.Close)
-	folder, e := c.Add("", realTemp(t))
+	folder, e := c.Add("", dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -110,10 +112,12 @@ func TestSMBCaseOnlyRenameAndLiteralBracketEnumeration(t *testing.T) {
 
 func TestSMBCrossRootRenameReportsDifferentDevice(t *testing.T) {
 	c, b, folder := fileFixture(t)
-	other, e := c.Add("", realTemp(t))
+	otherDir := realTemp(t)
+	other, e := c.Add("", otherDir)
 	if e != nil {
 		t.Fatal(e)
 	}
+	t.Cleanup(func() { c.Remove(other.ID) })
 	if e = os.WriteFile(filepath.Join(folder.Path, "data"), []byte("source"), 0600); e != nil {
 		t.Fatal(e)
 	}

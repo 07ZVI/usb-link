@@ -118,7 +118,7 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 		return fmt.Errorf("CORE_ACTION_INVALID")
 	}
 	switch request.Action {
-	case "select-mac", "select-ipad", "share-on", "share-off", "ipad-revoke-trust", "startup-on", "startup-off", "retry", "retry-mac", "retry-ipad", "benchmark-start", "benchmark-cancel", "security-refresh", "firewall-upsert", "firewall-delete", "firewall-discard-pending", "settings":
+	case "select-mac", "select-ipad", "share-on", "share-off", "ipad-revoke-trust", "startup-on", "startup-off", "network-only-on", "network-only-off", "retry", "retry-mac", "retry-ipad", "benchmark-start", "benchmark-cancel", "security-refresh", "firewall-upsert", "firewall-delete", "firewall-discard-pending", "settings":
 	default:
 		if !serviceAdditionalAction(request.Action) {
 			return fmt.Errorf("CORE_ACTION_UNSUPPORTED")
@@ -139,6 +139,8 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 		}
 		if request.Action == "startup-on" || request.Action == "startup-off" {
 			u.startupAction(request.Action, request.ID)
+		} else if isNetworkOnlyAction(request.Action) {
+			u.networkOnlyAction(request.Action, request.ID)
 		} else {
 			u.action(request.Action)
 		}
@@ -198,10 +200,17 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 	default:
 		b, err := json.Marshal(v)
 		if err == nil {
+			if v.Action == "exit-program" {
+				// The window hides at once; the tray carries the state from here.
+				u.noteExitRequested()
+			}
 			go func() {
 				reply, err := p.Action(u.lifetime, b)
 				if err != nil {
 					if v.Action == "exit-program" || v.Action == "exit-program-commit" {
+						if v.Action == "exit-program" {
+							u.clearExitRequested()
+						}
 						u.sendEvent(map[string]string{"event": "program-exit-result", "request_id": v.ID, "code": "CORE_EXIT_REQUEST_FAILED"})
 						return
 					}
@@ -269,6 +278,7 @@ func (u *modernUI) proxyPush(p *ServiceUIProxy) {
 		return
 	}
 	ApplyServiceMonitorResults(snapshot.Connections)
+	u.observeExitPhase(programExitDisplayPhase(snapshot.Desktop))
 	u.publishStatus(snapshot.Desktop)
 	for _, event := range snapshot.Events {
 		u.sendEvent(event)

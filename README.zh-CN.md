@@ -42,7 +42,7 @@ USB Link 负责把 USB 连接变成可用的网络。连接建立后，设备之
    - **Mac**：Finder → 前往 → 连接服务器（⌘K）。
    - **iPad**：文件 → 浏览 → 更多（…）→ 连接服务器。
 
-如需测速，在 Windows 的 Mac 卡片点击“浏览器测速”，将显示的网址在 Mac 浏览器中打开，再点击网页“开始测速”。无需在 Mac 安装测速程序或脚本；结果是浏览器的双向 TCP 吞吐，包含浏览器开销。
+如需测速，在 Windows 的 Mac 卡片点击“瀏覽器測速”，将显示的网址在 Mac 浏览器中打开，再点击网页“开始测速”。无需在 Mac 安装测速程序或脚本；结果是浏览器的双向 TCP 吞吐，包含浏览器开销。
 
 网络连通后，SMB 等应用仍需正确配置服务、账户和防火墙权限。USB 直连也不等于自动共享互联网；Windows → Mac 上网共享是单独的可选功能，默认关闭。
 
@@ -70,6 +70,7 @@ python3 scripts/project.py package
 - [工作区与 GitHub 同步](docs/WORKSPACE.md)
 - [架构](docs/ARCHITECTURE.md)
 - [网络共享](docs/INTERNET-SHARING.md)
+- [iPad USB 网络路径](docs/IPAD-USB-PATH.md)
 - [参与贡献](CONTRIBUTING.md) · [安全说明](SECURITY.md)
 
 原创代码采用 [GPL-3.0-only](LICENSE)，附带范围有限的[官方 Wintun DLL 链接例外](LICENSE-WINTUN-EXCEPTION)。第三方代码保留各自的许可证，详见[第三方声明](licenses/THIRD-PARTY.txt)。

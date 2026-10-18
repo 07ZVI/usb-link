@@ -25,6 +25,7 @@ internal static class Program
     public static bool ProcessPreview = false;
     public static bool ProcessSmoke = false;
     public static bool StandaloneTasks;
+    public static bool DarkPreview = false; // Design tools only; never set in release builds.
     // Same renderer and controls; opt-in isolates IPC/lifetime memory effects.
     public static readonly bool BoundedIpc = Environment.GetEnvironmentVariable("SUHANG_DESKTOP_BOUNDED_IPC") == "1";
     [STAThread]
@@ -35,6 +36,7 @@ internal static class Program
         if (args.Contains("--device-status-smoke")) { Environment.ExitCode = DeviceStatusSmoke.Run(args); return; }
         if (args.Contains("--process-native-smoke")) { Environment.ExitCode = ProcessNativeSmoke.Run(); return; }
         Preview = args.Contains("--preview");
+        DarkPreview = Preview && args.Contains("--theme-dark");
         ProcessPreview = Preview && args.Contains("--process-preview");
         ProcessSmoke = Preview && args.Contains("--process-smoke");
         SecurityPreview = Preview && args.Contains("--security-preview");

@@ -5,7 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 FORBIDDEN=re.compile(r'(?i)(^|/)(suhang-update\.exe|usb-send(?:\.exe)?|webdav-check(?:\.exe)?|wintun\.dll|zadig[^/]*\.exe|itunes[^/]*\.exe|apple[^/]*\.(msi|dll|sys|cat)|usbaapl[^/]*|dotnet\.exe|hostfxr\.dll|coreclr\.dll|.*\.(pfx|p12|pem|key|msi|cab))$')
 BINARY={'.exe','.dll','.sys','.zip','.tar','.gz','.7z','.dmg','.pkg','.app','.pfx','.p12','.cab','.msi'}
 SECRET=re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,}|/Users/[A-Za-z0-9][A-Za-z0-9._-]*/')
-WINTUN_PINS=json.loads((ROOT/'licenses/Wintun-distribution.json').read_text())['files']
+WINTUN_PINS=json.loads((ROOT/'licenses/Wintun-distribution.json').read_text(encoding='utf-8'))['files']
 ZADIG_PIN='4ecaa95df3da3621486a043aef8b3050b8bafe7c901402871e816229ef82039b'
 errors=[];archives=0;entries=0
 PRIVATE={'.local','.env','.git','evidence','archive','tooling','reference','deliverables'}

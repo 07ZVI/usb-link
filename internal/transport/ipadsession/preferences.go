@@ -21,7 +21,12 @@ type Preferences struct {
 	IndependentUSB bool             `json:"independent_usb"`
 	Devices        []DeviceGrant    `json:"devices"`
 	USBDevices     []USBDeviceGrant `json:"usb_devices,omitempty"`
+	// Zero value keeps "network only" on; only an explicit off is stored.
+	NetworkOnlyOff bool `json:"network_only_off,omitempty"`
 }
+
+// Block Windows photo import / storage browsing for the iPad (default on).
+func (p Preferences) NetworkOnlyEnabled() bool { return !p.NetworkOnlyOff }
 
 func DefaultPreferences() Preferences { return Preferences{Version: 2, IndependentUSB: true} }
 func validDigest(s string) bool {

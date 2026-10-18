@@ -48,7 +48,7 @@ internal sealed record RunningProgram(int Pid, long Started, string Name, string
     internal string DiskReadText => ProcessRate.Format(DiskRead);
     internal string NetworkText => ProcessRate.Format(Network);
     internal string CpuText => Cpu is double c ? c.ToString("0.0", CultureInfo.InvariantCulture) + "%" : "—";
-    internal string MemoryText => Memory is long m ? (m / 1048576d).ToString("N1") + " MB" : "—";
+    internal string MemoryText => Memory is long m ? m >= 1073741824 ? (m / 1073741824d).ToString("0.0", CultureInfo.InvariantCulture) + " GB" : (m / 1048576d).ToString("0.0", CultureInfo.InvariantCulture) + " MB" : "—";
     internal string Risk => Trust.Status switch {
         "invalid" or "revoked" => "可疑 · " + Trust.Reason,
         "expired" or "untrusted" => "需注意 · " + Trust.Reason,

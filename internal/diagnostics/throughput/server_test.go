@@ -159,6 +159,15 @@ func TestConcurrentChunksRaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	// A client finishes reading before its handler retires, so wait for the last one.
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		s.mu.Lock()
+		retired := s.run.active == 0
+		s.mu.Unlock()
+		if retired {
+			break
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.run.downBytes != 4*ChunkBytes || s.run.active != 0 {

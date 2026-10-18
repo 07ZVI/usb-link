@@ -2,6 +2,7 @@ package ipadsession
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -32,5 +33,29 @@ func TestPreferenceSchemaRejectsCorruptionAndUnknownFields(t *testing.T) {
 		if _, e := ParsePreferences([]byte(v)); e == nil {
 			t.Fatal("invalid settings accepted")
 		}
+	}
+}
+
+func TestNetworkOnlyPreferenceDefaultsOnAndStoresOnlyExplicitOff(t *testing.T) {
+	p := DefaultPreferences()
+	if !p.NetworkOnlyEnabled() {
+		t.Fatal("must default on")
+	}
+	b, _ := json.Marshal(p)
+	if strings.Contains(string(b), "network_only") {
+		t.Fatal("default must not add a field", string(b))
+	}
+	got, err := ParsePreferences([]byte(`{"version":2,"startup":false,"independent_usb":true,"devices":[]}`))
+	if err != nil || !got.NetworkOnlyEnabled() {
+		t.Fatal("older files stay on", err)
+	}
+	p.NetworkOnlyOff = true
+	b, _ = json.Marshal(p)
+	got, err = ParsePreferences(b)
+	if err != nil || got.NetworkOnlyEnabled() {
+		t.Fatal("explicit off must round trip", err, string(b))
+	}
+	if _, err = ParsePreferences([]byte(`{"version":2,"network_only_off":"yes","devices":[]}`)); err == nil {
+		t.Fatal("wrong type accepted")
 	}
 }

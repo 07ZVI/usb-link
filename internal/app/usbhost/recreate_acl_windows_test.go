@@ -21,7 +21,7 @@ func TestRecreateOldJournalAllowsOnlyAdministratorSystemACL(t *testing.T) {
 	for _, sddl := range []string{
 		"O:BAG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FW;;;AU)",
 		"O:BAG:BAD:(A;;FA;;;SY)(A;;FA;;;AU)",
-		"O:WOG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)",
+		"O:WDG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)",
 		"O:BAG:BAD:(A;IO;FA;;;SY)(A;IO;FA;;;BA)",
 		"O:BAG:BAD:(A;;FR;;;SY)(A;;FA;;;BA)",
 		"O:BAG:BAD:(D;;FA;;;SY)(A;;FA;;;BA)",

@@ -30,7 +30,7 @@ def plan(root, current, rollback=None):
     if receipt.is_symlink():
         raise ValueError('Refusing redirected rollback receipt')
     if receipt.exists():
-        saved = json.loads(receipt.read_text())
+        saved = json.loads(receipt.read_text(encoding='utf-8'))
         if saved.get('previous_selection') == 'selected':
             version_key(saved.get('previous'))
             selected.add(saved['previous'])
@@ -75,7 +75,7 @@ def retain(root, current, rollback=None):
     result = {**planned, 'files': rows, 'empty_directories_removed': []}
     # Keep a receipt even if a later removal fails; never advance the selected rollback.
     def save():
-        receipt.write_text(json.dumps(result, indent=2) + '\n')
+        receipt.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     save()
     for row in rows:
         path = root / row['path']

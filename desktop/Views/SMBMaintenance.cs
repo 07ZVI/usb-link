@@ -6,12 +6,12 @@ using Avalonia.Threading;
 namespace Suhang.Desktop;
 public sealed partial class Dashboard
 {
-    CheckBox smbGuest = null!;
+    ToggleSwitch smbGuest = null!;
     bool smbGuestEnabled;
     sealed class SMBMaintenanceState
     {
         public Window? Window;
-        public TextBlock Status = SMBHint("");
+        public TextBlock Status = Hint("");
         public readonly List<Control> Actions = new();
         public string ID = "", Action = "";
         public DispatcherTimer? Timer;
@@ -27,37 +27,34 @@ public sealed partial class Dashboard
     Control BuildSMBGuestPanel()
     {
         var s = smbGuestState; s.Window = smbAccountWindow;
-        smbGuest = new CheckBox { Content = "允許訪客免密碼連線", IsEnabled = false };
-        s.Status = SMBHint("正在讀取訪客設定…"); s.Loaded = false; s.Actions.Clear(); s.Actions.Add(smbGuest);
-        s.Refresh = Action("重新整理",()=>RequestSMBMaintenance(s,"native-smb-account-read"));
-        s.View = Card(Column(12, Columns("*,Auto", Label("訪客連線",18,FontWeight.SemiBold),s.Refresh),
-            smbGuest,SMBHint("各資料夾的訪客存取與修改權限，在下方共享資料夾中勾選並保存。"),
-            SMBHint("iPad 切換訪客與專用帳戶前，請先在「檔案」彈出此伺服器的所有共享，再重新登入。"),
-            SMBHint("開啟全機訪客後，允許訪客的其他 Windows 共享也可能受影響。"),s.Status),new Thickness(18));
+        smbGuest = Switch(); smbGuest.IsEnabled = false;
+        Avalonia.Automation.AutomationProperties.SetName(smbGuest, "允許訪客免密碼連線");
+        s.Status = Hint("正在讀取訪客設定…"); s.Loaded = false; s.Actions.Clear(); s.Actions.Add(smbGuest); s.Refresh = null;
+        var row = Columns("*,Auto", Column(2, Label("允許訪客免密碼連線", Scale.Body), Hint("訪客只能存取已在資料夾中允許訪客的共享。", "Muted", Scale.Caption)), smbGuest);
+        s.View = Section.Make("訪客連線", null, Column(12, row,
+            Hint("開啟後會啟用 Windows 全機訪客，其他允許訪客的 Windows 共享也可能受影響。iPad 切換訪客與專用帳戶前，請先在「檔案」彈出此伺服器的所有共享。", "Subtle", Scale.Caption), s.Status));
         smbGuest.Click += (_,_)=>{
-            if(smbGuest.IsChecked==true){smbGuest.IsChecked=false;ConfirmSMBMaintenance(s,"允許訪客連線？","這會啟用 Windows Guest 網路身份，並可能調整全機 SMB 簽名要求。其他網路上允許訪客的共享也可能受影響。",()=>RequestSMBMaintenance(s,"native-smb-guest-on"));}
+            if(smbGuest.IsChecked==true){smbGuest.IsChecked=false;ConfirmSMBMaintenance(s,"允許訪客連線？","這會啟用 Windows Guest 網路身份，並可能調整全機 SMB 簽名要求。其他網路上允許訪客的共享也可能受影響。",()=>RequestSMBMaintenance(s,"native-smb-guest-on"),"允許訪客");}
             else RequestSMBMaintenance(s,"native-smb-guest-off");
         };
         return s.View;
     }
     void OpenSMBRepair()
     {
-        OpenSMBManager(); smbRepairState.View?.BringIntoView();
+        OpenSMBManager();
+        if (smbRepairState.View is Expander fold) fold.IsExpanded = true;
+        smbRepairState.View?.BringIntoView();
     }
     Control BuildSMBRepairPanel()
     {
         var s=smbRepairState;s.Window=smbAccountWindow;
-        s.Status=SMBHint("");s.Loaded=true;s.Actions.Clear();
+        s.Status=Hint("");s.Loaded=true;s.Actions.Clear();
         var retry=Action("重試共享",()=>RequestSMBMaintenance(s,"native-smb-retry"));
-        var repair=Action("修復 Windows 元件",()=>ConfirmSMBMaintenance(s,"修復 Windows SMB 元件？","缺少元件時使用 Windows 官方修復，可能連線 Windows Update，耗時較長。不會自動重啟或安裝 SMB1。",()=>RequestSMBMaintenance(s,"native-smb-repair")));
+        var repair=Action("修復 Windows 元件",()=>ConfirmSMBMaintenance(s,"修復 Windows SMB 元件？","缺少元件時使用 Windows 官方修復，可能連線 Windows Update，耗時較長。不會自動重啟或安裝 SMB1。",()=>RequestSMBMaintenance(s,"native-smb-repair"),"開始修復"));
         s.Actions.AddRange(new Control[]{retry,repair});s.Refresh=null;
-        s.View=Card(Column(12,Label("Windows SMB 修復",18,FontWeight.SemiBold),SMBHint("共享不可用時可先重試。僅在 Windows SMB 元件缺失時使用元件修復。"),Row(10,retry,repair),s.Status),new Thickness(18));
+        s.View=new Expander{Header="進階：Windows SMB 修復",IsExpanded=false,HorizontalAlignment=Avalonia.Layout.HorizontalAlignment.Stretch,
+            Content=Column(10,Hint("共享不可用時可先重試。僅在 Windows SMB 元件缺失時使用元件修復。"),Row(10,retry,repair),s.Status)};
         return s.View;
-    }
-    Window SMBMaintenanceWindow(string title,Control content)
-    {
-        var w=new Window{Title="USB Link · "+title,Width=520,MinWidth=420,SizeToContent=SizeToContent.Height,WindowStartupLocation=WindowStartupLocation.CenterOwner,FontFamily=new FontFamily(Palette.FontStack)};
-        w.Res(BackgroundProperty,"Window");w.Content=new Border{Padding=new Thickness(24),Child=Column(18,Label(title,22,FontWeight.SemiBold),content)};return w;
     }
     void CloseSMBMaintenance(SMBMaintenanceState s)
     {
@@ -71,12 +68,10 @@ public sealed partial class Dashboard
         if(problem!="")s.Status.Text+="\n"+problem;
         s.Status.Res(TextBlock.ForegroundProperty,!loaded||problem!=""?"Warn":"Muted");
     }
-    void ConfirmSMBMaintenance(SMBMaintenanceState s,string title,string text,Action apply)
+    void ConfirmSMBMaintenance(SMBMaintenanceState s,string title,string text,Action apply,string confirm="確認")
     {
         var owner=s.Window;if(owner==null||s.ID!="")return;
-        var dialog=SMBMaintenanceWindow(title,Column(16,SMBHint(text)));dialog.Width=480;
-        ((StackPanel)((Border)dialog.Content!).Child!).Children.Add(Row(8,Action("取消",()=>dialog.Close()),Action("確認",()=>{dialog.Close();if(s.Window==owner)apply();},primary:true)));
-        dialog.Closed+=(_,_)=>dialog.Content=null;_=dialog.ShowDialog(owner);
+        AppWindow.Confirm(owner,title,text,confirm,()=>{if(s.Window==owner)apply();});
     }
     void RequestSMBMaintenance(SMBMaintenanceState s,string action)
     {

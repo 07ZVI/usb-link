@@ -123,6 +123,9 @@ func applicationView(r ApplicationResult, stopping bool) (title, ip, detail stri
 	if r.Status == "MONITOR_WAITING" || r.Status == "MONITOR_PAUSED" || r.Status == "WAITING_SHARED_HOST" {
 		detail = "目前未執行 USB 初始化或網路配置。下方數據保留上一輪結果，並非目前連線。\r\n\r\n" + detail
 	}
+	if r.Status == "MONITOR_WAITING" {
+		detail = "若插上後仍未偵測到 iPad：iPad 鎖定超過 1 小時會進入 USB 受限模式，只充電、不傳資料。請插上後解鎖 iPad 一次，並使用支援資料傳輸的線材。\r\n\r\n" + detail
+	}
 	if r.Error != "" {
 		detail = "停止原因：" + r.Error + "\r\n\r\n" + detail
 	}

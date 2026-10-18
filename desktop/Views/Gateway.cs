@@ -7,7 +7,7 @@ namespace Suhang.Desktop;
 public sealed partial class Dashboard
 {
  StackPanel gatewayRows=new(){Spacing=8};
- TextBlock gatewayState=Label("USB 連線前將啟用應用程式授權。",12,key:"Muted");
+ TextBlock gatewayState=Hint("USB 連線前將啟用應用程式授權。");
  HashSet<string> seenGatewayRequests=new();
  Queue<JsonElement> gatewayRequests=new();Window? gatewayPrompt;
  string gatewayPendingID="",gatewayPendingAction="";
@@ -50,10 +50,10 @@ public sealed partial class Dashboard
  void NextGatewayRequest(){
   if(gatewayPrompt!=null||gatewayRequests.Count==0)return;
   var r=gatewayRequests.Dequeue();var path=Text(r,"path");var id=Text(r,"id");var remember=new CheckBox{Content="記住此程式的選擇",IsChecked=false};
-  var info=new TextBlock{Text=path+"\n\n"+(Text(r,"direction")=="inbound"?"接收入站連線":"發起出站連線")+" · "+Text(r,"protocol")+" · "+Text(r,"remote"),TextWrapping=TextWrapping.Wrap,FontSize=12};
-  var dialog=new Window{Title="USB 網路連線請求",Width=530,SizeToContent=SizeToContent.Height,CanResize=false,Topmost=true,WindowStartupLocation=WindowStartupLocation.CenterOwner,FontFamily=new FontFamily(Palette.FontStack)};gatewayPrompt=dialog;dialog.Res(BackgroundProperty,"Window");
-  var signature=new TextBlock{Text="數位簽章：正在驗證…",TextWrapping=TextWrapping.Wrap,FontSize=12}.Res(TextBlock.ForegroundProperty,"Muted");
+  var direction=(Text(r,"direction")=="inbound"?"接收入站連線":"發起出站連線")+" · "+Text(r,"protocol")+" · "+Text(r,"remote");
+  var signature=Hint("數位簽章：正在驗證…");
   var signatureCancellation=new CancellationTokenSource();var signatureToken=signatureCancellation.Token;
+  Window? dialog=null;
   async Task CheckSignature(){
    try {
     var result=await Task.Run(()=>ExecutableSignature.InspectAsync(path,Text(r,"sha256"),signatureToken),signatureToken);
@@ -62,29 +62,38 @@ public sealed partial class Dashboard
    } catch(OperationCanceledException) { }
   }
   bool answered=false;
-  void Decide(string decision){answered=true;GatewayRequest(new{action="gateway-decide",id,decision,remember=remember.IsChecked==true});dialog.Close();}
-  var heading=Label(System.IO.Path.GetFileName(path)+" 想使用 USB 網路",20,FontWeight.SemiBold);heading.TextWrapping=TextWrapping.Wrap;
-  dialog.Content=new Border{Padding=new Thickness(24),Child=Column(16,heading,info,signature,new TextBlock{Text="連線已被阻止。允許後，程式需要重試連線。授權只作用於 USB 通道，Windows 其他防火牆規則仍會生效。簽章有效也不會自動授權。",TextWrapping=TextWrapping.Wrap,FontSize=12}.Res(TextBlock.ForegroundProperty,"Muted"),remember,Row(10,Action("阻止",()=>Decide("block")),Action("允許",()=>Decide("allow"),primary:true)))};
+  void Decide(string decision){answered=true;GatewayRequest(new{action="gateway-decide",id,decision,remember=remember.IsChecked==true});dialog!.Close();}
+  var heading=Label(System.IO.Path.GetFileName(path)+" 想使用 USB 網路",Scale.Title+2,FontWeight.SemiBold);heading.TextWrapping=TextWrapping.Wrap;
+  var buttons=Row(8,Action("阻止",()=>Decide("block")),Action("允許",()=>Decide("allow"),primary:true));buttons.HorizontalAlignment=Avalonia.Layout.HorizontalAlignment.Right;
+  dialog=AppWindow.Dialog("USB 網路連線請求",530,Column(14,heading,Column(4,Hint(path,"Ink"),Hint(direction)),signature,
+   Hint("連線已被阻止。允許後，程式需要重試連線。授權只作用於 USB 通道，Windows 其他防火牆規則仍會生效；簽章有效也不會自動授權。"),remember,buttons),topmost:true);
+  gatewayPrompt=dialog;
   dialog.Closed+=(_,_)=>{signatureCancellation.Cancel();signatureCancellation.Dispose();if(!answered)GatewayRequest(new{action="gateway-decide",id,decision="block",remember=false});gatewayPrompt=null;NextGatewayRequest();};
   _=dialog.ShowDialog(this);if(!preview)_=CheckSignature();else signature.Text="數位簽章：未簽署（介面預覽）";
  }
- Control GatewayPanel(){gatewayRows=new(){Spacing=8};gatewayState=Label("正在讀取 USB 授權…",12,key:"Muted");return Rows("Auto,Auto,*",new Border{Padding=new Thickness(0,12,0,12),Child=new TextBlock{Text="未知程式先被阻止，收到連線請求後由你允許。TCP、UDP、IPv4 與 IPv6 均限制在 USB 網卡；本程式的通信自動放行。",TextWrapping=TextWrapping.Wrap,FontSize=12}.Res(TextBlock.ForegroundProperty,"Muted")},gatewayState,new ScrollViewer{Content=gatewayRows,HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled});}
+ string gatewayRevoked="";
+ /// Revoking is reversible (the program is asked again next time), so the confirmation uses the accent, not the destructive red.
+ void RevokeGateway(string path)=>AppWindow.Confirm(securityWindow,"撤銷授權？","「"+System.IO.Path.GetFileName(path)+"」之後要使用 USB 網路時，會再次詢問你是否允許。",
+  "撤銷授權",()=>{gatewayRevoked=path;GatewayRequest(new{action="gateway-forget",path});},detail:path);
+ Control GatewayPanel(){gatewayRows=new(){Spacing=10};gatewayState=Hint("正在讀取 USB 授權…");
+  var head=Column(6,Hint("尚未授權的程式預設被阻止，有連線請求時由你決定。授權只作用於 USB 網路（TCP、UDP、IPv4、IPv6）；本程式自己的通信會自動放行。"),gatewayState);head.Margin=new Thickness(0,12,0,12);
+  return Rows("Auto,*",head,new ScrollViewer{Content=gatewayRows,HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled});}
  void UpdateGateway(JsonElement d){
   var id=Text(d,"request_id");
   if(id!=""&&(id!=gatewayPendingID||Text(d,"action")!=gatewayPendingAction)||id==""&&!preview&&gatewayPendingID!="")return;
   if(id!=""){gatewayTimer?.Stop();gatewayPendingID=gatewayPendingAction="";ShareRequest(new{action="ui-result-ack",id,decision="gateway"});}
   var problem=Text(d,"problem");var active=d.TryGetProperty("active_links",out var n)?n.GetInt32():0;
-  if(!d.TryGetProperty("grants",out _)&&problem!=""){gatewayState.Text="未完成："+problem;if(securityTabs?.SelectedIndex==0)securityCount.Text="USB 授權尚未確認 · 可重新整理";return;}
-  gatewayState.Text=problem.Length>0?"未完成："+problem:active>0?"USB 網關已啟用 · 未授權程式預設阻止":"未連接 USB 裝置 · 授權已保留";
+  if(!d.TryGetProperty("grants",out _)&&problem!=""){gatewayState.Text=Friendly.Explain("未完成："+problem).Message;if(securityTabs?.SelectedIndex==0)securityCount.Text="USB 授權尚未確認 · 可重新整理";return;}
+  gatewayState.Text=problem.Length>0?Friendly.Explain("未完成："+problem).Message:active>0?"USB 網關已啟用 · 未授權程式預設阻止":"未連接 USB 裝置 · 授權已保留";
   gatewayState.TextWrapping=TextWrapping.Wrap;CancelGatewaySignatures();gatewayRows.Children.Clear();
   gatewaySignatureCancellation=new CancellationTokenSource();var token=gatewaySignatureCancellation.Token;var generation=gatewaySignatureGeneration;
-  foreach(var grant in Entries(d,"grants")){var path=Text(grant,"path");var decision=Text(grant,"decision");var title=(decision=="allow"?"允許":"阻止")+" · "+System.IO.Path.GetFileName(path);
-   var signature=new TextBlock{Text=preview?"數位簽章：需由 Windows 驗證（介面預覽）":"數位簽章：正在驗證…",TextWrapping=TextWrapping.Wrap,FontSize=12}.Res(TextBlock.ForegroundProperty,"Muted");
-   var heading=Label(title,15,FontWeight.SemiBold);heading.TextWrapping=TextWrapping.Wrap;
-   gatewayRows.Children.Add(Card(Column(7,Columns("*,Auto",heading,Action("撤銷",()=>GatewayRequest(new{action="gateway-forget",path}))),new TextBlock{Text=path,TextWrapping=TextWrapping.Wrap,FontSize=12}.Res(TextBlock.ForegroundProperty,"Muted"),signature),new Thickness(12)));
+  foreach(var grant in Entries(d,"grants")){var path=Text(grant,"path");var allow=Text(grant,"decision")=="allow";
+   var signature=Hint(preview?"數位簽章：需由 Windows 驗證（介面預覽）":"數位簽章：正在驗證…");
+   var decision=new StatusPill(allow?"允許":"阻止",Scale.Caption);decision.Set(allow?"Ok":"Error");
+   gatewayRows.Children.Add(ListItem.Make(System.IO.Path.GetFileName(path),path,Row(8,decision,Action("撤銷授權",()=>RevokeGateway(path),danger:true)),body:signature));
    if(!preview&&securityWindow!=null)_=CheckGrantSignature(signature,path,Text(grant,"sha256"),generation,token);
   }
-  if(gatewayRows.Children.Count==0)gatewayRows.Children.Add(Label("尚無其他程式的 USB 授權。",13,key:"Muted"));
+  if(gatewayRows.Children.Count==0)gatewayRows.Children.Add(EmptyState.Make(Icons.Shield,"尚無程式授權","程式第一次要求使用 USB 網路時，會在這裡詢問你。"));
   if(securityTabs?.SelectedIndex==0)securityCount.Text=$"{Entries(d,"grants").Count()} 項 USB 授權 · {DateTime.Now:HH:mm:ss}";
  }
 }

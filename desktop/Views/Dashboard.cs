@@ -19,16 +19,17 @@ public sealed partial class Dashboard : Window
 
     string WindowsHostIp = "10.6.9.1", ShareUrl = SMBServerAddress;
 
-    readonly TextBlock addressValue = Label("10.6.9.1", 34, FontWeight.SemiBold), shareUrlValue = Label(SMBServerAddress, 13);
+    readonly TextBlock addressValue = Label("10.6.9.1", Scale.Hero, FontWeight.SemiBold), shareUrlValue = Label(SMBServerAddress, Scale.Body);
     readonly TextBlock versionText = Label(Program.Preview ? "預覽" : "正在核對版本", 11, key: "Muted");
-    readonly TextBlock chipText = Label("等候裝置", 12, FontWeight.SemiBold), notice = Label("", 12), shareStatus = Label("請先連接 USB 裝置", 12, key: "Muted");
-    readonly Border chip = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 4, 12, 4) },
-        chipDot = new() { Width = 8, Height = 8, CornerRadius = new CornerRadius(4) },
-        noticeBar = new() { CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6), IsVisible = false };
+    readonly StatusPill chip = new("等候裝置");
+    TextBlock chipText => chip.Label;
+    readonly TextBlock notice = Label("", Scale.Secondary), shareStatus = Label("請先連接 USB 裝置", Scale.Secondary, key: "Muted");
+    readonly Border noticeBar = new() { CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6), IsVisible = false };
     DeviceStatusView macStatus = null!, ipadStatus = null!;
-    readonly ToggleSwitch shareToggle = Switch(), startup = Switch();
-    string startupPendingID = "";
-    bool startupRequested;
+    readonly ToggleSwitch shareToggle = Switch(), startup = Switch(), networkOnly = Switch();
+    readonly TextBlock networkOnlyStatus = Label("", Scale.Caption, key: "Subtle");
+    string startupPendingID = "", networkOnlyPendingID = "";
+    bool startupRequested, networkOnlyRequested, networkOnlyEnabled = true;
     readonly StackPanel detailRows = new() { Spacing = 0 };
     readonly Grid root = new();
     readonly Grid body = new();
@@ -41,7 +42,7 @@ public sealed partial class Dashboard : Window
  string nativeAccount="", shareProblem="";
     readonly bool preview = Program.Preview;
     bool backendEnded;
-    readonly TextBlock automaticIsolationStatus = Label("", 12, key: "Muted"), programExitStatus = Label("", 12, key: "Warn");
+    readonly TextBlock automaticIsolationStatus = Label("", Scale.Secondary, key: "Muted"), programExitStatus = Label("", Scale.Secondary, key: "Warn");
     Button programExitButton = null!;
     string programExitID = "", programExitPhase = "idle";
     bool programExitAwaiting, programExitCommitSent;
@@ -51,13 +52,6 @@ public sealed partial class Dashboard : Window
     bool KeepInTray => !preview && !Program.StandaloneTasks && OperatingSystem.IsWindows();
 
     // ---------- building blocks ----------
-
-    static Control Tile(string icon, string brush, string background, double size = 32)
-    {
-        var tile = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(6), Child = Icons.Make(icon, size * .56, brush) };
-        tile.Child!.HorizontalAlignment = HorizontalAlignment.Center; tile.Child.VerticalAlignment = VerticalAlignment.Center;
-        return tile.Res(Border.BackgroundProperty, background);
-    }
 
     // ---------- backend bridge ----------
 
@@ -98,6 +92,9 @@ public sealed partial class Dashboard : Window
         noticeBar.Res(Border.BackgroundProperty, "AccentSoft");
         Avalonia.Automation.AutomationProperties.SetName(shareToggle, "檔案共享");
         Avalonia.Automation.AutomationProperties.SetName(startup, "登入 Windows 後自動啟動");
+        Avalonia.Automation.AutomationProperties.SetName(networkOnly, "僅保留網路連線");
+        Avalonia.Automation.AutomationProperties.SetName(networkOnlyStatus, "僅保留網路連線狀態");
+        networkOnlyStatus.TextWrapping = TextWrapping.Wrap; networkOnlyStatus.TextTrimming = TextTrimming.None; networkOnlyStatus.IsVisible = false;
         noticeBar.Child = Row(8, Icons.Make(Icons.Info, 16, "Accent"), notice);
 
         root.RowDefinitions = new RowDefinitions("Auto,16,*,12,Auto");
@@ -106,9 +103,12 @@ public sealed partial class Dashboard : Window
         connectionCard = ConnectionCard(); shareCard = ShareCard(); settingsCard = SettingsCard();
         body.Children.Add(connectionCard); body.Children.Add(shareCard); body.Children.Add(settingsCard);
         backendFailure.Res(TextBlock.ForegroundProperty, "Warn");
-        backendFailureBanner = Card(backendFailure, new Thickness(14));
+        backendFailureBanner = new Border { CornerRadius = new CornerRadius(Scale.CardRadius), Padding = new Thickness(14, 10), Child = Columns("Auto,12,*", Icons.Make(Icons.Info, 18, "Warn"), Gap(), backendFailure) };
         backendFailureBanner.IsVisible = false;
-        bodyScroll.Content = Column(12, backendFailureBanner, body);
+        bodyScroll.Content = bodyHost = Column(Scale.Gutter, backendFailureBanner, body);
+        // A wide window shows both columns at full height instead of leaving a gap above the footer.
+        bodyScroll.PropertyChanged += (_, e) => { if (e.Property == ScrollViewer.ViewportProperty) FitBodyToViewport(); };
+        backendFailureBanner.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) Dispatcher.UIThread.Post(FitBodyToViewport, DispatcherPriority.Loaded); };
         AddAt(root, bodyScroll, 2);
         footerControl = Footer();
         AddAt(root, footerControl, 4);
@@ -132,7 +132,18 @@ public sealed partial class Dashboard : Window
             }));
             
         };
-        Opened += (_, _) => { UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBAccount, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(OpenTaskManager, DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
+        networkOnly.Click += (_, _) => {
+            if (preview) { networkOnly.IsChecked = networkOnlyEnabled; return; }
+            if (networkOnlyPendingID != "") return;
+            networkOnlyRequested = networkOnly.IsChecked == true;
+            networkOnlyPendingID = Guid.NewGuid().ToString("N");
+            networkOnly.IsEnabled = false;
+            SetNotice("正在儲存「僅保留網路連線」設定…");
+            DesktopClient.SendRaw(JsonSerializer.Serialize(new {
+                action = networkOnlyRequested ? "network-only-on" : "network-only-off", id = networkOnlyPendingID
+            }));
+        };
+        Opened += (_, _) => { UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBManager, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(OpenTaskManager, DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
         if (Program.StandaloneTasks) Opened += (_, _) => Dispatcher.UIThread.Post(() => {
             OpenTaskManager(); taskWindow!.Closed += (_, _) => Close(); Hide();
         }, DispatcherPriority.Normal);
@@ -145,14 +156,21 @@ public sealed partial class Dashboard : Window
 
     static void AddAt(Grid grid, Control child, int row) { Grid.SetRow(child, row); grid.Children.Add(child); }
 
+    StackPanel bodyHost = null!;
+    void FitBodyToViewport()
+    {
+        var banner = backendFailureBanner.IsVisible ? backendFailureBanner.Bounds.Height + Scale.Gutter : 0;
+        body.MinHeight = compactLayout == true ? 0 : Math.Max(0, bodyScroll.Viewport.Height - banner);
+    }
+
     void UpdateResponsiveLayout()
     {
         var compact = ClientSize.Width < 880;
         if (compactLayout == compact) return;
         compactLayout = compact;
-        body.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "1.25*,16,*");
+        body.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "1.2*,16,*");
         body.RowDefinitions = new RowDefinitions(compact ? "Auto,16,Auto,16,Auto" : "Auto,16,*");
-        body.MinHeight = compact ? 0 : 560;
+        FitBodyToViewport();
         Grid.SetRowSpan(connectionCard, compact ? 1 : 3);
         Grid.SetColumn(shareCard, compact ? 0 : 2); Grid.SetRow(shareCard, compact ? 2 : 0);
         Grid.SetColumn(settingsCard, compact ? 0 : 2); Grid.SetRow(settingsCard, compact ? 4 : 2);
@@ -207,96 +225,78 @@ public sealed partial class Dashboard : Window
         var version = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2), Child = versionText }
             .Res(Border.BackgroundProperty, "IdleSoft");
         var brand = Row(10, mark, Label("USB Link", 20, FontWeight.SemiBold), version);
-
-        chip.Child = Row(7, chipDot, chipText);
-        chip.VerticalAlignment = VerticalAlignment.Center;
         return WithWindowChrome(Columns("*,Auto", brand, chip));
     }
 
+    // Left column: host address, then one card per device.
     Control ConnectionCard()
     {
         macStatus = new DeviceStatusView("Mac", Send, Copy);
         ipadStatus = new DeviceStatusView("iPad", Send, Copy);
-        var address = Column(2, Label("Windows 主機地址", 12, key: "Muted"), addressValue);
-        return Card(Rows("Auto,16,*,12,*", address, Gap(), macStatus.View, Gap(), ipadStatus.View), new Thickness(20));
+        var copyAddress = IconButton(Icons.Copy, "複製主機地址", () => Copy(WindowsHostIp, "主機地址"));
+        var host = Card(Columns("*,Auto", Column(0, Label("Windows 主機地址", Scale.Secondary, key: "Muted"), addressValue), copyAddress), new Thickness(Scale.Inset + 4, 14, Scale.Inset, 14));
+        copyAddress.VerticalAlignment = VerticalAlignment.Center;
+        var column = Rows("Auto,16,*,16,*", host, Gap(), macStatus.View, Gap(), ipadStatus.View);
+        return column;
     }
 
+    // The switch is the one primary action; opening the folder manager is a quiet link.
     Control ShareCard()
     {
-        shareToggle.HorizontalAlignment = HorizontalAlignment.Right;
         var head = Columns("Auto,*,Auto",
-            Tile(Icons.Folder, "Accent", "AccentSoft", 36),
-            Column(1, Label("SMB 共享", 15, FontWeight.SemiBold), shareStatus),
+            IconTile.Make(Icons.Folder, "Accent", "AccentSoft", 36),
+            Column(1, Label("SMB 共享", Scale.Section, FontWeight.SemiBold), shareStatus),
             shareToggle);
-        ((Control)head.Children[1]).Margin = new Thickness(12, 0, 8, 0);
+        ((Control)head.Children[1]).Margin = new Thickness(12, 0, 12, 0);
         ((Control)head.Children[1]).VerticalAlignment = VerticalAlignment.Center;
+        shareToggle.VerticalAlignment = VerticalAlignment.Center;
 
         var url = shareUrlValue;
         url.VerticalAlignment = VerticalAlignment.Center;
         var field = new Border
         {
-            CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1), Padding = new Thickness(10, 2, 2, 2),
+            CornerRadius = new CornerRadius(Scale.ControlRadius), BorderThickness = new Thickness(1), Padding = new Thickness(10, 2, 2, 2),
             Child = Columns("Auto,*,Auto", Icons.Make(Icons.Link, 14, "Subtle"), WithMargin(url, new Thickness(8, 0, 0, 0)), IconButton(Icons.Copy, "複製地址", () => Copy(ShareUrl, "地址"))),
         }.Res(Border.BackgroundProperty, "Field").Res(Border.BorderBrushProperty, "Stroke");
 
-        var open = Action("SMB 共享", OpenSMBManager, Icons.Folder);
-        open.HorizontalAlignment = HorizontalAlignment.Stretch;
-        open.HorizontalContentAlignment = HorizontalAlignment.Center;
+        var help = Label("Mac：Finder ⌘K　·　iPad：文件 → 連接伺服器", Scale.Secondary, key: "Muted");
+        ToolTip.SetTip(help, "選「註冊使用者」並登入專用帳戶，可選擇共享資料夾。\n訪客請從「管理共享」複製完整地址。");
+        var manage = new Button
+        {
+            Content = Row(6, Label("管理共享資料夾與帳戶", Scale.Secondary, key: "Accent"), Icons.Make(Icons.Chevron, 12, "Accent")),
+            Padding = new Thickness(6, 4), Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.ControlRadius),
+            HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-6, 0, 0, 0),
+        };
+        Avalonia.Automation.AutomationProperties.SetName(manage, "管理共享");
+        manage.Click += (_, _) => OpenSMBManager();
 
-        var help = Label("Mac：Finder ⌘K · iPad：文件 → 連接伺服器", 12, key: "Muted");
-        var scope = Label("選「註冊使用者」並登入專用帳戶，可選擇共享資料夾。訪客請從「SMB 共享」複製完整地址。", 11, key: "Subtle");
-        scope.TextWrapping = TextWrapping.Wrap; scope.MaxLines = 2;
-        ToolTip.SetTip(scope, scope.Text);
-
-        return Card(Column(12, head, field, open, help,scope));
+        return Card(Column(12, head, field, help, manage), new Thickness(Scale.Inset + 4));
     }
-
 
     Control SettingsCard()
     {
-        var list = new StackPanel();
-        void Add(Control row) { if (list.Children.Count > 0) list.Children.Add(WithMargin(Rule(), new Thickness(48, 0, 0, 0))); list.Children.Add(row); }
-        Add(SettingRow(Icons.Clock, "登入 Windows 後自動啟動", "開機登入後在背景準備連線", startup, null));
-        Add(SettingRow(Icons.Shield, "安全管理", "應用程式防火牆、連線與 USB 裝置", null, OpenSecurity));
-        Add(SettingRow(Icons.Pulse, "工作管理員", "執行中的程式、資源用量與簽署憑證", null, OpenTaskManager));
-        Add(SettingRow(Icons.Pulse, "連線診斷", "連線細節、網際網路共享與元件狀態", null, OpenDetails));
-        var title = WithMargin(Label("設定與維護", 15, FontWeight.SemiBold), new Thickness(8, 0, 0, 6));
-        return Card(Column(0, title, list), new Thickness(12, 16, 12, 8));
-    }
-
-    Control SettingRow(string icon, string title, string description, Control? trailing, Action? onClick)
-    {
-        var text = Column(1, Label(title, 13), Label(description, 11, key: "Subtle"));
-        text.VerticalAlignment = VerticalAlignment.Center; text.Margin = new Thickness(12, 0, 8, 0);
-        var end = trailing ?? Icons.Make(Icons.Chevron, 14, "Subtle");
-        end.VerticalAlignment = VerticalAlignment.Center;
-        var grid = Columns("Auto,*,Auto", Tile(icon, "Muted", "IdleSoft", 30), text, end);
-        if (onClick is null)
-            return new Border { Padding = new Thickness(8, 9), Child = grid };
-        var b = new Button
-        {
-            Content = grid, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(8, 9), Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(6),
-        };
-        b.Click += (_, _) => onClick();
-        Avalonia.Automation.AutomationProperties.SetName(b, title);
-        return b;
+        var rows = new List<Control>();
+        void Add(Control row) => rows.Add(row);
+        Add(SettingRow.Toggle(Icons.Play, "開機自動啟動", "登入 Windows 後在背景待命", startup));
+        Add(SettingRow.Toggle(Icons.Globe, "僅保留網路連線", "避免 iPad 出現「信任這部電腦」提示", networkOnly,
+            "封鎖 Windows 對此 iPad 的照片匯入與儲存空間瀏覽，避免出現「信任這部電腦」提示。\n關閉此開關、結束程式或解除安裝時會還原。", networkOnlyStatus));
+        Add(SettingRow.Link(Icons.Shield, "安全管理", "防火牆、連線與 USB 裝置", OpenSecurity));
+        Add(SettingRow.Link(Icons.Apps, "工作管理員", "執行中的程式與資源用量", OpenTaskManager));
+        Add(SettingRow.Link(Icons.Pulse, "連線診斷", "連線細節與元件狀態", OpenDetails));
+        var title = WithMargin(Label("設定", Scale.Section, FontWeight.SemiBold), new Thickness(8, 0, 0, 6));
+        return Card(Rows("Auto,*", title, SettingRow.List(rows.ToArray())), new Thickness(Scale.Inset - 4, Scale.Inset, Scale.Inset - 4, Scale.Inset - 8));
     }
 
     Control Footer()
     {
-        var background = Label("關閉視窗後縮至托盤，連線繼續運作。", 12, key: "Subtle");
+        var background = Label("關閉視窗後縮至托盤，連線繼續運作", Scale.Secondary, key: "Subtle");
         background.VerticalAlignment = VerticalAlignment.Center;
 
-        var stopLabel = Label("退出程序", 12, key: "Error");
-        var stop = programExitButton = new Button
-        {
-            Content = Row(6, Icons.Make(Icons.Power, 14, "Error"), stopLabel), Padding = new Thickness(10, 6),
-            Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4),
-        };
-        stop.Click += (_, _) => RequestProgramExit();
+        // Neutral, not red: exiting is deliberate and safe (settings are restored first).
+        var stop = programExitButton = Action("退出程序", RequestProgramExit, Icons.Power);
+        stop.MinHeight = 30; stop.Padding = new Thickness(12, 4);
 
-        var right = Row(12, background, stop);
+        var right = Row(16, background, stop);
         var grid = Columns("*,Auto", noticeBar, right);
         noticeBar.HorizontalAlignment = HorizontalAlignment.Left;
         noticeBar.Margin = new Thickness(0, 0, 16, 0);
@@ -316,7 +316,24 @@ public sealed partial class Dashboard : Window
         bodyScroll.IsEnabled = false;
         programExitStatus.Text = "正在要求停止連線，核對恢復完成後才會退出…";
         programExitStatus.IsVisible = true; programExitButton.IsEnabled = false;
+        // Restoration is core work and continues unchanged; the user only needs the window gone.
+        // Send first so the request never waits on the window teardown.
         SendProgramExitRequest("exit-program");
+        HideForProgramExit();
+    }
+
+    // Hidden, not closed: the same window returns with its failure text if the restore does not complete.
+    bool exitHidden;
+    void HideForProgramExit()
+    {
+        exitHidden = true;
+        if (!preview) Hide(); // The preview harness keeps its window for screenshots.
+    }
+    void ShowAfterProgramExitProblem()
+    {
+        if (!exitHidden) return;
+        exitHidden = false;
+        Show(); WindowState = WindowState.Normal; Activate();
     }
 
     void CancelProgramExitConfirmation()
@@ -345,6 +362,33 @@ public sealed partial class Dashboard : Window
         programExitAwaiting = programExitCommitSent = false;
         programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試；這不代表恢復已完成。";
         programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+        ShowAfterProgramExitProblem();
+    }
+
+    // The switch shows the saved choice; the line below shows what was read back.
+    void UpdateNetworkOnly(JsonElement n, bool stopping)
+    {
+        string NS(string k) => n.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        bool NB(string k) => n.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+        int NI(string k) => n.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
+        bool rejected = networkOnlyPendingID != "" && NS("rejected_id") == networkOnlyPendingID;
+        if (rejected || (networkOnlyPendingID != "" && NS("request_id") == networkOnlyPendingID && !NB("busy"))) networkOnlyPendingID = "";
+        networkOnlyEnabled = NB("enabled");
+        networkOnly.IsChecked = networkOnlyPendingID != "" ? networkOnlyRequested : NB("busy") ? NB("requested") : networkOnlyEnabled;
+        networkOnly.IsEnabled = networkOnlyPendingID == "" && !NB("busy") && !stopping;
+        var error = NS("error");
+        var failure = error != "" || NB("restore_pending");
+        string text;
+        if (NB("restore_pending")) text = "照片介面尚未確認還原：" + (error != "" ? error : "待確認") + "。請重試或退出程序後再確認。";
+        else if (failure) text = "未能完整封鎖：" + error + "。受影響的介面保持原狀。";
+        else if (!networkOnlyEnabled) text = NB("restoring") ? "正在還原照片與儲存空間存取…" : "已關閉";
+        else if (NB("effective")) text = $"已封鎖照片與儲存空間（已套用 {NI("known_applied")}/{NI("known_nodes")} 個介面）";
+        else if (NI("known_nodes") > 0) text = $"已開啟，正在核對 {NI("known_nodes")} 個介面…";
+        else text = "已開啟，首次連線時自動套用";
+        networkOnlyStatus.Text = text;
+        networkOnlyStatus.IsVisible = true;
+        networkOnlyStatus.Res(TextBlock.ForegroundProperty, failure ? "Warn" : networkOnlyEnabled && NB("effective") ? "Ok" : "Subtle");
+        if (rejected) SetNotice("上一項設定仍在處理，這次操作未執行；請稍候再試。");
     }
 
     void UpdateProgramLifecycle(JsonElement d)
@@ -359,7 +403,7 @@ public sealed partial class Dashboard : Window
             automaticIsolationStatus.Text = failure ? "自動連線策略尚未完成，恢復狀態需要處理。Apple 服務：" + (B("amds_restored") ? "已恢復" : "待確認") + "；照片介面：" + (B("photo_restored") ? "已恢復" : "待確認") + "；舊照片策略：" + (B("policy_restored") ? "已恢復" : "待確認") + "。"
                 : phase == "restored" && B("restored") ? "Apple 服務、照片介面與舊照片策略均已恢復。"
                 : phase is "restoring" or "recovering_previous" || B("busy") ? "正在恢復 Apple 服務與照片介面，尚未確認完成。"
-                : phase == "running" ? "自動連線策略 · Apple 服務：" + (B("amds_effective") ? "已暫停" : "待確認") + "；照片介面：" + (B("photo_effective") ? "已隔離" : "等候適用裝置") + "。退出程序時恢復。"
+                : phase == "running" ? "自動連線策略 · Apple 服務：" + (B("amds_effective") ? "已暫停" : "待確認") + "；照片介面：" + (!networkOnlyEnabled ? "已關閉" : B("photo_effective") ? "已隔離" : "等候適用裝置") + "。退出程序時恢復。"
                 : "自動連線策略尚未就緒，恢復狀態待確認。";
             automaticIsolationStatus.Res(TextBlock.ForegroundProperty, failure ? "Warn" : "Muted");
         }
@@ -376,6 +420,7 @@ public sealed partial class Dashboard : Window
             : "正在停止 USB 連線，完成後會恢復設定…";
         if (phaseExit == "failed") { CancelProgramExitConfirmation(); programExitAwaiting = programExitCommitSent = false; }
         programExitButton.IsEnabled = !programExitAwaiting;
+        if (phaseExit == "failed") ShowAfterProgramExitProblem();
         if (phaseExit == "ready" && programExitAwaiting && !programExitCommitSent && E("request_id") == programExitID)
         {
             programExitCommitSent = true;
@@ -392,7 +437,6 @@ public sealed partial class Dashboard : Window
     {
         if (detailWindow != null) { detailWindow.Activate(); return; }
         var copy = Action("複製全部", () => Copy(detailText, "診斷內容"), Icons.Copy);
-        var head = Columns("*,Auto", Column(2, Label("連線診斷", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
         var diagnostics = Card(detailRows, new Thickness(4));
         var debugDetails = new Expander { Header = "詳細診斷 / 調試資訊", IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch, Content = diagnostics };
         var content = Column(16, InternetSection(), debugDetails, Gap(4));
@@ -400,14 +444,8 @@ public sealed partial class Dashboard : Window
         content.Children.Insert(0, LocalDiagnosticsSection());
 #endif
         var scroll = new ScrollViewer { Content = content, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        var body = scroll;
-        var layout = Rows("Auto,14,*", head, Gap(), body);
-        layout.Margin = new Thickness(20);
-        detailWindow = new Window
-        {
-            Title = "連線診斷 · USB Link", Width = 800, Height = 720, MinWidth = 520, MinHeight = 360,
-            FontFamily = FontFamily, Content = layout,
-        }.Res(BackgroundProperty, "Window");
+        detailWindow = AppWindow.Create("連線診斷", 800, 720, 520, 360);
+        detailWindow.Content = AppWindow.Page(AppWindow.Header("連線診斷", "每秒更新 · 介面流量不代表線路頻寬上限", copy), scroll);
         detailWindow.Closed += (_, _) =>
         {
             scroll.Content = null; diagnostics.Child = null;
@@ -465,10 +503,7 @@ public sealed partial class Dashboard : Window
     void ApplyConnectionSummary(int connected, int connecting = 0, bool error = false)
     {
         var color = connected > 0 ? "Ok" : connecting > 0 ? "Warn" : error ? "Error" : "Idle";
-        chip.Res(Border.BackgroundProperty, color + "Soft");
-        chipDot.Res(Border.BackgroundProperty, color);
-        chipText.Res(TextBlock.ForegroundProperty, color == "Idle" ? "Muted" : color);
-        chipText.Text = connected > 0 ? $"已連線 · {connected} 台裝置" : connecting > 0 ? $"正在連線 · {connecting} 台裝置" : error ? "連線異常" : "等候裝置";
+        chip.Set(color, connected > 0 ? $"已連線 · {connected} 台裝置" : connecting > 0 ? $"正在連線 · {connecting} 台裝置" : error ? "連線異常" : "等候裝置");
     }
 
     void SeedPreview()
@@ -477,7 +512,7 @@ public sealed partial class Dashboard : Window
         {"event":"status","windows_ipv4":"10.6.9.1","devices":[
           {"device":"Mac","title":"Mac USB 已連接","connected":true,"peer_ipv4":"10.6.9.2","peer_address_state":"已確認","tx":1027.2,"rx":25.6,"speed":"USB 協商速率：SuperSpeed","latency":"HTTP 往返 · 1.2 ms","benchmark_available":true,"benchmark_url":"http://10.6.9.1:10690/speed/","benchmark_summary":"在 Mac 瀏覽器開啟下方網址測速，無需安裝程式。"},
           {"device":"iPad","title":"iPad 的 USB IPv4 通信已驗證","connected":true,"peer_ipv4":"10.6.9.3","peer_address_state":"已確認","tx":512,"rx":12.8,"speed":"USB 協商速率：SuperSpeed","latency":"HTTP 往返 · 2.4 ms","benchmark_url":"http://10.6.9.1:58723/speed/","benchmark_summary":"在 iPad 瀏覽器開啟下方網址測速，無需安裝程式。"}
-        ],"detail":"Mac USB\n通信驗證：已驗證 IPv4 往返\n\niPad USB\n通信驗證：已驗證 IPv4 往返","share_ready":true}
+        ],"detail":"Mac USB\n通信驗證：已驗證 IPv4 往返\n\niPad USB\n通信驗證：已驗證 IPv4 往返","share_ready":true,"share_enabled":true,"startup":true,"network_only":{"enabled":true,"effective":true,"known_nodes":1,"known_applied":1}}
         """);
         Update(json.RootElement);
         macStatus.SeedTraffic(128, 3); ipadStatus.SeedTraffic(64, 1.6);
@@ -498,7 +533,7 @@ public sealed partial class Dashboard : Window
     {
         string S(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool B(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
-        if (S("event") == "program-exit-request") { Show(); WindowState = WindowState.Normal; Activate(); RequestProgramExit(); return; }
+        if (S("event") == "program-exit-request") { RequestProgramExit(); return; }
         if (S("event") == "program-exit-result")
         {
             if (S("request_id") != programExitID || programExitID == "") return;
@@ -506,6 +541,7 @@ public sealed partial class Dashboard : Window
             programExitAwaiting = programExitCommitSent = false;
             programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試。";
             programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+            ShowAfterProgramExitProblem();
             return;
         }
         if (S("event") == "program-exit-complete")
@@ -514,7 +550,7 @@ public sealed partial class Dashboard : Window
                 (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
             return;
         }
-        if (S("event") == "backend-unavailable") { MarkBackendUnavailable(S("code")); return; }
+        if (S("event") == "backend-unavailable") { if (!programExitCommitSent) ShowAfterProgramExitProblem(); MarkBackendUnavailable(S("code")); return; }
         if (S("event") == "shutdown") { (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(); return; }
         if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
 #if USBLINK_LOCAL_DIAGNOSTICS
@@ -543,6 +579,7 @@ public sealed partial class Dashboard : Window
         if (S("event") == "gateway-request") { ShowGatewayRequest(d); return; }
         if (S("event") == "gateway") { UpdateGateway(d); return; }
         if (S("event") == "security") { UpdateSecurity(d); return; }
+        if (d.TryGetProperty("network_only", out var networkOnlyState) && networkOnlyState.ValueKind == JsonValueKind.Object) UpdateNetworkOnly(networkOnlyState, B("stopping"));
         UpdateProgramLifecycle(d);
         // The custom caption remains usable while the core finishes stopping.
         bodyScroll.IsEnabled = !B("stopping") && programExitPhase == "idle" && !programExitAwaiting;
