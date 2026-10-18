@@ -39,27 +39,29 @@ var desktopLauncher func() (string, error)
 func SetDesktopLauncher(f func() (string, error)) { desktopLauncher = f }
 
 type modernUI struct {
-	mu                sync.Mutex
-	ctx               context.Context
-	state             *applicationState
-	cancel            context.CancelFunc
-	cmd               *exec.Cmd
-	input             io.WriteCloser
-	messages          chan any
-	showRequests      chan struct{}
-	notice            string
-	startupBusy       bool
-	startupRequested  bool
-	startupRequestID  string
-	startupRejectedID string
-	startupDone       chan struct{}
-	lifetime          context.Context
-	endUI             context.CancelFunc
-	childDone         <-chan struct{}
-	stopStarted       time.Time
-	gatewayWatcher    sync.Once
-	serviceOwner      bool
-	refresh           chan struct{}
+	mu                                          sync.Mutex
+	ctx                                         context.Context
+	state                                       *applicationState
+	cancel                                      context.CancelFunc
+	cmd                                         *exec.Cmd
+	input                                       io.WriteCloser
+	messages                                    chan any
+	showRequests                                chan struct{}
+	notice                                      string
+	startupBusy                                 bool
+	startupRequested                            bool
+	startupRequestID                            string
+	startupRejectedID                           string
+	startupDone                                 chan struct{}
+	networkOnlyBusy, networkOnlyRequested       bool
+	networkOnlyRequestID, networkOnlyRejectedID string
+	lifetime                                    context.Context
+	endUI                                       context.CancelFunc
+	childDone                                   <-chan struct{}
+	stopStarted                                 time.Time
+	gatewayWatcher                              sync.Once
+	serviceOwner                                bool
+	refresh                                     chan struct{}
 }
 
 func (u *modernUI) show(reason string) bool {
@@ -191,6 +193,8 @@ func (u *modernUI) show(reason string) bool {
 					}
 					if v.Action == "startup-on" || v.Action == "startup-off" {
 						u.startupAction(v.Action, v.ID)
+					} else if isNetworkOnlyAction(v.Action) {
+						u.networkOnlyAction(v.Action, v.ID)
 					} else {
 						u.action(v.Action)
 					}
@@ -351,6 +355,8 @@ func (u *modernUI) action(a string) {
 		}()
 	case "startup-on", "startup-off":
 		u.startupAction(a, "")
+	case "network-only-on", "network-only-off":
+		u.networkOnlyAction(a, "")
 	case "settings":
 		if u.state.Settings != nil {
 			go u.state.Settings()
@@ -453,6 +459,7 @@ func (u *modernUI) desktopStatus() any {
 		Devices:           make([]desktopipc.DeviceStatus, 0, 2),
 		DeveloperDebug:    localDeveloperDebugStatus(),
 		ConnectionTiming:  ConnectionTimingDiagnostics(),
+		NetworkOnly:       u.networkOnlyIsolationStatusLocked(),
 		PhotoIsolation:    PhotoIsolationDiagnostics(),
 		WPDTrace:          desktopExperimentControl(LocalWPDTraceDiagnostics()),
 		PhotoPolicy:       desktopExperimentControl(LocalPhotoPolicyDiagnostics()),

@@ -372,6 +372,12 @@ public sealed partial class Dashboard
                 throw new InvalidOperationException("tray show must reuse dashboard");
             using (var automatic = JsonDocument.Parse("""{"event":"status","default_network_isolation":{"phase":"running","photo_effective":true,"amds_effective":true}}""")) Update(automatic.RootElement);
             if (!automaticIsolationStatus.IsVisible || !automaticIsolationStatus.Text!.Contains("已隔離") || !automaticIsolationStatus.Text.Contains("已暫停")) throw new InvalidOperationException("automatic policies need a readonly public summary");
+            using (var networkRestoring = JsonDocument.Parse("""{"event":"status","network_only":{"enabled":false,"busy":false,"restoring":true,"phase":"recovering"}}""")) Update(networkRestoring.RootElement);
+            if (networkOnly.IsChecked == true || !networkOnly.IsEnabled || !networkOnlyStatus.IsVisible || !networkOnlyStatus.Text!.Contains("正在還原")) throw new InvalidOperationException("network-only off must show restoration in progress");
+            using (var networkPending = JsonDocument.Parse("""{"event":"status","network_only":{"enabled":false,"busy":false,"restore_pending":true,"phase":"recovery_pending","error":"PHOTO_RESTORE_FAILED"}}""")) Update(networkPending.RootElement);
+            if (!networkOnlyStatus.Text!.Contains("PHOTO_RESTORE_FAILED") || !networkOnlyStatus.Text.Contains("尚未確認還原")) throw new InvalidOperationException("network-only restore failure must stay visible");
+            using (var networkOn = JsonDocument.Parse("""{"event":"status","network_only":{"enabled":true,"busy":false,"effective":true,"known_nodes":2,"known_applied":2,"phase":"known_applied"}}""")) Update(networkOn.RootElement);
+            if (networkOnly.IsChecked != true || !networkOnlyStatus.Text!.Contains("已封鎖")) throw new InvalidOperationException("network-only on must show the read-back state");
             if (this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "退出介面") || !this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "退出程序")) throw new InvalidOperationException("exit must describe the whole program");
             using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) Update(trayExit.RootElement);
             if (programExitID != "" || programExitAwaiting || !notice.Text!.Contains("介面預覽")) throw new InvalidOperationException("tray exit must share the preview-safe program exit path");

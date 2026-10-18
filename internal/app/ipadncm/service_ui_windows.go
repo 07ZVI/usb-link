@@ -118,7 +118,7 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 		return fmt.Errorf("CORE_ACTION_INVALID")
 	}
 	switch request.Action {
-	case "select-mac", "select-ipad", "share-on", "share-off", "ipad-revoke-trust", "startup-on", "startup-off", "retry", "retry-mac", "retry-ipad", "benchmark-start", "benchmark-cancel", "security-refresh", "firewall-upsert", "firewall-delete", "firewall-discard-pending", "settings":
+	case "select-mac", "select-ipad", "share-on", "share-off", "ipad-revoke-trust", "startup-on", "startup-off", "network-only-on", "network-only-off", "retry", "retry-mac", "retry-ipad", "benchmark-start", "benchmark-cancel", "security-refresh", "firewall-upsert", "firewall-delete", "firewall-discard-pending", "settings":
 	default:
 		if !serviceAdditionalAction(request.Action) {
 			return fmt.Errorf("CORE_ACTION_UNSUPPORTED")
@@ -139,6 +139,8 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 		}
 		if request.Action == "startup-on" || request.Action == "startup-off" {
 			u.startupAction(request.Action, request.ID)
+		} else if isNetworkOnlyAction(request.Action) {
+			u.networkOnlyAction(request.Action, request.ID)
 		} else {
 			u.action(request.Action)
 		}

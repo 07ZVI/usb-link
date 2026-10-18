@@ -26,9 +26,10 @@ public sealed partial class Dashboard : Window
         chipDot = new() { Width = 8, Height = 8, CornerRadius = new CornerRadius(4) },
         noticeBar = new() { CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6), IsVisible = false };
     DeviceStatusView macStatus = null!, ipadStatus = null!;
-    readonly ToggleSwitch shareToggle = Switch(), startup = Switch();
-    string startupPendingID = "";
-    bool startupRequested;
+    readonly ToggleSwitch shareToggle = Switch(), startup = Switch(), networkOnly = Switch();
+    readonly TextBlock networkOnlyStatus = Label("", 11, key: "Subtle");
+    string startupPendingID = "", networkOnlyPendingID = "";
+    bool startupRequested, networkOnlyRequested, networkOnlyEnabled = true;
     readonly StackPanel detailRows = new() { Spacing = 0 };
     readonly Grid root = new();
     readonly Grid body = new();
@@ -98,6 +99,9 @@ public sealed partial class Dashboard : Window
         noticeBar.Res(Border.BackgroundProperty, "AccentSoft");
         Avalonia.Automation.AutomationProperties.SetName(shareToggle, "檔案共享");
         Avalonia.Automation.AutomationProperties.SetName(startup, "登入 Windows 後自動啟動");
+        Avalonia.Automation.AutomationProperties.SetName(networkOnly, "僅保留網路連線");
+        Avalonia.Automation.AutomationProperties.SetName(networkOnlyStatus, "僅保留網路連線狀態");
+        networkOnlyStatus.TextWrapping = TextWrapping.Wrap; networkOnlyStatus.TextTrimming = TextTrimming.None; networkOnlyStatus.IsVisible = false;
         noticeBar.Child = Row(8, Icons.Make(Icons.Info, 16, "Accent"), notice);
 
         root.RowDefinitions = new RowDefinitions("Auto,16,*,12,Auto");
@@ -131,6 +135,17 @@ public sealed partial class Dashboard : Window
                 action = startupRequested ? "startup-on" : "startup-off", id = startupPendingID
             }));
             
+        };
+        networkOnly.Click += (_, _) => {
+            if (preview) { networkOnly.IsChecked = networkOnlyEnabled; return; }
+            if (networkOnlyPendingID != "") return;
+            networkOnlyRequested = networkOnly.IsChecked == true;
+            networkOnlyPendingID = Guid.NewGuid().ToString("N");
+            networkOnly.IsEnabled = false;
+            SetNotice("正在儲存「僅保留網路連線」設定…");
+            DesktopClient.SendRaw(JsonSerializer.Serialize(new {
+                action = networkOnlyRequested ? "network-only-on" : "network-only-off", id = networkOnlyPendingID
+            }));
         };
         Opened += (_, _) => { UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBAccount, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(OpenTaskManager, DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
         if (Program.StandaloneTasks) Opened += (_, _) => Dispatcher.UIThread.Post(() => {
@@ -257,6 +272,7 @@ public sealed partial class Dashboard : Window
         var list = new StackPanel();
         void Add(Control row) { if (list.Children.Count > 0) list.Children.Add(WithMargin(Rule(), new Thickness(48, 0, 0, 0))); list.Children.Add(row); }
         Add(SettingRow(Icons.Clock, "登入 Windows 後自動啟動", "開機登入後在背景準備連線", startup, null));
+        Add(SettingRow(Icons.Shield, "僅保留網路連線", "封鎖 Windows 對此 iPad 的照片匯入與儲存空間瀏覽，避免出現「信任這部電腦」提示。關閉此開關、結束程式或解除安裝時會還原。", networkOnly, null, networkOnlyStatus));
         Add(SettingRow(Icons.Shield, "安全管理", "應用程式防火牆、連線與 USB 裝置", null, OpenSecurity));
         Add(SettingRow(Icons.Pulse, "工作管理員", "執行中的程式、資源用量與簽署憑證", null, OpenTaskManager));
         Add(SettingRow(Icons.Pulse, "連線診斷", "連線細節、網際網路共享與元件狀態", null, OpenDetails));
@@ -264,9 +280,11 @@ public sealed partial class Dashboard : Window
         return Card(Column(0, title, list), new Thickness(12, 16, 12, 8));
     }
 
-    Control SettingRow(string icon, string title, string description, Control? trailing, Action? onClick)
+    Control SettingRow(string icon, string title, string description, Control? trailing, Action? onClick, TextBlock? detail = null)
     {
-        var text = Column(1, Label(title, 13), Label(description, 11, key: "Subtle"));
+        var descriptionText = Label(description, 11, key: "Subtle");
+        if (detail != null) { descriptionText.TextWrapping = TextWrapping.Wrap; descriptionText.TextTrimming = TextTrimming.None; }
+        var text = detail == null ? Column(1, Label(title, 13), descriptionText) : Column(1, Label(title, 13), descriptionText, detail);
         text.VerticalAlignment = VerticalAlignment.Center; text.Margin = new Thickness(12, 0, 8, 0);
         var end = trailing ?? Icons.Make(Icons.Chevron, 14, "Subtle");
         end.VerticalAlignment = VerticalAlignment.Center;
@@ -347,6 +365,32 @@ public sealed partial class Dashboard : Window
         programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
     }
 
+    // The switch shows the saved choice; the line below shows what was read back.
+    void UpdateNetworkOnly(JsonElement n, bool stopping)
+    {
+        string NS(string k) => n.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        bool NB(string k) => n.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+        int NI(string k) => n.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
+        bool rejected = networkOnlyPendingID != "" && NS("rejected_id") == networkOnlyPendingID;
+        if (rejected || (networkOnlyPendingID != "" && NS("request_id") == networkOnlyPendingID && !NB("busy"))) networkOnlyPendingID = "";
+        networkOnlyEnabled = NB("enabled");
+        networkOnly.IsChecked = networkOnlyPendingID != "" ? networkOnlyRequested : NB("busy") ? NB("requested") : networkOnlyEnabled;
+        networkOnly.IsEnabled = networkOnlyPendingID == "" && !NB("busy") && !stopping;
+        var error = NS("error");
+        var failure = error != "" || NB("restore_pending");
+        string text;
+        if (NB("restore_pending")) text = "照片介面尚未確認還原，仍可能被封鎖：" + (error != "" ? error : "待確認") + "。請重試或退出程序後再確認。";
+        else if (failure) text = "未能完整封鎖：" + error + "。受影響的介面保持原狀。";
+        else if (!networkOnlyEnabled) text = NB("restoring") ? "正在還原照片與儲存空間存取…" : "已關閉，Windows 可使用此 iPad 的照片與儲存空間。";
+        else if (NB("effective")) text = $"已封鎖照片與儲存空間存取（已記住 {NI("known_nodes")} 個介面，已套用 {NI("known_applied")} 個）。";
+        else if (NI("known_nodes") > 0) text = $"已開啟，正在核對 {NI("known_nodes")} 個已記住的介面…";
+        else text = "已開啟，將在首次連線時辨識並封鎖此 iPad 的照片介面。";
+        networkOnlyStatus.Text = text;
+        networkOnlyStatus.IsVisible = true;
+        networkOnlyStatus.Res(TextBlock.ForegroundProperty, failure ? "Warn" : "Subtle");
+        if (rejected) SetNotice("上一項設定仍在處理，這次操作未執行；請稍候再試。");
+    }
+
     void UpdateProgramLifecycle(JsonElement d)
     {
         if (d.TryGetProperty("default_network_isolation", out var isolation) && isolation.ValueKind == JsonValueKind.Object)
@@ -359,7 +403,7 @@ public sealed partial class Dashboard : Window
             automaticIsolationStatus.Text = failure ? "自動連線策略尚未完成，恢復狀態需要處理。Apple 服務：" + (B("amds_restored") ? "已恢復" : "待確認") + "；照片介面：" + (B("photo_restored") ? "已恢復" : "待確認") + "；舊照片策略：" + (B("policy_restored") ? "已恢復" : "待確認") + "。"
                 : phase == "restored" && B("restored") ? "Apple 服務、照片介面與舊照片策略均已恢復。"
                 : phase is "restoring" or "recovering_previous" || B("busy") ? "正在恢復 Apple 服務與照片介面，尚未確認完成。"
-                : phase == "running" ? "自動連線策略 · Apple 服務：" + (B("amds_effective") ? "已暫停" : "待確認") + "；照片介面：" + (B("photo_effective") ? "已隔離" : "等候適用裝置") + "。退出程序時恢復。"
+                : phase == "running" ? "自動連線策略 · Apple 服務：" + (B("amds_effective") ? "已暫停" : "待確認") + "；照片介面：" + (!networkOnlyEnabled ? "已關閉" : B("photo_effective") ? "已隔離" : "等候適用裝置") + "。退出程序時恢復。"
                 : "自動連線策略尚未就緒，恢復狀態待確認。";
             automaticIsolationStatus.Res(TextBlock.ForegroundProperty, failure ? "Warn" : "Muted");
         }
@@ -543,6 +587,7 @@ public sealed partial class Dashboard : Window
         if (S("event") == "gateway-request") { ShowGatewayRequest(d); return; }
         if (S("event") == "gateway") { UpdateGateway(d); return; }
         if (S("event") == "security") { UpdateSecurity(d); return; }
+        if (d.TryGetProperty("network_only", out var networkOnlyState) && networkOnlyState.ValueKind == JsonValueKind.Object) UpdateNetworkOnly(networkOnlyState, B("stopping"));
         UpdateProgramLifecycle(d);
         // The custom caption remains usable while the core finishes stopping.
         bodyScroll.IsEnabled = !B("stopping") && programExitPhase == "idle" && !programExitAwaiting;
