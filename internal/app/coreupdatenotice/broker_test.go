@@ -76,7 +76,7 @@ func TestNoticeTimeoutCancelAndConcurrentPublicationFailClosed(t *testing.T) {
 		t.Fatal("cancelled notice acknowledged")
 	}
 	b = testBroker()
-	b.timeout = 10 * time.Millisecond
+	b.timeout = 200 * time.Millisecond // well above the ~16ms Windows timer tick, so the notice is polled before it expires
 	done = startNotice(b, context.Background(), "received")
 	n = waitNotice(t, b, goodClient)
 	if e := <-done; !errors.Is(e, context.DeadlineExceeded) {
