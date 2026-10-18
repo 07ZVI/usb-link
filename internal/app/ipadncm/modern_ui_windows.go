@@ -24,6 +24,7 @@ import (
 	"suhang/usbnet/internal/dependencies"
 	"suhang/usbnet/internal/diagnostics/throughput"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -62,6 +63,7 @@ type modernUI struct {
 	gatewayWatcher                              sync.Once
 	serviceOwner                                bool
 	refresh                                     chan struct{}
+	exitUntil                                   atomic.Int64
 }
 
 func (u *modernUI) show(reason string) bool {
@@ -394,7 +396,7 @@ func (u *modernUI) requestRefresh() {
 	}
 }
 func (u *modernUI) run() {
-	t := time.NewTicker(time.Second)
+	t := time.NewTimer(uiPollDelay(false))
 	defer t.Stop()
 	for {
 		select {
@@ -403,8 +405,15 @@ func (u *modernUI) run() {
 		case <-t.C:
 			u.push()
 		case <-u.refresh:
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
 			u.push()
 		}
+		t.Reset(uiPollDelay(u.exiting()))
 	}
 }
 func (u *modernUI) push() {

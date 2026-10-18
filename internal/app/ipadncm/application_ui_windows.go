@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -42,6 +43,7 @@ type appWindow struct {
 	scale                                                                                                       int
 	lastTitle, lastIP, lastDetail                                                                               string
 	tray                                                                                                        bool
+	trayTip                                                                                                     string
 	taskbarCreated                                                                                              uint32
 	stopping                                                                                                    bool
 }
@@ -137,6 +139,13 @@ var appWindowProc = windows.NewCallback(func(hwnd uintptr, message uint32, wpara
 				show = 0
 			}
 			appUser.NewProc("ShowWindow").Call(hwnd, show)
+			return 0
+		case 0x8003: // Exit state changed: refresh the tray tooltip.
+			if currentExitTip.Load() {
+				w.setTrayTip(trayExitTip)
+			} else {
+				w.setTrayTip(trayTip)
+			}
 			return 0
 		case 0x8001:
 			appUser.NewProc("DestroyWindow").Call(hwnd)
@@ -501,10 +510,45 @@ func (w *appWindow) addTray() {
 	}
 	n.Size = uint32(unsafe.Sizeof(n))
 	n.Icon, _, _ = appUser.NewProc("LoadIconW").Call(0, 32512)
-	tip, _ := windows.UTF16FromString("USB Link · 連線管理")
+	w.trayTip = trayTip
+	if currentExitTip.Load() {
+		w.trayTip = trayExitTip
+	}
+	tip, _ := windows.UTF16FromString(w.trayTip)
 	copy(n.Tip[:], tip)
 	ok, _, _ := windows.NewLazySystemDLL("shell32.dll").NewProc("Shell_NotifyIconW").Call(0, uintptr(unsafe.Pointer(&n)))
 	w.tray = ok != 0
+}
+
+// While the program exits the window is hidden; the tray tooltip is the only
+// visible state.
+const (
+	trayTip     = "USB Link · 連線管理"
+	trayExitTip = "USB Link · 正在結束並還原設定…"
+)
+
+var currentExitTip atomic.Bool
+
+func setTrayExitState(exiting bool) {
+	currentExitTip.Store(exiting)
+	// Tray calls stay on each window's own thread.
+	appWindows.Lock()
+	defer appWindows.Unlock()
+	for hwnd := range appWindows.byHandle {
+		appUser.NewProc("PostMessageW").Call(hwnd, 0x8003, 0, 0)
+	}
+}
+func (w *appWindow) setTrayTip(tip string) {
+	if !w.tray || w.trayTip == tip {
+		return
+	}
+	n := appTrayData{Window: w.hwnd, ID: 1, Flags: 4}
+	n.Size = uint32(unsafe.Sizeof(n))
+	text, _ := windows.UTF16FromString(tip)
+	copy(n.Tip[:], text)
+	if ok, _, _ := windows.NewLazySystemDLL("shell32.dll").NewProc("Shell_NotifyIconW").Call(1, uintptr(unsafe.Pointer(&n))); ok != 0 {
+		w.trayTip = tip
+	}
 }
 func (w *appWindow) removeTray() {
 	if !w.tray {

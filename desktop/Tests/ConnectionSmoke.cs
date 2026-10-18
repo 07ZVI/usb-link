@@ -355,11 +355,11 @@ public sealed partial class Dashboard
             if (!labels.Contains("Mac USB 已連接") || !labels.Contains("等候 USB 接線") || chipText.Text != "已連線 · 1 台裝置")
                 throw new InvalidOperationException("one device detach must preserve the other slot");
             CaptureConnectionPreview(this, "one-device");
-            Width = 720; Height = 500; UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
+            ResizeAndSettle(720, 500); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
             if (compactLayout != true || this.GetVisualDescendants().OfType<LayoutTransformControl>().Any() || addressValue.FontSize != 34 || bodyScroll.Extent.Height <= bodyScroll.Viewport.Height)
-                throw new InvalidOperationException("compact layout must scroll without reducing Windows DPI text size");
+                throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
             CaptureConnectionPreview(this, "compact");
-            Width = 520; Height = 420; UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
+            ResizeAndSettle(520, 420); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");
@@ -389,8 +389,10 @@ public sealed partial class Dashboard
             if (bodyScroll.IsEnabled || !programExitAwaiting) throw new InvalidOperationException("queued idle snapshot cannot enable actions while exit confirmation is pending");
             ExpireProgramExitConfirmation("22222222222222222222222222222222", requestGeneration);
             if (!programExitAwaiting) throw new InvalidOperationException("foreign confirmation timeout cannot cancel exit");
+            exitHidden = true;
             ExpireProgramExitConfirmation(programExitID, requestGeneration);
             if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled || !programExitStatus.Text!.Contains("不代表恢復已完成") || programExitID != "11111111111111111111111111111111") throw new InvalidOperationException("missing confirmation must allow same-request retry without claiming restoration");
+            if (exitHidden || !IsVisible) throw new InvalidOperationException("a lost exit acknowledgement must bring the hidden window back");
             programExitAwaiting = true;
             SendProgramExitRequest("exit-program");
             ExpireProgramExitConfirmation(programExitID, requestGeneration);
@@ -400,8 +402,10 @@ public sealed partial class Dashboard
             using (var stoppingExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"stopping_connections","request_id":"11111111111111111111111111111111","busy":true}}""")) Update(stoppingExit.RootElement);
             if (bodyScroll.IsEnabled || !footerControl.IsEnabled || programExitButton.IsEnabled || !captionClose!.IsEffectivelyEnabled) throw new InvalidOperationException("exit must block mutations but retain window controls");
             if (programExitConfirmationTimer != null) throw new InvalidOperationException("acknowledged native stopping must not have an arbitrary restore deadline");
+            exitHidden = true;
             using (var failedExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"failed","request_id":"11111111111111111111111111111111","error":"CORE_EXIT_RECOVERY_PENDING"},"default_network_isolation":{"phase":"recovery_pending","photo_restored":false,"amds_restored":true,"policy_restored":true}}""")) Update(failedExit.RootElement);
             if (!programExitButton.IsEnabled || programExitAwaiting || bodyScroll.IsEnabled || !programExitStatus.Text!.Contains("重試") || !automaticIsolationStatus.Text!.Contains("待確認")) throw new InvalidOperationException("restore failure must retain retry and disclose unresolved state");
+            if (exitHidden || !IsVisible) throw new InvalidOperationException("a failed restore must bring the hidden window back");
             programExitAwaiting = true;
             using (var readyExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"22222222222222222222222222222222"}}""")) Update(readyExit.RootElement);
             if (programExitCommitSent) throw new InvalidOperationException("foreign exit request must not commit");
@@ -427,6 +431,18 @@ public sealed partial class Dashboard
         {
             Console.Error.WriteLine("CONNECTION_SMOKE_FAIL: " + error);
             (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(1);
+        }
+    }
+
+    // Some platforms apply window resizes asynchronously; pump a nested loop until the client area follows.
+    void ResizeAndSettle(double width, double height)
+    {
+        Width = width; Height = height;
+        for (var i = 0; i < 40 && (Math.Abs(ClientSize.Width - width) > 1 || Math.Abs(ClientSize.Height - height) > 1); i++)
+        {
+            var frame = new Avalonia.Threading.DispatcherFrame();
+            Avalonia.Threading.DispatcherTimer.RunOnce(() => frame.Continue = false, TimeSpan.FromMilliseconds(25));
+            Avalonia.Threading.Dispatcher.UIThread.PushFrame(frame);
         }
     }
 

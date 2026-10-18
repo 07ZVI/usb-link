@@ -334,7 +334,24 @@ public sealed partial class Dashboard : Window
         bodyScroll.IsEnabled = false;
         programExitStatus.Text = "正在要求停止連線，核對恢復完成後才會退出…";
         programExitStatus.IsVisible = true; programExitButton.IsEnabled = false;
+        // Restoration is core work and continues unchanged; the user only needs the window gone.
+        // Send first so the request never waits on the window teardown.
         SendProgramExitRequest("exit-program");
+        HideForProgramExit();
+    }
+
+    // Hidden, not closed: the same window returns with its failure text if the restore does not complete.
+    bool exitHidden;
+    void HideForProgramExit()
+    {
+        exitHidden = true;
+        if (!preview) Hide(); // The preview harness keeps its window for screenshots.
+    }
+    void ShowAfterProgramExitProblem()
+    {
+        if (!exitHidden) return;
+        exitHidden = false;
+        Show(); WindowState = WindowState.Normal; Activate();
     }
 
     void CancelProgramExitConfirmation()
@@ -363,6 +380,7 @@ public sealed partial class Dashboard : Window
         programExitAwaiting = programExitCommitSent = false;
         programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試；這不代表恢復已完成。";
         programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+        ShowAfterProgramExitProblem();
     }
 
     // The switch shows the saved choice; the line below shows what was read back.
@@ -420,6 +438,7 @@ public sealed partial class Dashboard : Window
             : "正在停止 USB 連線，完成後會恢復設定…";
         if (phaseExit == "failed") { CancelProgramExitConfirmation(); programExitAwaiting = programExitCommitSent = false; }
         programExitButton.IsEnabled = !programExitAwaiting;
+        if (phaseExit == "failed") ShowAfterProgramExitProblem();
         if (phaseExit == "ready" && programExitAwaiting && !programExitCommitSent && E("request_id") == programExitID)
         {
             programExitCommitSent = true;
@@ -542,7 +561,7 @@ public sealed partial class Dashboard : Window
     {
         string S(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool B(string k) => d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
-        if (S("event") == "program-exit-request") { Show(); WindowState = WindowState.Normal; Activate(); RequestProgramExit(); return; }
+        if (S("event") == "program-exit-request") { RequestProgramExit(); return; }
         if (S("event") == "program-exit-result")
         {
             if (S("request_id") != programExitID || programExitID == "") return;
@@ -550,6 +569,7 @@ public sealed partial class Dashboard : Window
             programExitAwaiting = programExitCommitSent = false;
             programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試。";
             programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+            ShowAfterProgramExitProblem();
             return;
         }
         if (S("event") == "program-exit-complete")
@@ -558,7 +578,7 @@ public sealed partial class Dashboard : Window
                 (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
             return;
         }
-        if (S("event") == "backend-unavailable") { MarkBackendUnavailable(S("code")); return; }
+        if (S("event") == "backend-unavailable") { if (!programExitCommitSent) ShowAfterProgramExitProblem(); MarkBackendUnavailable(S("code")); return; }
         if (S("event") == "shutdown") { (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(); return; }
         if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
 #if USBLINK_LOCAL_DIAGNOSTICS

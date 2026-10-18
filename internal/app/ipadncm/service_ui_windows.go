@@ -200,10 +200,17 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 	default:
 		b, err := json.Marshal(v)
 		if err == nil {
+			if v.Action == "exit-program" {
+				// The window hides at once; the tray carries the state from here.
+				u.noteExitRequested()
+			}
 			go func() {
 				reply, err := p.Action(u.lifetime, b)
 				if err != nil {
 					if v.Action == "exit-program" || v.Action == "exit-program-commit" {
+						if v.Action == "exit-program" {
+							u.clearExitRequested()
+						}
 						u.sendEvent(map[string]string{"event": "program-exit-result", "request_id": v.ID, "code": "CORE_EXIT_REQUEST_FAILED"})
 						return
 					}
@@ -271,6 +278,7 @@ func (u *modernUI) proxyPush(p *ServiceUIProxy) {
 		return
 	}
 	ApplyServiceMonitorResults(snapshot.Connections)
+	u.observeExitPhase(programExitDisplayPhase(snapshot.Desktop))
 	u.publishStatus(snapshot.Desktop)
 	for _, event := range snapshot.Events {
 		u.sendEvent(event)
