@@ -46,7 +46,7 @@ Apple 说明：选择“不信任”后，每次连接会再次提示；它没�
 
 ## 已核对的源码与版本变化
 
-- `internal/app/launcher/main_windows.go` 的 `executeMode` 走 `RunNetworkOnlyAppleControl`，不暂停或重启 AMDS。
+- `internal/app/launcher/inspect_windows.go` 的 `executeMode` 走 `RunNetworkOnlyAppleControl`，不暂停或重启 AMDS。
 - `internal/app/ipadncm/check_windows.go` 在已处于活动网络配置时直接返回；否则核对初始模式与本次许可后，只发送一次 `SET_MODE` 请求，并最多等待 8 次、每次 1 秒的重新枚举观察。
 - 首次无可复用分组且原生驱动启动失败时，连接流程可进入分组配置，重启 USB 父设备，再次检查并按需切换模式。已有分组验证成功后使用 `CONFIGURATION_REUSED_NO_WRITE_OR_RESTART`，不为复用而重启设备。
 - 在旧源码提交 `d3fca36` 之前，上述模式切换、分组重启与重新激活路径已经存在。该提交没有新增第二次切换；相关行为变化是恢复旧 AMDS/WPD 隔离设置，并取消连接期间的服务暂停。它与历史现象时间接近，但不是已证明的因果关系。
