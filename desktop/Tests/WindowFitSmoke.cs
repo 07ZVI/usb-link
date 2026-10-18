@@ -30,14 +30,14 @@ public sealed partial class Dashboard
                 try
                 {
                     var work = new Size(area.Width / scaling, area.Height / scaling);
-                    OpenSecurity(); OpenTaskManager(); OpenSMBManager(); OpenDetails();
+                    OpenSecurity(); OpenSMBManager(); OpenDetails();
                     AppWindow.Confirm(this, "取消共享？", "資料夾與檔案會保留，之後可以再次添加。", "取消共享", () => { }, danger: true);
                     Pump(300);
                     var windows = OwnedWindows.ToArray();
-                    if (windows.Length < 5) throw new InvalidOperationException("expected security, task, SMB, diagnostics and confirm windows, got " + windows.Length);
+                    if (windows.Length < 4) throw new InvalidOperationException("expected security, SMB, diagnostics and confirm windows, got " + windows.Length);
                     foreach (var window in windows) AssertWindowFits(window, work, area, scaling);
                     // A window dropped half off the screen's corner is brought back by the next re-check.
-                    var task = windows.First(w => w.Title!.Contains("工作管理員"));
+                    var task = windows.First(w => w.Title!.Contains("安全管理"));
                     task.Position = new PixelPoint(area.Right - 40, area.Bottom - 20); Pump(150);
                     WindowFit.Refit(task); Pump(150);
                     AssertWindowFits(task, work, area, scaling);

@@ -18,13 +18,6 @@ public sealed partial class Dashboard
     {
         try {
             void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
-            if (Program.StandaloneTasks) {
-                Require(taskWindow?.IsVisible == true && !IsVisible, $"standalone visibility: task={taskWindow?.IsVisible}, dashboard={IsVisible}");
-                taskWindow!.Close(); Require(taskWindow == null && processTimer == null && processInventory == null, "standalone close must release task window");
-                Console.WriteLine("PROCESS_STANDALONE_SMOKE_OK");
-                (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(0);
-                return;
-            }
             foreach (var (code, status) in new[] {
                 (0u,"valid"),(0x800B0100u,"unsigned"),(0x80096010u,"invalid"),(0x800B010Cu,"revoked"),
                 (0x800B0101u,"expired"),(0x800B0109u,"untrusted"),(0x800B0111u,"untrusted"),
@@ -82,74 +75,96 @@ public sealed partial class Dashboard
             }
             var folder = Environment.GetEnvironmentVariable("USB_LINK_PROCESS_EVIDENCE") ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "usb-link-process-preview");
             Directory.CreateDirectory(folder);
+            var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
+            Require(dashboardTexts.Contains("安全管理") && !dashboardTexts.Contains("工作管理員") && !dashboardTexts.Contains("退出程序"), "the dashboard has the security row but neither a task manager row nor an exit button");
+            Require(this.GetVisualDescendants().OfType<Button>().All(b => (AutomationProperties.GetName(b) ?? "") is not ("工作管理員" or "退出程序")), "no dashboard button for the task manager or exit");
+            ProgramIcons.Clear();
+            var sampleIcon = TaskManagerView.PreviewIcon(0xFF000000, 0xFFFFFFFF);
+            for (var i = 0; i < ProgramIcons.Capacity + 88; i++) ProgramIcons.Put($@"C:\lru\{i}.exe", sampleIcon);
+            Require(ProgramIcons.CachedCount == ProgramIcons.Capacity && !ProgramIcons.TryGet(@"C:\lru\0.exe", out _) && ProgramIcons.TryGet($@"C:\lru\{ProgramIcons.Capacity + 87}.exe", out var recent) && recent != null, "icon cache is a bounded LRU");
+            ProgramIcons.Clear();
+            var missing = new ProgramIconView(@"C:\Missing\Nothing.exe"); var unnamed = new ProgramIconView("");
+            await Task.Delay(100); await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
+            Require(missing.IsGeneric && unnamed.IsGeneric && missing.Child is not Image, "programs without an icon keep the generic program icon");
             for (var attempt = 0; attempt < 3; attempt++) {
-                OpenTaskManager(); Require(processInventory == null, "preview must not inspect host processes");
-                Require(runningPrograms.Length == 9 && processList.ItemCount == 9, "all running fixtures shown");
-                var invalid = runningPrograms.Single(p => p.Trust.Status == "invalid");
+                OpenSecurity(); var tm = taskManager!; var window = securityWindow!;
+                Require(securityTabs!.SelectedIndex == TasksTab && ((TabItem)securityTabs.Items[0]!).Header as string == "工作管理員", "the task manager is the first security tab");
+                Require(tm.Inventory == null && !tm.IsSampling, "preview must not inspect host processes");
+                Require(Enumerable.Range(0, 5).Select(i => ((TabItem)securityTabs.Items[i]!).Header as string).SequenceEqual(new[] { "工作管理員", "USB 網關", "全機手動規則", "目前連線", "USB 裝置" }), "tab order");
+                Require(window.GetVisualDescendants().OfType<Button>().All(b => (AutomationProperties.GetName(b) ?? "") != "工作管理員"), "no separate task manager header button");
+                Require(tm.Programs.Length == 9 && tm.List.ItemCount == 9, "all running fixtures shown");
+                window.UpdateLayout();
+                var icons = tm.List.GetVisualDescendants().OfType<ProgramIconView>().ToArray();
+                Require(icons.Length == 9 && icons.Count(i => i.IsGeneric) == 7 && icons.Count(i => i.Child is Image) == 2, $"two cached shell icons and the generic fallback for the rest ({icons.Count(i => i.IsGeneric)} generic of {icons.Length})");
+                var invalid = tm.Programs.Single(p => p.Trust.Status == "invalid");
                 Require(invalid.Risk.StartsWith("可疑"), "tampered executable explanation");
                 Require((invalid with { Trust = ProcessTrust.FromCode(0x800B0100) }).Risk.Contains("暫存"), "temporary unsigned executable explanation");
-                Require(!runningPrograms.Single(p => p.Trust.Status == "unsigned").Risk.StartsWith("可疑"), "ordinary unsigned program must not claim maliciousness");
-                Require(FilterProcesses(runningPrograms, "Microsoft", false, "trust", false).Length == 1, "publisher search");
-                Require(FilterProcesses(runningPrograms, "7312", false, "trust", false).Single() == invalid, "PID search");
-                Require(FilterProcesses(runningPrograms, "", true, "trust", false).Length == 4, "attention excludes valid and pending");
-                Require(FilterProcesses(runningPrograms, "", false, "cpu", true)[0].Name == "Browser.exe", "CPU sorting");
-                Require(FilterProcesses(runningPrograms, "", false, "memory", true)[0].Name == "Browser.exe", "memory sorting");
-                Require(FilterProcesses(runningPrograms,"",false,"disk",true)[0].Name=="explorer.exe","disk sorting");
-                Require(FilterProcesses(runningPrograms,"",false,"network",true)[0].Name=="Browser.exe","network sorting");
-                processList.SelectedItem=runningPrograms.Single(p=>p.Name=="Registry");
-                Require(processDetailReason.Text!.Contains("註冊表")&&processDetailText.Text!.Contains("父 PID 4"),"Registry evidence in the details panel");
-                processSearch.Text = "7312";
+                Require(!tm.Programs.Single(p => p.Trust.Status == "unsigned").Risk.StartsWith("可疑"), "ordinary unsigned program must not claim maliciousness");
+                Require(TaskManagerView.Filter(tm.Programs, "Microsoft", false, "trust", false).Length == 1, "publisher search");
+                Require(TaskManagerView.Filter(tm.Programs, "7312", false, "trust", false).Single() == invalid, "PID search");
+                Require(TaskManagerView.Filter(tm.Programs, "", true, "trust", false).Length == 4, "attention excludes valid and pending");
+                Require(TaskManagerView.Filter(tm.Programs, "", false, "cpu", true)[0].Name == "Browser.exe", "CPU sorting");
+                Require(TaskManagerView.Filter(tm.Programs, "", false, "memory", true)[0].Name == "Browser.exe", "memory sorting");
+                Require(TaskManagerView.Filter(tm.Programs,"",false,"disk",true)[0].Name=="explorer.exe","disk sorting");
+                Require(TaskManagerView.Filter(tm.Programs,"",false,"network",true)[0].Name=="Browser.exe","network sorting");
+                tm.List.SelectedItem=tm.Programs.Single(p=>p.Name=="Registry");
+                Require(tm.DetailReason.Text!.Contains("註冊表")&&tm.DetailText.Text!.Contains("父 PID 4"),"Registry evidence in the details panel");
+                tm.Search.Text = "7312";
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                Require(processList.ItemCount == 1, "live search updates table");
-                processSearch.Text = "no-such-program";
+                Require(tm.List.ItemCount == 1, "live search updates table");
+                tm.Search.Text = "no-such-program";
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                Require(processList.ItemCount == 0 && processEmpty.IsVisible, "empty search shows the empty state");
-                processSearch.Text = "";
+                Require(tm.List.ItemCount == 0 && tm.Empty.IsVisible, "empty search shows the empty state");
+                tm.Search.Text = "";
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                Require(processList.ItemCount == 9 && !processEmpty.IsVisible, "clearing the search restores the list");
-                processAttention.IsChecked = true; Require(processList.ItemCount == 4, "live attention filter");
-                processAttention.IsChecked = false; processList.SelectedItem = invalid; RenderProcesses();
-                Require(processList.SelectedItem is RunningProgram selected && selected.Pid == invalid.Pid && processDetailReason.Text!.Contains("可疑"), "refresh preserves selection and details");
-                processList.SelectedItem = runningPrograms[0];
-                Require(processDetailText.Text!.Contains("時間戳記") && processDetailPill.Label.Text!.Contains("簽章有效"), "expired leaf with accepted timestamp remains valid");
-                processList.SelectedItem = invalid;
+                Require(tm.List.ItemCount == 9 && !tm.Empty.IsVisible, "clearing the search restores the list");
+                tm.Attention.IsChecked = true; Require(tm.List.ItemCount == 4, "live attention filter");
+                tm.Attention.IsChecked = false; tm.List.SelectedItem = invalid; tm.Render();
+                Require(tm.List.SelectedItem is RunningProgram selected && selected.Pid == invalid.Pid && tm.DetailReason.Text!.Contains("可疑"), "refresh preserves selection and details");
+                tm.List.SelectedItem = tm.Programs[0];
+                Require(tm.DetailText.Text!.Contains("時間戳記") && tm.DetailPill.Label.Text!.Contains("簽章有效"), "expired leaf with accepted timestamp remains valid");
+                tm.List.SelectedItem = invalid;
                 if (attempt == 0) {
-                    taskWindow!.UpdateLayout();
-                    var red = taskWindow.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "簽章無效");
+                    securityTabs.SelectedIndex = GatewayTab; window.UpdateLayout();
+                    Require(securityCount.IsVisible && !tm.View.IsAttachedToVisualTree() && !tm.IsSampling, "the task view detaches and stops with its tab");
+                    securityTabs.SelectedIndex = TasksTab; window.UpdateLayout();
+                    Require(!securityCount.IsVisible && tm.View.IsAttachedToVisualTree() && tm.List.ItemCount == 9, "the task view returns with its rows");
+                    window.UpdateLayout();
+                    var red = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "簽章無效");
                     Require(red.Foreground is SolidColorBrush b && b.Color == Color.Parse(Program.DarkPreview ? "#FF99A4" : "#C42B1C"), "visible invalid signature color");
-                    CaptureProcessPreview(folder, "task-manager-light.png");
-                    taskWindow.RequestedThemeVariant = ThemeVariant.Dark;
+                    CaptureProcessPreview(folder, "security-tasks-light.png");
+                    window.RequestedThemeVariant = ThemeVariant.Dark;
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                    taskWindow.UpdateLayout();
-                    CaptureProcessPreview(folder, "task-manager-dark.png");
-                    taskWindow.RequestedThemeVariant = ThemeVariant.Light;
-                    taskWindow.Width = 840; taskWindow.Height = 600;
+                    window.UpdateLayout();
+                    CaptureProcessPreview(folder, "security-tasks-dark.png");
+                    window.RequestedThemeVariant = ThemeVariant.Light;
+                    window.Width = 900; window.Height = 640;
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                    taskWindow.UpdateLayout(); CaptureProcessPreview(folder, "task-manager-compact.png");
-                    Require(processRefresh.IsEffectivelyVisible && processSearch.IsEffectivelyVisible, "compact table controls");
-                    taskWindow.Width = taskWindow.MinWidth; taskWindow.Height = taskWindow.MinHeight;
-                    processList.SelectedItem = invalid;
+                    window.UpdateLayout(); CaptureProcessPreview(folder, "security-tasks-compact.png");
+                    Require(tm.Reverify.IsEffectivelyVisible && tm.Search.IsEffectivelyVisible, "compact table controls");
+                    window.Width = window.MinWidth; window.Height = window.MinHeight;
+                    tm.List.SelectedItem = invalid;
                     await Task.Delay(300);
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                    taskWindow.UpdateLayout(); CaptureProcessPreview(folder, "task-manager-min.png");
-                    Require(taskWindow.Bounds.Height <= taskWindow.MinHeight + 1, $"minimum window height applied ({taskWindow.Bounds.Height})");
-                    var fullRows = processList.GetVisualDescendants().OfType<ListBoxItem>().Count(r => r.Bounds.Height > 0 && r.TranslatePoint(new Point(0, r.Bounds.Height), processList) is { } bottom && bottom.Y <= processList.Bounds.Height + 1);
+                    window.UpdateLayout(); CaptureProcessPreview(folder, "security-tasks-min.png");
+                    Require(window.Bounds.Height <= window.MinHeight + 1, $"minimum window height applied ({window.Bounds.Height})");
+                    var fullRows = tm.List.GetVisualDescendants().OfType<ListBoxItem>().Count(r => r.Bounds.Height > 0 && r.TranslatePoint(new Point(0, r.Bounds.Height), tm.List) is { } bottom && bottom.Y <= tm.List.Bounds.Height + 1);
                     Require(fullRows >= 8, $"table keeps at least 8 rows at the minimum window size (got {fullRows})");
-                    Require(processDetailScroll.Bounds.Height <= processList.Bounds.Height, "detail panel must not outgrow the table");
-                    var detailToggle = taskWindow.GetVisualDescendants().OfType<Button>().Single(b => (AutomationProperties.GetName(b) ?? "").StartsWith("顯示或隱藏"));
+                    Require(tm.DetailScroll.Bounds.Height <= tm.List.Bounds.Height, "detail panel must not outgrow the table");
+                    var detailToggle = window.GetVisualDescendants().OfType<Button>().Single(b => (AutomationProperties.GetName(b) ?? "").StartsWith("顯示或隱藏"));
                     detailToggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
-                    taskWindow.UpdateLayout(); CaptureProcessPreview(folder, "task-manager-min-details.png");
-                    Require(processDetailText.IsEffectivelyVisible && processDetailScroll.Bounds.Height <= processDetailScroll.MaxHeight + 1 && processDetailScroll.MaxHeight <= processList.Bounds.Height, "expanded details scroll inside their share instead of squeezing the table");
+                    window.UpdateLayout(); CaptureProcessPreview(folder, "security-tasks-min-details.png");
+                    Require(tm.DetailText.IsEffectivelyVisible && tm.DetailScroll.Bounds.Height <= tm.DetailScroll.MaxHeight + 1 && tm.DetailScroll.MaxHeight <= tm.List.Bounds.Height, "expanded details scroll inside their share instead of squeezing the table");
                     detailToggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-                    taskWindow.Width = 1220; taskWindow.Height = 800;
-                    var fixture = runningPrograms[0];
-                    runningPrograms = Enumerable.Range(0, 1500).Select(i => fixture with { Pid = 10000 + i, Started = i, Name = "Program " + i }).ToArray();
-                    RenderProcesses(); taskWindow.UpdateLayout();
-                    Require(processList.ItemCount == 1500, "large process inventory not truncated");
-                    Require(processList.GetVisualDescendants().OfType<ListBoxItem>().Count() < 100, "large process inventory virtualized");
+                    window.Width = 1220; window.Height = 800;
+                    var fixture = tm.Programs[0];
+                    tm.Programs = Enumerable.Range(0, 1500).Select(i => fixture with { Pid = 10000 + i, Started = i, Name = "Program " + i }).ToArray();
+                    tm.Render(); window.UpdateLayout();
+                    Require(tm.List.ItemCount == 1500, "large process inventory not truncated");
+                    Require(tm.List.GetVisualDescendants().OfType<ListBoxItem>().Count() < 100, "large process inventory virtualized");
                 }
-                taskWindow!.Close(); Require(taskWindow == null && processTimer == null && processInventory == null, "window lifecycle cleanup");
+                window.Close(); Require(securityWindow == null && taskManager == null && !tm.IsSampling && tm.Inventory == null, "window lifecycle cleanup");
             }
             Console.WriteLine("PROCESS_UI_SMOKE_OK: classification, real worker pipe, sorting, search, attention, selection, themes, 1500 rows and lifecycle");
             (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(0);
@@ -159,8 +174,9 @@ public sealed partial class Dashboard
         }
     }
     void CaptureProcessPreview(string folder, string name) {
-        using var bitmap = new RenderTargetBitmap(new PixelSize((int)taskWindow!.Bounds.Width, (int)taskWindow.Bounds.Height), new Vector(96, 96));
-        bitmap.Render(taskWindow); bitmap.Save(System.IO.Path.Combine(folder, name));
+        var window = securityWindow!;
+        using var bitmap = new RenderTargetBitmap(new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height), new Vector(96, 96));
+        bitmap.Render(window); bitmap.Save(System.IO.Path.Combine(folder, name));
     }
 }
 

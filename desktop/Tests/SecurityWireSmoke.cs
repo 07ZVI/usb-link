@@ -7,7 +7,7 @@ namespace Suhang.Desktop;
 public sealed partial class Dashboard
 {
     int securityWireStage;
-    void StartSecurityWireSmoke(){OpenSecurity();securityTabs!.SelectedIndex=2;}
+    void StartSecurityWireSmoke(){OpenSecurity(ConnectionsTab);}
     void ContinueSecurityWireSmoke(){
         if(securityBusy||securityPendingID!="")throw new InvalidOperationException("security reply did not settle request");
         if(securityWireStage==0){

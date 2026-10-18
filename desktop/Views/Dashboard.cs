@@ -43,13 +43,12 @@ public sealed partial class Dashboard : Window
     readonly bool preview = Program.Preview;
     bool backendEnded;
     readonly TextBlock automaticIsolationStatus = Label("", Scale.Secondary, key: "Muted"), programExitStatus = Label("", Scale.Secondary, key: "Warn");
-    Button programExitButton = null!;
     string programExitID = "", programExitPhase = "idle";
     bool programExitAwaiting, programExitCommitSent;
     DispatcherTimer? programExitConfirmationTimer;
     long programExitConfirmationGeneration;
 
-    bool KeepInTray => !preview && !Program.StandaloneTasks && OperatingSystem.IsWindows();
+    bool KeepInTray => !preview && !Program.NoBackendReader && OperatingSystem.IsWindows();
 
     // ---------- building blocks ----------
 
@@ -145,15 +144,12 @@ public sealed partial class Dashboard : Window
                 action = networkOnlyRequested ? "network-only-on" : "network-only-off", id = networkOnlyPendingID
             }));
         };
-        Opened += (_, _) => { PreviewWindowArgs(); UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBManager, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(OpenTaskManager, DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
-        if (Program.StandaloneTasks) Opened += (_, _) => Dispatcher.UIThread.Post(() => {
-            OpenTaskManager(); taskWindow!.Closed += (_, _) => Close(); Hide();
-        }, DispatcherPriority.Normal);
-        Closed += (_, _) => { CancelProgramExitConfirmation(); taskWindow?.Close(); };
+        Opened += (_, _) => { PreviewWindowArgs(); UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBManager, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(() => OpenSecurity(TasksTab), DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
+        Closed += (_, _) => CancelProgramExitConfirmation();
 
         ApplyConnectionSummary(0);
         if (preview) SeedPreview();
-        else if (!Program.StandaloneTasks) _ = Task.Run(ReadBackend);
+        else if (!Program.NoBackendReader) _ = Task.Run(ReadBackend);
     }
 
     static void AddAt(Grid grid, Control child, int row) { Grid.SetRow(child, row); grid.Children.Add(child); }
@@ -386,8 +382,7 @@ public sealed partial class Dashboard : Window
         Add(SettingRow.Toggle(Icons.Play, "開機自動啟動", "登入 Windows 後在背景待命", startup));
         Add(SettingRow.Toggle(Icons.Globe, "僅保留網路連線", "避免 iPad 出現「信任這部電腦」提示", networkOnly,
             "封鎖 Windows 對此 iPad 的照片匯入與儲存空間瀏覽，避免出現「信任這部電腦」提示。\n關閉此開關、結束程式或解除安裝時會還原。", networkOnlyStatus));
-        Add(SettingRow.Link(Icons.Shield, "安全管理", "防火牆、連線與 USB 裝置", OpenSecurity));
-        Add(SettingRow.Link(Icons.Apps, "工作管理員", "執行中的程式與資源用量", OpenTaskManager));
+        Add(SettingRow.Link(Icons.Shield, "安全管理", "工作管理員、防火牆與 USB 裝置", () => OpenSecurity()));
         Add(SettingRow.Link(Icons.Pulse, "連線診斷", "連線細節與元件狀態", OpenDetails));
         var title = WithMargin(Label("設定", Scale.Section, FontWeight.SemiBold), new Thickness(8, 0, 0, 6));
         settingsList = SettingRow.List(rows.ToArray());
@@ -396,15 +391,13 @@ public sealed partial class Dashboard : Window
 
     Control Footer()
     {
-        var background = Label("關閉視窗後縮至托盤，連線繼續運作", Scale.Secondary, key: "Subtle");
-        background.VerticalAlignment = VerticalAlignment.Center;
+        // Exiting is deliberate and restores settings first; it lives in the tray icon's menu, not on the dashboard.
+        var background = Label("關閉視窗後縮至托盤，連線繼續運作 · 要退出請用托盤圖示選單的「退出程序」", Scale.Secondary, key: "Subtle");
+        background.VerticalAlignment = VerticalAlignment.Center; background.TextWrapping = TextWrapping.Wrap; background.TextTrimming = TextTrimming.None;
+        background.HorizontalAlignment = HorizontalAlignment.Right; background.TextAlignment = TextAlignment.Right;
 
-        // Neutral, not red: exiting is deliberate and safe (settings are restored first).
-        var stop = programExitButton = Action("退出程序", RequestProgramExit, Icons.Power);
-        stop.MinHeight = 30; stop.Padding = new Thickness(12, 4);
-
-        var right = Row(16, background, stop);
-        var grid = Columns("*,Auto", noticeBar, right);
+        background.MaxWidth = 440;
+        var grid = Columns("*,Auto", noticeBar, background);
         noticeBar.HorizontalAlignment = HorizontalAlignment.Left;
         noticeBar.Margin = new Thickness(0, 0, 16, 0);
         automaticIsolationStatus.TextWrapping = programExitStatus.TextWrapping = TextWrapping.Wrap;
@@ -422,7 +415,7 @@ public sealed partial class Dashboard : Window
         programExitAwaiting = true; programExitCommitSent = false;
         bodyScroll.IsEnabled = false;
         programExitStatus.Text = "正在要求停止連線，核對恢復完成後才會退出…";
-        programExitStatus.IsVisible = true; programExitButton.IsEnabled = false;
+        programExitStatus.IsVisible = true;
         // Restoration is core work and continues unchanged; the user only needs the window gone.
         // Send first so the request never waits on the window teardown.
         SendProgramExitRequest("exit-program");
@@ -467,8 +460,8 @@ public sealed partial class Dashboard : Window
         if (id != programExitID || generation != programExitConfirmationGeneration || !programExitAwaiting) return;
         CancelProgramExitConfirmation();
         programExitAwaiting = programExitCommitSent = false;
-        programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試；這不代表恢復已完成。";
-        programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+        programExitStatus.Text = "未能確認退出要求，程序仍保留。請從托盤圖示選單再次選擇「退出程序」重試；這不代表恢復已完成。";
+        programExitStatus.IsVisible = true;
         ShowAfterProgramExitProblem();
     }
 
@@ -521,12 +514,11 @@ public sealed partial class Dashboard : Window
         if (!programExitCommitSent) CancelProgramExitConfirmation();
         programExitPhase = phaseExit;
         programExitStatus.IsVisible = true;
-        programExitStatus.Text = phaseExit == "failed" ? "恢復尚未完成，程序仍保留，USB 連線已停止。可再按「退出程序」重試恢復。"
-            : phaseExit == "ready" ? programExitAwaiting ? "已停止連線並確認恢復，正在完成退出。" : "恢復已確認，退出尚未完成；可按「退出程序」重試確認。"
+        programExitStatus.Text = phaseExit == "failed" ? "恢復尚未完成，程序仍保留，USB 連線已停止。可從托盤圖示選單再次選擇「退出程序」重試恢復。"
+            : phaseExit == "ready" ? programExitAwaiting ? "已停止連線並確認恢復，正在完成退出。" : "恢復已確認，退出尚未完成；可從托盤圖示選單再次選擇「退出程序」重試確認。"
             : phaseExit == "restoring" ? "USB 連線已停止，正在恢復 Apple 服務、照片介面與網路設定…"
             : "正在停止 USB 連線，完成後會恢復設定…";
         if (phaseExit == "failed") { CancelProgramExitConfirmation(); programExitAwaiting = programExitCommitSent = false; }
-        programExitButton.IsEnabled = !programExitAwaiting;
         if (phaseExit == "failed") ShowAfterProgramExitProblem();
         if (phaseExit == "ready" && programExitAwaiting && !programExitCommitSent && E("request_id") == programExitID)
         {
@@ -536,7 +528,6 @@ public sealed partial class Dashboard : Window
     }
 
     static TextBlock WithWrap(TextBlock t, double width) { t.TextWrapping = TextWrapping.Wrap; t.MaxWidth = width; return t; }
-    static T WithAlign<T>(T c, HorizontalAlignment a) where T : Control { c.HorizontalAlignment = a; return c; }
 
     // ---------- diagnostics window ----------
 
@@ -646,8 +637,8 @@ public sealed partial class Dashboard : Window
             if (S("request_id") != programExitID || programExitID == "") return;
             CancelProgramExitConfirmation();
             programExitAwaiting = programExitCommitSent = false;
-            programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試。";
-            programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+            programExitStatus.Text = "未能確認退出要求，程序仍保留。請從托盤圖示選單再次選擇「退出程序」重試。";
+            programExitStatus.IsVisible = true;
             ShowAfterProgramExitProblem();
             return;
         }

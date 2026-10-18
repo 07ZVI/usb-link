@@ -33,12 +33,12 @@ public sealed partial class Dashboard
                 SeedSecurityPreview();
                 if (renderedSecurityTabs.Count != 0 || connectionRows.Children.Count != 1)
                     throw new InvalidOperationException("hidden security lists populated before selection");
-                securityTabs!.SelectedIndex = 1; RenderSecurityTab();
-                securityTabs.SelectedIndex = 2; RenderSecurityTab();
-                securityTabs.SelectedIndex = 3; RenderSecurityTab();
+                securityTabs!.SelectedIndex = RulesTab; RenderSecurityTab();
+                securityTabs.SelectedIndex = ConnectionsTab; RenderSecurityTab();
+                securityTabs.SelectedIndex = UsbTab; RenderSecurityTab();
                 if (firewallRows.Children.Count != 2 || connectionRows.Children.Count != 1 || usbRows.Children.Count != 11) throw new InvalidOperationException("security event rendering");
                 var connection = connectionRows.Children[0];
-                securityTabs.SelectedIndex = 0; securityTabs.SelectedIndex = 2; RenderSecurityTab();
+                securityTabs.SelectedIndex = GatewayTab; securityTabs.SelectedIndex = ConnectionsTab; RenderSecurityTab();
                 if (!ReferenceEquals(connection, connectionRows.Children[0])) throw new InvalidOperationException("unchanged security tab rebuilt");
                 securityBusy=true;securityPendingID=new string('c',32);securityPendingAction="security-refresh";
                 using(var stale=JsonDocument.Parse("""{"request_id":"dddddddddddddddddddddddddddddddd","action":"security-refresh","problem":"stale"}"""))UpdateSecurity(stale.RootElement);
@@ -47,7 +47,7 @@ public sealed partial class Dashboard
                 if(securityBusy||!securityRefresh.IsEnabled||connectionRows.Children[0]!=connection||!securityProblem.IsVisible)throw new InvalidOperationException("security failure must retain observations and recover controls");
                 FailSecurityRequest("Example timeout");
                 if(securityBusy||!securityRefresh.IsEnabled||connectionRows.Children[0]!=connection)throw new InvalidOperationException("security timeout recovery");
-                if(i==0){SeedSecurityPreview();securityTabs.SelectedIndex=3;RenderSecurityTab();
+                if(i==0){SeedSecurityPreview();securityTabs.SelectedIndex=UsbTab;RenderSecurityTab();
                     var groupLabels=usbRows.Children.OfType<Border>().Where(b=>b.Child is TextBlock).Select(b=>((TextBlock)b.Child!).Text).ToArray();
                     if(!groupLabels.SequenceEqual(new[]{"輸入裝置 · 2","儲存裝置 · 1","網路裝置 · 1","控制裝置 · 1","其他與未知裝置 · 1"}))throw new InvalidOperationException("USB grouping must put input first and unknown last");
                     var usbVisuals=Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(usbRows).ToArray();
@@ -84,7 +84,7 @@ public sealed partial class Dashboard
                 if(i==0)SaveSecurityPreview(shareFoldersWindow!,"usb-link-shares-0.8.7.png");
                 shareFoldersWindow!.Close();if(shareFoldersWindow!=null)throw new InvalidOperationException("share close lifecycle");
             }
-            OpenSecurity();
+            OpenSecurity(GatewayTab);
             using(var signedApps=JsonDocument.Parse("""{"active_links":1,"grants":[{"path":"C:\u005cPrograms\u005cTrusted.exe","decision":"allow"},{"path":"C:\u005cPrograms\u005cChanged.exe","decision":"block"},{"path":"C:\u005cPrograms\u005cUnsigned.exe","decision":"allow"}],"problem":""}"""))UpdateGateway(signedApps.RootElement);
             securityWindow!.UpdateLayout();
             var signatureLabels=Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(gatewayRows).OfType<TextBlock>().Where(t=>t.Text?.StartsWith("數位簽章：")==true).ToArray();
@@ -134,14 +134,14 @@ public sealed partial class Dashboard
     }
     void SaveSecurityPreview(Window window,string name,bool usb=false){
         if(!Program.SecuritySmoke)return;
-        if(usb){var tabs=Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<TabControl>().FirstOrDefault();if(tabs!=null)tabs.SelectedIndex=3;}
+        if(usb){var tabs=Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<TabControl>().FirstOrDefault();if(tabs!=null)tabs.SelectedIndex=UsbTab;}
         window.UpdateLayout();
         using var bitmap=new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)window.Bounds.Width,(int)window.Bounds.Height),new Vector(96,96));
         bitmap.Render(window);bitmap.Save(System.IO.Path.Combine("/private/tmp",name));
     }
     void SeedSecurityPreview()
     {
-        OpenSecurity();
+        OpenSecurity(GatewayTab);
         using var sample = JsonDocument.Parse("""
         {"mode":"介面預覽 · 範例資料，不代表實機防護狀態","problem":"","rules":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","application":{"path":"C:\\Program Files\\Example\\Browser.exe"},"action":"allow","direction":"outbound","protocol":"tcp","remote":"any","port":443,"state":"applied"},{"id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","application":{"path":"C:\\Programs\\Example.exe"},"action":"block","direction":"outbound","protocol":"any","remote":"any","port":0,"state":"error","error":"FIREWALL_RULE_NOT_EFFECTIVE"}],"connections":[{"pid":1234,"path":"C:\\Program Files\\Example\\Browser.exe","local":"10.6.9.1:52000","remote":"203.0.113.1:443"}],"usb_devices":[{"name":"未識別裝置（範例）","types":["unknown"],"vid":"1111","pid":"0001"},{"name":"Portable SSD（範例）","types":["storage"],"usb":{"specification":"USB 3.2","speed":"10 Gbps 或以上（SuperSpeedPlus）","port_protocols":"USB 3.x"},"vid":"1111","pid":"0002","storage":[{"model":"Portable SSD（範例）","bytes":1000000000000,"volumes":[{"name":"工作資料","mount":"E:","bytes":999000000000,"free_bytes":420000000000,"space_known":true},{"name":"備份","mount":"F:","space_known":false}]}]},{"name":"G610（範例）","display_kind":"keyboard","types":["composite","keyboard","hid"],"vid":"046D","pid":"C333","node_count":5,"merged_roots":2,"location":"PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)"},{"name":"G903（範例）","display_kind":"mouse","types":["composite","keyboard","mouse","hid"]},{"name":"ASUS Aura 燈光控制器（範例）","display_kind":"lighting","types":["hid"],"vid":"0B05","pid":"1939","description":"依 VID/PID 識別為 ASUS 主板燈光控制介面（HID）。"},{"name":"Mac · USB Link 連線介面（範例）","display_kind":"link","types":["composite","network"]}]}
         """);
@@ -178,9 +178,13 @@ public sealed partial class Dashboard
         securityCount.Text = "正在讀取或更新安全設定…";
         DesktopClient.SendRaw(JsonSerializer.Serialize(body)); 
     }
-    void OpenSecurity()
+    // Tab order of the security window: the task manager comes first.
+    internal const int TasksTab = 0, GatewayTab = 1, RulesTab = 2, ConnectionsTab = 3, UsbTab = 4;
+    TaskManagerView? taskManager;
+    /// Opens the security window on `tab` (the task manager by default), or brings the open one to that tab.
+    void OpenSecurity(int tab = TasksTab)
     {
-        if (securityWindow != null) { securityWindow.Activate(); return; }
+        if (securityWindow != null) { if (securityTabs != null) securityTabs.SelectedIndex = tab; securityWindow.Activate(); return; }
         securityBusy = false; securityPendingID=securityPendingAction=""; securitySnapshot = default; renderedSecurityTabs.Clear();
         // Closed window children retain logical parents. Recreate the controls
         // instead of attaching the same instances to a second window.
@@ -190,7 +194,9 @@ public sealed partial class Dashboard
         securityCount = Label("正在讀取 USB 授權…", Scale.Caption, key: "Subtle");
         discardPendingButton = Action("移除未完成規則", () => ConfirmSecurity("移除未完成規則", "將移除這項未完成操作所屬的 USB Link 規則。原有應用程式規則也可能一併移除。", () => SendSecurity(new { action = "firewall-discard-pending" }), "移除"), danger: true);
         discardPendingButton.IsVisible = false;
+        var tasks = taskManager = new TaskManagerView(preview);
         var tabs = new TabControl { ItemsSource = new[] {
+            new TabItem { Header = "工作管理員", Content = tasks.View },
             new TabItem { Header = "USB 網關", Content = GatewayPanel() },
             new TabItem { Header = "全機手動規則", Content = SecurityList("選擇程式設定允許或阻止。Windows 既有規則仍會共同生效，阻止規則優先。", firewallRows, Action("新增規則", PickFirewallProgram, Icons.Plus, primary: true)) },
             new TabItem { Header = "目前連線", Content = SecurityList("顯示目前 TCP 連線；不包含 UDP 或已被阻止的嘗試，也不能據此判定出站方向。", connectionRows) },
@@ -199,17 +205,29 @@ public sealed partial class Dashboard
         tabs.Resources["TabItemHeaderFontSize"] = Scale.Section;
         securityTabs = tabs;
         tabs.SelectionChanged += (_, _) => {
-            if (tabs.SelectedIndex > 0 && securitySnapshot.ValueKind == JsonValueKind.Undefined && !securityBusy)
+            if (tabs.SelectedIndex > GatewayTab && securitySnapshot.ValueKind == JsonValueKind.Undefined && !securityBusy)
                 SendSecurity(new { action = "security-refresh" });
+            SyncTaskManager();
             RenderSecurityTab();
         };
         foreach (var rows in new[] { firewallRows, connectionRows, usbRows }) rows.Children.Add(EmptyState.Make(Icons.Shield, "正在讀取安全資料…"));
-        var window = securityWindow = AppWindow.Create("安全管理", 900, 680, 700, 500);
-        securityRefresh=Action("重新整理", () => { if (tabs.SelectedIndex == 0) GatewayRequest(new { action = "gateway-refresh" }); else SendSecurity(new { action = "security-refresh" }); }, Icons.Retry);
-        window.Content = AppWindow.Page(AppWindow.Header("安全管理", securityMode, Action("工作管理員", OpenTaskManager, Icons.Apps), securityRefresh), tabs, securityCount, Column(8, securityProblem, discardPendingButton));
-        window.Closed += (_, _) => { securityTimer?.Stop();securityPendingID=securityPendingAction="";CloseGatewayPanel();window.Content = null; securityWindow = null; securityTabs = null; securitySnapshot = default; renderedSecurityTabs.Clear(); securityBusy = false; };
+        var window = securityWindow = AppWindow.Create("安全管理", 1120, 760, 860, 640);
+        securityRefresh=Action("重新整理", () => { if (tabs.SelectedIndex == TasksTab) tasks.Refresh(); else if (tabs.SelectedIndex == GatewayTab) GatewayRequest(new { action = "gateway-refresh" }); else SendSecurity(new { action = "security-refresh" }); }, Icons.Retry);
+        window.Content = AppWindow.Page(AppWindow.Header("安全管理", securityMode, securityRefresh), tabs, securityCount, Column(8, securityProblem, discardPendingButton));
+        window.KeyDown += (_, e) => { if (tabs.SelectedIndex == TasksTab && tasks.HandleKey(e)) e.Handled = true; };
+        window.PropertyChanged += (_, e) => { if (e.Property == Window.WindowStateProperty) SyncTaskManager(); };
+        window.Closed += (_, _) => { taskManager?.Dispose(); taskManager = null; securityTimer?.Stop();securityPendingID=securityPendingAction="";CloseGatewayPanel();window.Content = null; securityWindow = null; securityTabs = null; securitySnapshot = default; renderedSecurityTabs.Clear(); securityBusy = false; };
         window.Show(this);
         GatewayRequest(new {action="gateway-refresh"});
+        tabs.SelectedIndex = tab; SyncTaskManager();
+    }
+    /// The task manager samples only while its tab is selected; the footer line belongs to the other tabs.
+    void SyncTaskManager()
+    {
+        if (securityTabs == null || taskManager == null) return;
+        var onTasks = securityTabs.SelectedIndex == TasksTab;
+        securityCount.IsVisible = !onTasks;
+        if (onTasks) taskManager.Activate(); else taskManager.Deactivate();
     }
     Control SecurityList(string hint, StackPanel items, Control? extra = null)
     {
@@ -288,28 +306,28 @@ public sealed partial class Dashboard
     }
     void RenderSecurityTab()
     {
-        var selected = securityTabs?.SelectedIndex ?? 0;
-        if (selected == 0 || securitySnapshot.ValueKind != JsonValueKind.Object || !renderedSecurityTabs.Add(selected)) return;
+        var selected = securityTabs?.SelectedIndex ?? GatewayTab;
+        if (selected <= GatewayTab || securitySnapshot.ValueKind != JsonValueKind.Object || !renderedSecurityTabs.Add(selected)) return;
         var rules = Entries(securitySnapshot, "rules").ToArray();
         var connections = Entries(securitySnapshot, "connections").ToArray();
         var devices = Entries(securitySnapshot, "usb_devices").ToArray();
-        if (selected == 1) firewallRows.Children.Clear();
-        if (selected == 2) connectionRows.Children.Clear();
-        if (selected == 3) usbRows.Children.Clear();
-        if (selected == 1) foreach (var r in rules) firewallRows.Children.Add(FirewallRuleCard(r));
-        if (selected == 2)
+        if (selected == RulesTab) firewallRows.Children.Clear();
+        if (selected == ConnectionsTab) connectionRows.Children.Clear();
+        if (selected == UsbTab) usbRows.Children.Clear();
+        if (selected == RulesTab) foreach (var r in rules) firewallRows.Children.Add(FirewallRuleCard(r));
+        if (selected == ConnectionsTab)
         foreach (var c in connections.Take(200)) {
             var path = Text(c, "path"); var name = path.Length == 0 ? "無法讀取程式路徑" : System.IO.Path.GetFileName(path);
             var pid = c.TryGetProperty("pid", out var p) ? p.ToString() : "?";
             var rule = Action("設定程式規則", () => EditFirewall(path)); rule.IsEnabled = path.Length != 0;
             connectionRows.Children.Add(ListItem.Make(name + " · PID " + pid, path, rule, body: Label(Text(c, "local") + " → " + Text(c, "remote"), Scale.Secondary)));
         }
-        if (selected == 3) RenderUSBDevices(devices);
-        if (selected == 1 && rules.Length == 0) firewallRows.Children.Add(securitySnapshot.TryGetProperty("rules_unavailable",out var unavailable)&&unavailable.ValueKind==JsonValueKind.True
+        if (selected == UsbTab) RenderUSBDevices(devices);
+        if (selected == RulesTab && rules.Length == 0) firewallRows.Children.Add(securitySnapshot.TryGetProperty("rules_unavailable",out var unavailable)&&unavailable.ValueKind==JsonValueKind.True
             ? EmptyState.Make(Icons.Warning, "未取得完整規則列表", "請查看上方的讀取錯誤，再按「重新整理」。")
             : EmptyState.Make(Icons.Shield, "尚無應用程式規則", "按「新增規則」選擇程式後，將由 Windows 防火牆執行。"));
-        if (selected == 2 && connections.Length == 0) connectionRows.Children.Add(EmptyState.Make(Icons.Globe, "目前沒有 TCP 連線", "若上方出現讀取錯誤，請先處理後再重新整理。"));
-        if (selected == 3 && devices.Length == 0) usbRows.Children.Add(EmptyState.Make(Icons.Usb, "目前沒有 USB 裝置", "若上方出現讀取錯誤，請先處理後再重新整理。"));
+        if (selected == ConnectionsTab && connections.Length == 0) connectionRows.Children.Add(EmptyState.Make(Icons.Globe, "目前沒有 TCP 連線", "若上方出現讀取錯誤，請先處理後再重新整理。"));
+        if (selected == UsbTab && devices.Length == 0) usbRows.Children.Add(EmptyState.Make(Icons.Usb, "目前沒有 USB 裝置", "若上方出現讀取錯誤，請先處理後再重新整理。"));
     }
     Border FirewallRuleCard(JsonElement r)
     {

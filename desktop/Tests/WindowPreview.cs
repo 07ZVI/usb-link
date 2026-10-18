@@ -12,8 +12,8 @@ public sealed partial class Dashboard
         if (Program.MaximizedPreview) WindowState = WindowState.Maximized;
         Action? open = Program.OpenPreview switch
         {
-            "security" => OpenSecurity,
-            "tasks" => OpenTaskManager,
+            "security" => () => OpenSecurity(GatewayTab),
+            "tasks" => () => OpenSecurity(TasksTab),
             "smb" => OpenSMBManager,
             "details" => OpenDetails,
             "dialog" => () => AppWindow.Confirm(this, "取消共享？", "資料夾與檔案會保留，之後可以再次添加。", "取消共享", () => { }, danger: true),

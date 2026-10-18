@@ -24,7 +24,7 @@ internal static class Program
     public static bool SecurityWireSmoke = false;
     public static bool ProcessPreview = false;
     public static bool ProcessSmoke = false;
-    public static bool StandaloneTasks;
+    public static bool NoBackendReader; // Test fixtures only: skip the stdin reader; never set from arguments.
     public static bool MaximizedPreview = false; // Design tools only: --maximized
     public static string OpenPreview = ""; // Design tools only: --open=security|tasks|smb|details|dialog
     public static bool DarkPreview = false; // Design tools only; never set in release builds.
@@ -52,7 +52,6 @@ internal static class Program
 #else
         if (args.Any(arg => arg.Contains("preview", StringComparison.Ordinal) || arg.Contains("smoke", StringComparison.Ordinal))) return;
 #endif
-        StandaloneTasks = args.Contains("--task-manager");
         LaunchTelemetry.Mark("renderer-main");
         AppBuilder.Configure<App>().UsePlatformDetect().StartWithClassicDesktopLifetime(args);
     }

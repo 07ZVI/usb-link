@@ -369,9 +369,9 @@ public sealed partial class Dashboard
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");
-            OpenDetails(); OpenTaskManager(); OpenSMBManager();
+            OpenDetails(); OpenSecurity(); OpenSMBManager();
             HideToTray();
-            if (IsVisible || detailWindow != null || taskWindow != null || smbAccountWindow != null || smbPassword.Text != "")
+            if (IsVisible || detailWindow != null || securityWindow != null || taskManager != null || smbAccountWindow != null || smbPassword.Text != "")
                 throw new InvalidOperationException("tray hide must close child windows and clear credentials");
             using (var show = JsonDocument.Parse("""{"event":"show"}""")) Update(show.RootElement);
             if (!IsVisible || WindowState != WindowState.Normal)
@@ -384,7 +384,10 @@ public sealed partial class Dashboard
             if (!networkOnlyStatus.Text!.Contains("PHOTO_RESTORE_FAILED") || !networkOnlyStatus.Text.Contains("尚未確認還原")) throw new InvalidOperationException("network-only restore failure must stay visible");
             using (var networkOn = JsonDocument.Parse("""{"event":"status","network_only":{"enabled":true,"busy":false,"effective":true,"known_nodes":2,"known_applied":2,"phase":"known_applied"}}""")) Update(networkOn.RootElement);
             if (networkOnly.IsChecked != true || !networkOnlyStatus.Text!.Contains("已封鎖")) throw new InvalidOperationException("network-only on must show the read-back state");
-            if (this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "退出介面") || !this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "退出程序")) throw new InvalidOperationException("exit must describe the whole program");
+            var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
+            if (dashboardTexts.Contains("退出介面") || dashboardTexts.Contains("退出程序") || dashboardTexts.Contains("工作管理員") || !dashboardTexts.Any(t => t?.Contains("托盤圖示選單") == true) || footerControl.GetVisualDescendants().OfType<Button>().Any())
+                throw new InvalidOperationException("the dashboard has no exit button or task manager row; the footer points to the tray menu");
+            if (settingsList.RowDefinitions.Count != 4 || settingsList.Children.OfType<Button>().Count() != 2) throw new InvalidOperationException("settings keep two switches and two links without an empty row");
             using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) Update(trayExit.RootElement);
             if (programExitID != "" || programExitAwaiting || !notice.Text!.Contains("介面預覽")) throw new InvalidOperationException("tray exit must share the preview-safe program exit path");
             VerifyExitButtonWire();
@@ -397,7 +400,7 @@ public sealed partial class Dashboard
             if (!programExitAwaiting) throw new InvalidOperationException("foreign confirmation timeout cannot cancel exit");
             exitHidden = true;
             ExpireProgramExitConfirmation(programExitID, requestGeneration);
-            if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled || !programExitStatus.Text!.Contains("不代表恢復已完成") || programExitID != "11111111111111111111111111111111") throw new InvalidOperationException("missing confirmation must allow same-request retry without claiming restoration");
+            if (programExitAwaiting || programExitCommitSent || !programExitStatus.Text!.Contains("不代表恢復已完成") || programExitID != "11111111111111111111111111111111") throw new InvalidOperationException("missing confirmation must allow same-request retry without claiming restoration");
             if (exitHidden || !IsVisible) throw new InvalidOperationException("a lost exit acknowledgement must bring the hidden window back");
             programExitAwaiting = true;
             SendProgramExitRequest("exit-program");
@@ -406,11 +409,11 @@ public sealed partial class Dashboard
             using (var wrongExit = JsonDocument.Parse("""{"event":"program-exit-result","request_id":"22222222222222222222222222222222"}""")) Update(wrongExit.RootElement);
             if (!programExitAwaiting) throw new InvalidOperationException("unrelated exit result cleared current request");
             using (var stoppingExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"stopping_connections","request_id":"11111111111111111111111111111111","busy":true}}""")) Update(stoppingExit.RootElement);
-            if (bodyScroll.IsEnabled || !footerControl.IsEnabled || programExitButton.IsEnabled || !captionClose!.IsEffectivelyEnabled) throw new InvalidOperationException("exit must block mutations but retain window controls");
+            if (bodyScroll.IsEnabled || !footerControl.IsEnabled || !captionClose!.IsEffectivelyEnabled) throw new InvalidOperationException("exit must block mutations but retain window controls");
             if (programExitConfirmationTimer != null) throw new InvalidOperationException("acknowledged native stopping must not have an arbitrary restore deadline");
             exitHidden = true;
             using (var failedExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"failed","request_id":"11111111111111111111111111111111","error":"CORE_EXIT_RECOVERY_PENDING"},"default_network_isolation":{"phase":"recovery_pending","photo_restored":false,"amds_restored":true,"policy_restored":true}}""")) Update(failedExit.RootElement);
-            if (!programExitButton.IsEnabled || programExitAwaiting || bodyScroll.IsEnabled || !programExitStatus.Text!.Contains("重試") || !automaticIsolationStatus.Text!.Contains("待確認")) throw new InvalidOperationException("restore failure must retain retry and disclose unresolved state");
+            if (programExitAwaiting || bodyScroll.IsEnabled || !programExitStatus.Text!.Contains("重試") || !automaticIsolationStatus.Text!.Contains("待確認")) throw new InvalidOperationException("restore failure must retain retry and disclose unresolved state");
             if (exitHidden || !IsVisible) throw new InvalidOperationException("a failed restore must bring the hidden window back");
             programExitAwaiting = true;
             using (var readyExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"22222222222222222222222222222222"}}""")) Update(readyExit.RootElement);
@@ -421,10 +424,10 @@ public sealed partial class Dashboard
             using (var readyRepeated = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"11111111111111111111111111111111"}}""")) Update(readyRepeated.RootElement);
             if (programExitConfirmationTimer == null || commitGeneration != programExitConfirmationGeneration) throw new InvalidOperationException("repeated ready snapshots must not extend or erase the missing commit acknowledgement deadline");
             ExpireProgramExitConfirmation(programExitID, commitGeneration);
-            if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled || bodyScroll.IsEnabled) throw new InvalidOperationException("lost commit acknowledgement must permit retry while keeping stopped actions disabled");
+            if (programExitAwaiting || programExitCommitSent || bodyScroll.IsEnabled) throw new InvalidOperationException("lost commit acknowledgement must permit retry while keeping stopped actions disabled");
             programExitAwaiting = programExitCommitSent = true;
             using (var failedCommit = JsonDocument.Parse("""{"event":"program-exit-result","request_id":"11111111111111111111111111111111","code":"CORE_EXIT_REQUEST_FAILED"}""")) Update(failedCommit.RootElement);
-            if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled) throw new InvalidOperationException("failed commit must remain retryable");
+            if (programExitAwaiting || programExitCommitSent ) throw new InvalidOperationException("failed commit must remain retryable");
             using (var readyAgain = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"11111111111111111111111111111111"}}""")) Update(readyAgain.RootElement);
             if (programExitCommitSent || programExitAwaiting || !programExitStatus.Text!.Contains("重試")) throw new InvalidOperationException("normal snapshots must not hide a failed commit or retry silently");
             programExitID = "33333333333333333333333333333333"; programExitAwaiting = true;
@@ -455,41 +458,41 @@ public sealed partial class Dashboard
     static void VerifyExitButtonWire()
     {
         var originalPreview = Program.Preview;
-        var originalStandalone = Program.StandaloneTasks;
+        var originalNoReader = Program.NoBackendReader;
         var originalOutput = Console.Out;
         Dashboard? fixture = null;
         using var wire = new System.IO.StringWriter();
         try
         {
-            // Standalone construction skips the backend reader. Never show this
-            // fixture: its button writes only to the captured synthetic pipe.
-            Program.Preview = false; Program.StandaloneTasks = true;
+            // Construction without the backend reader. Never show this fixture:
+            // the tray's exit event writes only to the captured synthetic pipe.
+            Program.Preview = false; Program.NoBackendReader = true;
             Console.SetOut(wire);
             fixture = new Dashboard();
-            fixture.programExitButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) fixture.Update(trayExit.RootElement);
             var requests = wire.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            if (requests.Length != 1 || fixture.programExitButton.Flyout != null || !fixture.programExitAwaiting || fixture.bodyScroll.IsEnabled || fixture.programExitButton.IsEnabled)
-                throw new InvalidOperationException("first footer click must directly request exit once and disable mutations");
+            if (requests.Length != 1 || !fixture.programExitAwaiting || fixture.bodyScroll.IsEnabled || !fixture.exitHidden)
+                throw new InvalidOperationException("the tray's exit event must request exit once, hide at once and disable mutations");
             using var request = JsonDocument.Parse(requests[0]);
             var id = request.RootElement.GetProperty("id").GetString();
             if (request.RootElement.GetProperty("action").GetString() != "exit-program" || !Guid.TryParseExact(id, "N", out _) || id != fixture.programExitID)
-                throw new InvalidOperationException("footer exit must use the authenticated exit request protocol");
-            fixture.programExitButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                throw new InvalidOperationException("tray exit must use the authenticated exit request protocol");
+            using (var repeated = JsonDocument.Parse("""{"event":"program-exit-request"}""")) fixture.Update(repeated.RootElement);
             if (wire.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length != 1)
-                throw new InvalidOperationException("repeat click while awaiting cannot dispatch another exit");
+                throw new InvalidOperationException("a repeated tray request while awaiting cannot dispatch another exit");
             using var ready = JsonDocument.Parse(JsonSerializer.Serialize(new { @event = "status", program_exit = new { phase = "ready", request_id = id } }));
             fixture.Update(ready.RootElement);
             requests = wire.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
             if (requests.Length != 2) throw new InvalidOperationException("ready must send exactly one separate commit");
             using var commit = JsonDocument.Parse(requests[1]);
             if (commit.RootElement.GetProperty("action").GetString() != "exit-program-commit" || commit.RootElement.GetProperty("id").GetString() != id)
-                throw new InvalidOperationException("direct footer click must preserve the restore-then-commit protocol");
+                throw new InvalidOperationException("the tray request must preserve the restore-then-commit protocol");
         }
         finally
         {
             if (fixture != null) { fixture.backendEnded = true; fixture.CancelProgramExitConfirmation(); fixture.Close(); }
             Console.SetOut(originalOutput);
-            Program.Preview = originalPreview; Program.StandaloneTasks = originalStandalone;
+            Program.Preview = originalPreview; Program.NoBackendReader = originalNoReader;
         }
     }
 
