@@ -123,22 +123,52 @@ func TestUpgradeMutexNativeRejectExistingExtraACEWithoutMutation(t *testing.T) {
 	}
 }
 
+// Package-level initialisers run on the process main thread (runtime.main
+// locks it during init). The Go runtime never exits that thread: when a
+// goroutine locked to m0 returns, runtime.mexit wedges m0 instead of calling
+// ExitThread (proc.go, "This is the main thread. Just wedge it."). A mutex
+// owned by m0 therefore is never abandoned and waiters time out.
+var testMainThreadID = windows.GetCurrentThreadId()
+
+// abandonMutexOnExitedThread acquires h on a dedicated OS thread and lets that
+// thread terminate while owning it. It retries whenever the scheduler happened
+// to place the goroutine on the immortal main thread, before taking ownership.
+func abandonMutexOnExitedThread(t *testing.T, h windows.Handle) {
+	t.Helper()
+	for attempt := 0; attempt < 200; attempt++ {
+		ready := make(chan error, 1)
+		onMain := make(chan bool, 1)
+		go func() {
+			// Deliberately return while locked to this OS thread. Go terminates
+			// that thread; Windows marks its owned mutex abandoned, as after crash.
+			runtime.LockOSThread()
+			if windows.GetCurrentThreadId() == testMainThreadID {
+				runtime.UnlockOSThread()
+				onMain <- true
+				return
+			}
+			onMain <- false
+			status, err := windows.WaitForSingleObject(h, 5000)
+			if err == nil && status != windows.WAIT_OBJECT_0 {
+				err = fmt.Errorf("fixture wait status=0x%08x", status)
+			}
+			ready <- err
+		}()
+		if <-onMain {
+			runtime.Gosched()
+			continue
+		}
+		if err := <-ready; err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatal("could not obtain a non-main OS thread for the abandoned-owner fixture")
+}
+
 func TestUpgradeMutexNativeAbandonedOwnerCanRecover(t *testing.T) {
 	name, h := nativeMutexFixture(t, upgradeJobMutexSDDL)
-	ready := make(chan error, 1)
-	go func() {
-		// Deliberately return while locked to this OS thread. Go terminates
-		// that thread; Windows marks its owned mutex abandoned, as after crash.
-		runtime.LockOSThread()
-		status, err := windows.WaitForSingleObject(h, 5000)
-		if err == nil && status != windows.WAIT_OBJECT_0 {
-			err = fmt.Errorf("fixture wait status=0x%08x", status)
-		}
-		ready <- err
-	}()
-	if err := <-ready; err != nil {
-		t.Fatal(err)
-	}
+	abandonMutexOnExitedThread(t, h)
 	// Do not infer release from goroutine completion: the native wait must
 	// observe ownership transfer after thread termination.
 	u, err := acquireUpgradeJobMutex(name, 5000)
