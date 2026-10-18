@@ -194,6 +194,19 @@ internal static class ListItem
         foreach (var c in body) content.Children.Add(c);
         return Card(content, new Thickness(14, 12));
     }
+    /// A dense row for long inventories: title and kind share one line, one muted line of facts, then body rows.
+    public static Border Compact(string title, string kind, string facts, Control? trailing = null, params Control[] body)
+    {
+        var name = Label(title, Scale.Body, FontWeight.SemiBold);
+        var type = Label(kind, Scale.Caption, key: "Muted");
+        var heading = Columns("Auto,*", name, type); heading.ColumnSpacing = 8;
+        type.VerticalAlignment = VerticalAlignment.Center; name.VerticalAlignment = VerticalAlignment.Center;
+        var head = Columns("*,Auto", heading, trailing ?? Gap()); head.ColumnSpacing = 8;
+        var content = Column(4, head);
+        if (!string.IsNullOrEmpty(facts)) content.Children.Add(Hint(facts, "Muted", Scale.Secondary));
+        foreach (var c in body) content.Children.Add(c);
+        return Card(content, new Thickness(14, 8));
+    }
     static TextBlock WrapLabel(string text, double size, FontWeight weight) { var l = Label(text, size, weight); l.TextWrapping = TextWrapping.Wrap; l.TextTrimming = TextTrimming.None; return l; }
 }
 

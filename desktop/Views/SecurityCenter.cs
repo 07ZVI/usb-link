@@ -55,8 +55,9 @@ public sealed partial class Dashboard
                     var infoButtons=usbVisuals.OfType<Button>().Where(b=>b.Flyout is Flyout).ToArray();
                     if(infoButtons.Length!=6||infoButtons.Any(b=>((Flyout)b.Flyout!).Content is not StackPanel panel||!panel.Children.OfType<SelectableTextBlock>().Any()))throw new InvalidOperationException("USB info must be accessible and selectable");
                     var usbTexts=usbVisuals.OfType<TextBlock>().Select(t=>t.Text??"").ToArray();
-                    if(!usbTexts.Contains("鍵盤")||!usbTexts.Contains("滑鼠")||!usbTexts.Any(t=>t.Contains("E: · 工作資料")&&t.Contains("420 GB"))||!usbTexts.Any(t=>t.Contains("F: · 備份")&&t.Contains("尚未提供")))throw new InvalidOperationException("USB product/volume labels or null capacity rendering");
+                    if(!usbTexts.Contains("鍵盤")||!usbTexts.Contains("滑鼠")||!usbTexts.Contains("E: · 工作資料")||!usbTexts.Any(t=>t.StartsWith("可用 420 GB / 999 GB"))||!usbTexts.Contains("F: · 備份")||!usbTexts.Any(t=>t.Contains("尚未提供")))throw new InvalidOperationException("USB product/volume labels or null capacity rendering");
                     var bars=usbVisuals.OfType<ProgressBar>().ToArray();
+                    if(usbTexts.Count(t=>t=="USB 版本尚未取得")!=5)throw new InvalidOperationException("unknown USB version must appear only for devices with no other facts");
                     if(bars.Length!=1 || Math.Abs(bars[0].Value-100.0*579/999)>0.01 || !usbTexts.Any(t=>t.Contains("USB 3.2")))throw new InvalidOperationException("USB speed and occupied ratio rendering");
                     if(USBUsedPercent(100,0,true)!=100 || USBUsedPercent(100,100,true)!=0 || USBUsedPercent(0,0,true)!=null || USBUsedPercent(100,101,true)!=null || USBUsedPercent(100,0,false)!=null)throw new InvalidOperationException("storage full, empty, invalid and unknown capacity semantics");
                     SaveSecurityPreview(securityWindow!,"usb-link-security-0140.png",true);
