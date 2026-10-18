@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using System.Text.RegularExpressions;
 
 namespace Suhang.Desktop;
@@ -10,6 +11,8 @@ namespace Suhang.Desktop;
 internal static class Scale
 {
     public const double Gutter = 16, Inset = 16, CardRadius = 8, ControlRadius = 4, TileRadius = 6;
+    /// Card padding or gap for a density level: 0 roomy, 1 compact (about three quarters), 2 dense (half).
+    public static double Pad(int density, double full) => density switch { 0 => full, 1 => Math.Round(full * .75), _ => Math.Round(full * .5) };
     public const double Caption = 11, Secondary = 12, Body = 13, Section = 15, Title = 16, Page = 22, Hero = 30;
 }
 
@@ -67,7 +70,8 @@ internal static class SettingRow
     static Grid Layout(string icon, string title, string description, string? tip, Control end, Control? detail)
     {
         var heading = tip == null ? (Control)Label(title, Scale.Body) : Row(4, Label(title, Scale.Body), Info(tip));
-        var lines = Column(1, heading, Label(description, Scale.Caption, key: "Subtle"));
+        var note = Label(description, Scale.Caption, key: "Subtle"); note.Classes.Add("desc");
+        var lines = Column(1, heading, note);
         if (detail != null) lines.Children.Add(detail);
         lines.VerticalAlignment = VerticalAlignment.Center; lines.Margin = new Thickness(12, 0, 12, 0);
         end.VerticalAlignment = VerticalAlignment.Center;
@@ -78,7 +82,7 @@ internal static class SettingRow
 
     /// A row whose trailing control is a switch; the row itself is not a button.
     public static Control Toggle(string icon, string title, string description, ToggleSwitch toggle, string? tip = null, Control? detail = null) =>
-        new Border { Padding = new Thickness(8, 10), Child = Layout(icon, title, description, tip, toggle, detail), VerticalAlignment = VerticalAlignment.Stretch };
+        new Border { Padding = new Thickness(8, 10), Child = Layout(icon, title, description, tip, toggle, detail), VerticalAlignment = VerticalAlignment.Stretch, Classes = { "row" } };
 
     /// A row that opens another window.
     public static Control Link(string icon, string title, string description, Action onClick)
@@ -89,9 +93,29 @@ internal static class SettingRow
             HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 10), Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.TileRadius),
         };
+        button.Classes.Add("row");
         button.Click += (_, _) => onClick();
         Avalonia.Automation.AutomationProperties.SetName(button, title);
         return button;
+    }
+
+    /// Equal rows share the list's height; automatic rows take only what their text needs.
+    public static void Distribute(Grid list, bool equal)
+    {
+        var rows = list.RowDefinitions.Count;
+        list.RowDefinitions = new RowDefinitions(string.Join(",", Enumerable.Repeat(equal ? "*" : "Auto", rows)));
+    }
+
+    /// Dense rows (level 2) drop the description line into a tooltip and tighten their padding.
+    public static void SetDensity(Control list, int level)
+    {
+        var padding = new Thickness(8, level switch { 0 => 10, 1 => 6, _ => 3 });
+        foreach (var visual in list.GetVisualDescendants().OfType<Control>().Where(c => c.Classes.Contains("row")).ToArray())
+        {
+            var description = visual.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(t => t.Classes.Contains("desc"));
+            if (description != null) { description.IsVisible = level < 2; ToolTip.SetTip(visual, level == 2 ? description.Text : null); }
+            if (visual is Border border) border.Padding = padding; else if (visual is Button button) button.Padding = padding;
+        }
     }
 
     /// Rows share the available height equally, each closed by a hairline aligned with the text.
@@ -111,14 +135,17 @@ internal static class SettingRow
 }
 
 /// Windows share one frame: palette background, font, centred over the owner and a
-/// "USB Link · name" title. Dialogs size to their content and cannot be resized.
+/// "USB Link · name" title, always inside the screen's work area (see WindowFit).
+/// Dialogs size to their content and cannot be resized.
 internal static class AppWindow
 {
     public static Window Create(string name, double width, double height, double minWidth = 0, double minHeight = 0)
     {
-        var window = new Window { Title = "USB Link · " + name, Width = width, Height = height, FontFamily = new FontFamily(Palette.FontStack), WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        // Manual placement: WindowFit centres the window over its owner and keeps it inside the work area.
+        var window = new Window { Title = "USB Link · " + name, Width = width, Height = height, FontFamily = new FontFamily(Palette.FontStack), WindowStartupLocation = WindowStartupLocation.Manual };
         if (minWidth > 0) window.MinWidth = minWidth;
         if (minHeight > 0) window.MinHeight = minHeight;
+        WindowFit.Attach(window, minWidth, minHeight);
         return window.Res(Window.BackgroundProperty, "Window");
     }
 
@@ -126,6 +153,7 @@ internal static class AppWindow
     {
         var window = Create(name, width, double.NaN);
         window.SizeToContent = SizeToContent.Height; window.CanResize = false; window.Topmost = topmost;
+        window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
         window.Content = new Border { Padding = new Thickness(24), Child = content };
         return window;
     }

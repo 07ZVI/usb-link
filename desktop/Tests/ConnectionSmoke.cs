@@ -358,6 +358,9 @@ public sealed partial class Dashboard
             if (!labels.Contains("Mac USB 已連接") || !labels.Contains("等候 USB 接線") || chipText.Text != "已連線 · 1 台裝置")
                 throw new InvalidOperationException("one device detach must preserve the other slot");
             CaptureConnectionPreview(this, "one-device");
+#if USBLINK_DESIGN_TOOLS
+            VerifyWindowFit();
+#endif
             ResizeAndSettle(720, 500); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
             if (compactLayout != true || this.GetVisualDescendants().OfType<LayoutTransformControl>().Any() || addressValue.FontSize != Scale.Hero || bodyScroll.Extent.Height <= bodyScroll.Viewport.Height)
                 throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
