@@ -46,10 +46,14 @@ func coreLogSecurity(h windows.Handle, directory bool, limit uint64) error {
 
 func coreLogOpen(path string, access, creation uint32, sa *windows.SecurityAttributes, directory bool, limit uint64) (*os.File, error) {
 	flags := uint32(windows.FILE_FLAG_OPEN_REPARSE_POINT | windows.FILE_ATTRIBUTE_NORMAL)
+	share := uint32(windows.FILE_SHARE_READ)
 	if directory {
 		flags |= windows.FILE_FLAG_BACKUP_SEMANTICS
+		// A rename relative to this handle fails with a sharing violation unless
+		// the directory handle itself allows FILE_SHARE_DELETE.
+		share |= windows.FILE_SHARE_DELETE
 	}
-	h, e := windows.CreateFile(windows.StringToUTF16Ptr(path), access, windows.FILE_SHARE_READ, sa, creation, flags, 0)
+	h, e := windows.CreateFile(windows.StringToUTF16Ptr(path), access, share, sa, creation, flags, 0)
 	if e != nil {
 		return nil, e
 	}
@@ -199,8 +203,8 @@ func (w *coreLogWriter) rotate() error {
 	for i, v := range name {
 		binary.LittleEndian.PutUint16(rename[20+i*2:], v)
 	}
-	// SetFileInformationByHandle rejects a RootDirectory rename on current Windows
-	// (ERROR_INVALID_PARAMETER); the native call keeps the exact-directory rename.
+	// SetFileInformationByHandle rejects a RootDirectory rename (ERROR_INVALID_PARAMETER);
+	// the native call keeps the exact-directory rename.
 	var iosb windows.IO_STATUS_BLOCK
 	if e = windows.NtSetInformationFile(windows.Handle(w.file.Fd()), &iosb, &rename[0], uint32(len(rename)), windows.FileRenameInformation); e != nil {
 		if status, ok := e.(windows.NTStatus); ok {
