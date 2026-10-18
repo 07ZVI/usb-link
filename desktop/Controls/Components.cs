@@ -139,10 +139,13 @@ internal static class AppWindow
     }
 
     /// Title, one line of explanation and the window-level actions on the right.
-    public static Control Header(string title, string? subtitle, params Control[] actions)
+    public static Control Header(string title, string? subtitle, params Control[] actions) => Header(title, string.IsNullOrEmpty(subtitle) ? null : Hint(subtitle), actions);
+
+    /// The subtitle may be a live label that the view updates.
+    public static Control Header(string title, TextBlock? subtitle, params Control[] actions)
     {
         var text = Column(4, Label(title, Scale.Page, FontWeight.SemiBold));
-        if (!string.IsNullOrEmpty(subtitle)) text.Children.Add(Hint(subtitle));
+        if (subtitle != null) { subtitle.TextWrapping = TextWrapping.Wrap; subtitle.TextTrimming = TextTrimming.None; text.Children.Add(subtitle); }
         text.VerticalAlignment = VerticalAlignment.Center;
         var bar = Columns("*,Auto", text, Row(8, actions));
         bar.ColumnSpacing = 16; return bar;
@@ -223,6 +226,8 @@ internal sealed class Notice : Border
         var layout = Columns("Auto,*,Auto", icon, text, action); layout.ColumnSpacing = 10;
         Child = layout;
     }
+    /// Message plus the technical code, as a view would read it back.
+    public string Text => message.Text + (code.IsVisible ? " " + code.Text : "");
     public Notice WithAction(Control? button) { action.Content = button; return this; }
     public void Hide() => IsVisible = false;
     /// Shows `raw` as a readable sentence; an unknown tone keeps the previous colours.
@@ -244,15 +249,16 @@ internal static class Friendly
     static readonly Regex CodePattern = new(@"\b(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|0x[0-9A-Fa-f]{8})\b", RegexOptions.Compiled);
     static readonly (string Code, string Text)[] Known =
     {
-        ("INTERNET_MOBILE_HOTSPOT_CONFLICT", "Windows 行動熱點已開啟，與網際網路共享衝突。請先在 Windows 設定中關閉行動熱點，本程式不會更改它。"),
-        ("INTERNET_EXISTING_NAT_CONFLICT", "Windows 已有 NAT 設定。請先自行移除，本程式不會更改它。"),
-        ("INTERNET_EXISTING_ICS_CONFLICT", "Windows 已啟用內建的網際網路連線共用（ICS）。請先在網路卡內容中關閉，本程式不會更改它。"),
+        ("INTERNET_MOBILE_HOTSPOT_CONFLICT", "Windows 行動熱點已開啟，與網際網路共享衝突。請到「設定 › 網路和網際網路 › 行動熱點」關閉後，再按「重新檢查」；本程式不會更改它。"),
+        ("INTERNET_EXISTING_NAT_CONFLICT", "Windows 已有 NAT 設定（常來自 Hyper-V、WSL 或其他虛擬化工具）。請先自行移除後按「重新檢查」；本程式不會更改它。"),
+        ("INTERNET_EXISTING_ICS_CONFLICT", "Windows 已啟用內建的網際網路連線共用（ICS）。請在網路卡內容的「共用」頁籤關閉後按「重新檢查」；本程式不會更改它。"),
         ("INTERNET_WINNAT_UNAVAILABLE", "這台電腦不支援所需的 Windows NAT 功能，無法共享網際網路。"),
         ("INTERNET_USB_GATEWAY_REQUIRED", "請先接上 USB 裝置並完成連線，再開啟網際網路共享。"),
         ("FIREWALL_RULE_NOT_EFFECTIVE", "規則已寫入，但 Windows 尚未確認它生效。請重新整理核對。"),
         ("NATIVE_SMB_CHANGED_IN_WINDOWS", "這個共享已在 Windows 中被修改，請在 Windows 核對，或改由 Windows 管理。"),
         ("NATIVE_SMB_NAME_CONFLICT", "已有同名的共享，請改用其他資料夾或名稱。"),
         ("CORE_UI_ACTION_FAILED", "操作未能送達背景程式，尚未確認是否執行。可稍後重試。"),
+        ("SECURITY_OPERATION_BUSY", "上一個安全操作仍在進行，請稍候再試。"),
         ("USB_TRACE_NO_SAFE_EVENT_SCHEMA", "未找到可安全記錄的 USB 事件格式。"),
     };
     static readonly (string Prefix, string Text)[] Families =

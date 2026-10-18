@@ -37,8 +37,7 @@ public sealed partial class Dashboard
         {
             var toggle = Switch();
             Avalonia.Automation.AutomationProperties.SetName(toggle, experiment.Title);
-            var status = Label("", 12, key: "Muted");
-            status.TextWrapping = TextWrapping.Wrap;
+            var status = Hint("");
             Avalonia.Automation.AutomationProperties.SetName(status, experiment.Title + "狀態");
             toggle.Click += (_, _) =>
             {
@@ -60,11 +59,11 @@ public sealed partial class Dashboard
                 localDiagnosticsRefresh?.Invoke();
             };
             bindings.Add((experiment, toggle, status));
-            controls.Add(Columns("*,Auto", Label(experiment.Title, 13), toggle));
-            controls.Add(WithWrap(Label(experiment.Help, 12, key: "Muted"), 680));
+            controls.Add(Columns("*,Auto", Label(experiment.Title, Scale.Body), toggle));
+            controls.Add(Hint(experiment.Help));
             controls.Add(status);
         }
-        controls.Add(WithWrap(Label("此進階選擇會保存；只在開發者調試開啟時使用。關閉後可能需重新接入恢復普通模式。", 12, key: "Muted"), 680));
+        controls.Add(Hint("此進階選擇會保存；只在開發者調試開啟時使用。關閉後可能需重新接入恢復普通模式。", "Subtle"));
         localTrustExperimentRefresh = () =>
         {
             foreach (var (state, toggle, status) in bindings)
@@ -80,8 +79,7 @@ public sealed partial class Dashboard
 
     Control TrustExperimentRecoveryStatus()
     {
-        var status = Label("", 12, key: "Warn");
-        status.TextWrapping = TextWrapping.Wrap;
+        var status = Hint("", "Warn");
         Avalonia.Automation.AutomationProperties.SetName(status, "本地實驗恢復狀態");
         var refresh = localTrustExperimentRefresh;
         localTrustExperimentRefresh = () =>

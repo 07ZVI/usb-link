@@ -56,7 +56,7 @@ internal static class ViewControls
         if (icon != null && text != "") Avalonia.Automation.AutomationProperties.SetName(b, text);
         b.BorderThickness = new Thickness(1);
         if (fill != null) b.Res(Button.BackgroundProperty, fill).Res(Button.BorderBrushProperty, fill);
-        else if (danger) b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Error");
+        else if (danger) b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Stroke");
         else b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Stroke");
         b.Click += (_, _) => onClick();
         // Fluent's disabled grey fill fights the palette; dim the whole button instead.

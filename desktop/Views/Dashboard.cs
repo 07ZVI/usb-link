@@ -437,7 +437,6 @@ public sealed partial class Dashboard : Window
     {
         if (detailWindow != null) { detailWindow.Activate(); return; }
         var copy = Action("複製全部", () => Copy(detailText, "診斷內容"), Icons.Copy);
-        var head = Columns("*,Auto", Column(2, Label("連線診斷", 18, FontWeight.SemiBold), Label("每秒更新 · 介面流量不代表線路頻寬上限", 12, key: "Muted")), copy);
         var diagnostics = Card(detailRows, new Thickness(4));
         var debugDetails = new Expander { Header = "詳細診斷 / 調試資訊", IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch, Content = diagnostics };
         var content = Column(16, InternetSection(), debugDetails, Gap(4));
@@ -445,14 +444,8 @@ public sealed partial class Dashboard : Window
         content.Children.Insert(0, LocalDiagnosticsSection());
 #endif
         var scroll = new ScrollViewer { Content = content, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        var body = scroll;
-        var layout = Rows("Auto,14,*", head, Gap(), body);
-        layout.Margin = new Thickness(20);
-        detailWindow = new Window
-        {
-            Title = "連線診斷 · USB Link", Width = 800, Height = 720, MinWidth = 520, MinHeight = 360,
-            FontFamily = FontFamily, Content = layout,
-        }.Res(BackgroundProperty, "Window");
+        detailWindow = AppWindow.Create("連線診斷", 800, 720, 520, 360);
+        detailWindow.Content = AppWindow.Page(AppWindow.Header("連線診斷", "每秒更新 · 介面流量不代表線路頻寬上限", copy), scroll);
         detailWindow.Closed += (_, _) =>
         {
             scroll.Content = null; diagnostics.Child = null;

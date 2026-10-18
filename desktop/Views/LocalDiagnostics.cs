@@ -31,8 +31,7 @@ public sealed partial class Dashboard
         var toggle = Switch();
         toggle.IsChecked = localDiagnosticsEnabled;
         Avalonia.Automation.AutomationProperties.SetName(toggle, "開發者調試");
-        var status = Label("", 12, key: "Muted");
-        status.TextWrapping = TextWrapping.Wrap;
+        var status = Hint("");
         Avalonia.Automation.AutomationProperties.SetName(status, "開發者調試狀態");
         var text = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 120, MaxHeight = 300 };
         Avalonia.Automation.AutomationProperties.SetName(text, "完整診斷文字");
@@ -73,27 +72,23 @@ public sealed partial class Dashboard
             }
             catch { status.Text = "匯出失敗，請確認目的資料夾可寫入後重試。"; }
         });
-        var photoRecoveryStatus = Label("", 12, key: "Muted");
-        photoRecoveryStatus.TextWrapping = TextWrapping.Wrap;
+        var photoRecoveryStatus = Hint("");
         Avalonia.Automation.AutomationProperties.SetName(photoRecoveryStatus, "照片介面恢復狀態");
         var experiments = new Expander
         {
             Header = "連線實驗", IsExpanded = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             Content = Column(10,
-                WithWrap(Label("NCM Direct 為進階對照功能，預設不啟用。日常網路所需的 Apple 服務與照片介面策略由程式自動管理。", 12, key: "Muted"), 680),
+                Hint("NCM Direct 為進階對照功能，預設不啟用。日常網路所需的 Apple 服務與照片介面策略由程式自動管理。"),
                 TrustExperimentControls()),
         };
         var tools = Column(10, experiments,
             new Expander { Header = "完整診斷文字", IsExpanded = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, Content = Column(8, text, Row(8, copy, export)) });
         var experimentRecoveryStatus = TrustExperimentRecoveryStatus();
-        var wpdStatus = Label("", 12, key: "Muted");
-        wpdStatus.TextWrapping = TextWrapping.Wrap;
+        var wpdStatus = Hint("");
         Avalonia.Automation.AutomationProperties.SetName(wpdStatus, "WPD 自動診斷狀態");
-        var archiveStatus = Label("", 12, key: "Muted");
-        archiveStatus.TextWrapping = TextWrapping.Wrap;
+        var archiveStatus = Hint("");
         Avalonia.Automation.AutomationProperties.SetName(archiveStatus, "連線檔案採集狀態");
-        var usbStatus = Label("", 12, key: "Muted");
-        usbStatus.TextWrapping = TextWrapping.Wrap;
+        var usbStatus = Hint("");
         Avalonia.Automation.AutomationProperties.SetName(usbStatus, "USB 事件採集狀態");
         void Refresh()
         {
@@ -131,11 +126,9 @@ public sealed partial class Dashboard
         };
         localDiagnosticsRefresh = Refresh;
         Refresh();
-        return Card(Column(12,
-            Columns("*,Auto", Label("開發者調試", 15, FontWeight.SemiBold), toggle),
-            WithWrap(Label("開啟後可查看完整診斷，並允許 Mac 經 USB 推送已簽名的新版完整安裝包；關閉會撤銷推送授權。安裝時會中斷連線，Windows 仍保留管理員確認。開關狀態會保存，背景程式重啟後會恢復；USB 安裝通道會在背景準備。", 12, key: "Muted"), 680),
-            WithWrap(Label("WPD 照片服務與 USB 事件診斷隨總開關自動啟停。新採集只保存經隱私檢查的摘要，舊原始記錄保留在本機。", 12, key: "Muted"), 680),
-            status, wpdStatus, usbStatus, archiveStatus, photoRecoveryStatus, experimentRecoveryStatus, tools));
+        return Section.Make("開發者調試", "開啟後可查看完整診斷，並允許 Mac 經 USB 推送已簽名的新版完整安裝包；關閉會撤銷推送授權。安裝時會中斷連線，Windows 仍保留管理員確認。開關狀態會保存，背景程式重啟後會恢復。",
+            Column(10, Hint("WPD 照片服務與 USB 事件診斷隨總開關自動啟停。新採集只保存經隱私檢查的摘要，舊原始記錄保留在本機。", "Subtle"),
+                status, wpdStatus, usbStatus, archiveStatus, photoRecoveryStatus, experimentRecoveryStatus, tools), toggle);
     }
 
     void UpdateLocalDiagnostics(JsonElement d)

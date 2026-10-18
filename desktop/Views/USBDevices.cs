@@ -42,10 +42,8 @@ public sealed partial class Dashboard
     {
         var duplicates = devices.GroupBy(d=>Text(d,"name"),StringComparer.OrdinalIgnoreCase).ToDictionary(g=>g.Key,g=>g.Count(),StringComparer.OrdinalIgnoreCase);
         foreach(var group in devices.OrderBy(USBGroup).ThenBy(d=>Text(d,"name"),StringComparer.CurrentCultureIgnoreCase).GroupBy(USBGroup)){
-            usbRows.Children.Add(new Border{Padding=new Thickness(2,8,2,2),Child=Label(usbGroupTitles[group.Key]+" · "+group.Count(),13,FontWeight.SemiBold,key:"Muted")});
+            usbRows.Children.Add(new Border{Padding=new Thickness(2,10,2,0),Child=Label(usbGroupTitles[group.Key]+" · "+group.Count(),Scale.Secondary,FontWeight.SemiBold,key:"Muted")});
             foreach(var device in group){
-                var name=Label(Text(device,"name"),15,FontWeight.SemiBold);name.TextWrapping=TextWrapping.Wrap;
-                var functions=Label(USBDisplayKind(device),12,key:"Muted");functions.TextWrapping=TextWrapping.Wrap;
                 var location=Text(device,"location");
                 var metadata=$"VID {Text(device,"vid")} · PID {Text(device,"pid")} · Windows 已偵測";
                 if(device.TryGetProperty("node_count",out var count)&&count.TryGetInt32(out var nodes))metadata+=$"\n包含 {nodes} 個 Windows 裝置節點";
@@ -60,36 +58,36 @@ public sealed partial class Dashboard
                 if(speed!="")usbSummary+=" · "+speed;
                 metadata+="\n裝置規格："+(specification!=""?specification:"Windows 尚未提供")+"\n目前協商速率："+(speed!=""?speed:"Windows 尚未提供")+"\n接口支援："+(protocols!=""?protocols:"Windows 尚未提供");
                 metadata+="\nUSB 3.x 接口的 3.1／3.2 版本及通道數，Windows 快取資料未提供；協商速率不代表實際傳輸速度。";
-                var info=new SelectableTextBlock{Text=metadata,FontSize=12,TextWrapping=TextWrapping.Wrap,MaxWidth=380};info.Res(TextBlock.ForegroundProperty,"Muted");
+                var info=new SelectableTextBlock{Text=metadata,FontSize=Scale.Secondary,TextWrapping=TextWrapping.Wrap,MaxWidth=380};info.Res(TextBlock.ForegroundProperty,"Muted");
                 var details=IconButton(Icons.Info,"裝置資訊",()=>{});details.Padding=new Thickness(6);details.Width=32;details.Height=32;
-                details.Content=Icons.Fixed(Icons.Info,18,"Muted");details.VerticalAlignment=VerticalAlignment.Top;
+                details.Content=Icons.Fixed(Icons.Info,18,"Muted");
                 details.Flyout=new Flyout{Content=Column(8,Label("裝置資訊",14,FontWeight.SemiBold),info)};
-                var content=Column(5,Columns("*,Auto",Column(4,name,functions),details));
-                var usbLabel=Label(usbSummary,12,key:"Muted");usbLabel.TextWrapping=TextWrapping.Wrap;content.Children.Add(usbLabel);
+                var content=new List<Control>();
+                content.Add(Hint(usbSummary));
                 foreach(var disk in Entries(device,"storage")){
                     var model=Text(disk,"model");var size=USBNumber(disk,"bytes");
                     var diskTitle=(model!=""&&model!=Text(device,"name")?model+" · ":"")+(size>0?"磁碟容量 "+USBSize(size):"磁碟容量尚未提供");
-                    var diskLabel=Label(diskTitle,12,key:"Muted");diskLabel.TextWrapping=TextWrapping.Wrap;content.Children.Add(diskLabel);
+                    content.Add(Hint(diskTitle));
                     var volumes=Entries(disk,"volumes").ToArray();
                     foreach(var volume in volumes){
                         var title=Text(volume,"name");if(title=="")title="未命名磁碟區";
                         var known=volume.TryGetProperty("space_known",out var k)&&k.ValueKind==JsonValueKind.True;
                         var total=USBNumber(volume,"bytes");var free=USBNumber(volume,"free_bytes");var percentage=USBUsedPercent(total,free,known);
                         var space=percentage.HasValue?$"可用 {USBSize(USBNumber(volume,"free_bytes"))} / {USBSize(USBNumber(volume,"bytes"))}":"容量與可用空間尚未提供";
-                        var line=Label($"{Text(volume,"mount")} · {title}\n{space}",13);line.TextWrapping=TextWrapping.Wrap;content.Children.Add(line);
+                        var line=Label($"{Text(volume,"mount")} · {title}\n{space}",Scale.Body);line.TextWrapping=TextWrapping.Wrap;content.Add(line);
                         if(percentage is double used){
-                            var usedLabel=Label($"已用 {USBSize(total-free)} · {used:0.#}%",12,key:used>=95?"Warn":"Muted");content.Children.Add(usedLabel);
+                            var usedLabel=Label($"已用 {USBSize(total-free)} · {used:0.#}%",12,key:used>=95?"Warn":"Muted");content.Add(usedLabel);
                             var bar=new ProgressBar{Minimum=0,Maximum=100,Value=used,Height=6,HorizontalAlignment=HorizontalAlignment.Stretch,Margin=new Thickness(0,2,0,6)};
                             bar.Res(ProgressBar.ForegroundProperty,used>=95?"Warn":"Accent");
                             AutomationProperties.SetName(bar,$"{Text(volume,"mount")} {title} 已用 {used:0.#}%，可用 {USBSize(free)}");
-                            ToolTip.SetTip(bar,$"已用 {USBSize(total-free)} / {USBSize(total)} · 可用 {USBSize(free)}");content.Children.Add(bar);
+                            ToolTip.SetTip(bar,$"已用 {USBSize(total-free)} / {USBSize(total)} · 可用 {USBSize(free)}");content.Add(bar);
                         }
                     }
-                    if(Text(disk,"problem") is {Length:>0} diskProblem)content.Children.Add(Label(diskProblem,12,key:"Warn"));
-                    else if(volumes.Length==0)content.Children.Add(Label("沒有已指派磁碟代號的磁碟區（可能未掛載或尚未格式化）。",12,key:"Muted"));
+                    if(Text(disk,"problem") is {Length:>0} diskProblem)content.Add(Hint(diskProblem,"Warn"));
+                    else if(volumes.Length==0)content.Add(Hint("沒有已指派磁碟代號的磁碟區（可能未掛載或尚未格式化）。"));
                 }
-                if(Text(device,"storage_problem") is {Length:>0} storageProblem){var warning=Label(storageProblem,12,key:"Warn");warning.TextWrapping=TextWrapping.Wrap;content.Children.Add(warning);}
-                usbRows.Children.Add(Card(content,new Thickness(12)));
+                if(Text(device,"storage_problem") is {Length:>0} storageProblem){content.Add(Hint(storageProblem,"Warn"));}
+                usbRows.Children.Add(ListItem.Make(Text(device,"name"),USBDisplayKind(device),details,body:content.ToArray()));
             }
         }
     }
