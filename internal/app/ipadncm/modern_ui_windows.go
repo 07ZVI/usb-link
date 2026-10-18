@@ -489,6 +489,9 @@ func (u *modernUI) desktopStatus() any {
 		status.Devices = append(status.Devices, slot)
 	}
 	status.Detail = details + "啟動與安全\r\n" + startupTimingText(startuptelemetry.Snapshot()) + "\r\n安全檢查：" + securitySummary()
+	if b, err := json.Marshal(TrustPromptDiagnostics()); err == nil {
+		status.Detail += "\r\niPad 首次連線與信任提示診斷（已記住的照片實例數、SET_MODE 前是否套用、首次失敗碼）：" + string(b)
+	}
 	connectionEvidence := CompactConnectionEvidence()
 	if connectionEvidence.GroupingEligibility != nil || connectionEvidence.NativeStart != nil {
 		if b, err := json.Marshal(connectionEvidence); err == nil {

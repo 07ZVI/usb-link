@@ -1,6 +1,9 @@
 package ipadncm
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // A bounded recovery budget belongs to one continuously attached device. Device
 // notifications alone must never reset it: our own mode changes generate them.
@@ -26,6 +29,11 @@ func (b *autoRetryBudget) delay(reason string, applicationRan bool) time.Duratio
 		retryable = true
 	}
 	if peerPreparationRetryable(reason) {
+		retryable = true
+	}
+	// Readiness races before any mode request: same stable attachment, same
+	// budget. Consent, identity and security failures never reach these codes.
+	if strings.HasPrefix(reason, "APPLICATION_HOST_FLAGS_UNAVAILABLE") || isAuthorizationTransientError(reason) || transientModeStatus(reason) {
 		retryable = true
 	}
 	if !retryable {

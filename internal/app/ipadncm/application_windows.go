@@ -301,7 +301,10 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 		plan.Version = 5
 		flags, flagError := readUSBHostFlags(plan.LUID)
 		if flagError != nil {
-			s.update(func(r *ApplicationResult) { r.Error = "APPLICATION_HOST_FLAGS_UNAVAILABLE" })
+			// The IPv4 interface row of the exact adapter was not readable; keep the
+			// native error so the next field report names it, and retry (bounded).
+			detail := "APPLICATION_HOST_FLAGS_UNAVAILABLE: " + eno(flagError)
+			s.update(func(r *ApplicationResult) { r.Error = detail })
 			return
 		}
 		plan.HostFlags = flags

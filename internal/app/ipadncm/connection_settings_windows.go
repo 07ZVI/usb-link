@@ -238,12 +238,23 @@ type ConnectionAuthorization struct {
 	InitialUSB             *Snapshot `json:"initial_usb_information,omitempty"`
 	ConsentStatus          string    `json:"usb_consent_status,omitempty"`
 	Once                   bool      `json:"allowed_this_connection"`
+	// Retry classification only (see usb_authorization_retry.go); never a grant.
+	transientFailure   bool
+	lastFreshTransient bool
+	promptShown        bool
 }
 
 func (a *ConnectionAuthorization) Allow() (allowed bool) {
 	started := time.Now()
 	failure := usbAuthorizationFailureDiagnostic{Attempt: currentSoftwareAttempt()}
+	a.transientFailure, a.lastFreshTransient = false, false
 	defer func() {
+		outcome := authorizationOutcome{Status: a.ConsentStatus, Transient: !allowed && a.transientFailure, Interactive: a.promptShown}
+		if !allowed && failure.Latest != nil {
+			outcome.Details = append([]string(nil), failure.Latest.USB.RejectionCodes...)
+			outcome.Details = append(outcome.Details, failure.Latest.USB.ConnectionReadErrorCodes...)
+		}
+		recordAuthorizationOutcome(outcome)
 		if !allowed {
 			failure.ConsentStatus = a.ConsentStatus
 			failure.ContextActive = a.guardContext != nil && a.guardContext.Err() == nil
@@ -278,12 +289,14 @@ func (a *ConnectionAuthorization) Allow() (allowed bool) {
 	if next, waited, state := waitInitialUSBConfiguration(a.guardContext, s, inspect); waited {
 		if state != "INITIAL_CONFIGURATION_VERIFIED_NOT_AUTHORIZED" {
 			a.ConsentStatus = state
+			a.transientFailure = initialConfigurationTransient(state, preflightFactsOf(next))
 			return false
 		}
 		s = next
 	}
 	if !networkOnlyUSBEligible(s) && !localDirectCurrentConsentLayout(a, s) {
 		a.ConsentStatus = "USB_PREFLIGHT_UNCONFIRMED"
+		a.transientFailure = preflightFailureTransient(preflightFactsOf(s))
 		return false
 	}
 	binding := descriptorAttachment(s)
@@ -303,8 +316,12 @@ func (a *ConnectionAuthorization) Allow() (allowed bool) {
 			current = localDirectDescriptorAttachment(fresh)
 		}
 		if !binding.same(current) {
+			// An unreadable re-read is a readiness failure; a readable one that
+			// differs is a changed attachment and keeps the pause.
+			a.lastFreshTransient = !current.verified && preflightFailureTransient(preflightFactsOf(fresh))
 			return ""
 		}
+		a.lastFreshTransient = false
 		return exactIPadRoot(fresh)
 	}, g, "USB_SERIAL_PRODUCT_DESCRIPTORS_NOT_APPLE_PAIRING", binding)
 }
@@ -321,6 +338,7 @@ func (a *ConnectionAuthorization) AllowUSB(kind, root, pid, layout string, curre
 		a.ConsentStatus = "USB_DESCRIPTOR_AUTHORIZATION_REQUIRED"
 		return false
 	}
+	a.transientFailure, a.lastFreshTransient = false, false
 	return a.allowUSB(kind, root, pid, current, ipadsession.USBGrant(root, pid, layout), "USB_IDENTIFIERS_NOT_APPLE_PAIRING", usbDescriptorAttachment{})
 }
 
@@ -361,6 +379,7 @@ func (a *ConnectionAuthorization) allowUSB(kind, root, pid string, current func(
 		}
 		if current() != root {
 			a.ConsentStatus = "USB_DESCRIPTOR_OR_ATTACHMENT_CHANGED"
+			a.transientFailure = a.lastFreshTransient
 			return false
 		}
 		return a.checkSecurity(root) && a.authorizationContext().Err() == nil && current() == root
@@ -398,6 +417,7 @@ func (a *ConnectionAuthorization) allowUSB(kind, root, pid string, current func(
 		a.grantedUSB = ipadsession.USBDeviceGrant{}
 		a.grantedDescriptor, a.descriptorGrantContext = usbDescriptorAttachment{}, nil
 		usbConsentMu.Unlock()
+		a.promptShown = true
 		body := "允許這台 " + kind + " 透過 USB 建立本地網路嗎？\r\n\r\n會準備專用 USB 網路及本次地址與限定防火牆規則。iPad 通道可能短暫暫停並恢復蘋果服務、切換網卡模式；Mac 通道可能準備 WinUSB 並遷移本程式擁有的舊版常駐服務。結束後清理本次網路設定。\r\n\r\nUSB Link 的允許與 iPad 的「信任此電腦」是兩件事。本程式不再開啟蘋果配對會話、不讀取照片、文件或備份。\r\n\r\n「記住」只匹配 USB 序列號、機型及支援的介面布局。USB 序列號可能被惡意設備偽造，並非配對證書驗證。USB 網關仍預設拒絕，僅放行你授權的應用；Moonlight／Sunshine 仍需 PIN 配對與證書驗證。"
 		yes, values := NativePanelWithContext(a.authorizationContext(), "允許 USB 連線", body, "允許連線", []PanelCheck{{Text: "記住此 USB 設備，下次資料匹配時不再詢問", Disabled: !g.Valid()}})
 		if !yes || a.authorizationContext().Err() != nil || current() != root {

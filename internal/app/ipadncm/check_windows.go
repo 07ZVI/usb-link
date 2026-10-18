@@ -560,6 +560,11 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 	} else if network {
 		if !networkOnlyUSBEligible(r.Before) {
 			r.Status = "NETWORK_ONLY_USB_LAYOUT_UNCONFIRMED"
+			// Same predicate as the authorization preflight: an unready or
+			// unreadable device is retried, a conflicting one is not.
+			if preflightFailureTransient(preflightFactsOf(r.Before)) {
+				r.Status = "NETWORK_ONLY_USB_LAYOUT_NOT_READY"
+			}
 			return r
 		}
 		r.USBIdentifiersVerified = true

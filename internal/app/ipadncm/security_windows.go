@@ -48,6 +48,8 @@ func securitySummary() string {
 // that attempt, leave the UI resident and never consume automatic retry budget.
 func (a *ConnectionAuthorization) BeginSecurityAttempt(ctx context.Context, cancel context.CancelFunc) {
 	a.guardContext, a.guardCancel = ctx, cancel
+	a.transientFailure, a.lastFreshTransient, a.promptShown = false, false, false
+	recordAuthorizationOutcome(authorizationOutcome{})
 	a.securityMu.Lock()
 	a.securityFailure = ""
 	a.Security = securitypolicy.DeviceVerdict{}
@@ -74,6 +76,7 @@ func (a *ConnectionAuthorization) checkSecurity(root string) bool {
 	securityStatus.Unlock()
 	if !v.Admit {
 		a.ConsentStatus = v.Code
+		a.transientFailure = false
 		if a.guardCancel != nil {
 			a.guardCancel()
 		}

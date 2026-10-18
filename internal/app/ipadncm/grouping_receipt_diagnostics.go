@@ -100,6 +100,19 @@ func recordGroupingReceiptLookup(d GroupingReceiptDiagnostic) {
 
 func summarizeGroupingReceiptNames(names []string, root string, read func(string) (groupingJournal, error)) (d groupingReceiptDirectory) {
 	d.Status = "READ_OK"
+	// Receipt files first: unrelated records must not push them past the cap.
+	ordered := make([]string, 0, len(names))
+	for _, name := range names {
+		if strings.HasPrefix(name, "network-grouping-") && strings.HasSuffix(name, ".json") {
+			ordered = append(ordered, name)
+		}
+	}
+	for _, name := range names {
+		if !(strings.HasPrefix(name, "network-grouping-") && strings.HasSuffix(name, ".json")) {
+			ordered = append(ordered, name)
+		}
+	}
+	names = ordered
 	if len(names) > 128 {
 		names, d.Truncated = names[:128], true
 	}

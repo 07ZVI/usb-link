@@ -3,6 +3,7 @@ package ipadncm
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -139,5 +140,18 @@ func TestCompactNativeStartIncludesConfiguredProofWithoutNativeText(t *testing.T
 	b, _ := json.Marshal(compactNativeStart(d))
 	if strings.Contains(string(b), "PRIVATE") {
 		t.Fatal("native diagnostic leaked")
+	}
+}
+
+func TestReceiptsAreExaminedEvenWhenUnrelatedFilesFillTheCap(t *testing.T) {
+	names := make([]string, 0, 201)
+	for i := 0; i < 200; i++ {
+		names = append(names, fmt.Sprintf("a-unrelated-%03d", i))
+	}
+	names = append(names, "network-grouping-z.json")
+	reads := 0
+	got := summarizeGroupingReceiptNames(names, "ROOT", func(string) (groupingJournal, error) { reads++; return groupingJournal{RootID: "ROOT"}, nil })
+	if reads != 1 || got.MatchingRootReceipts != 1 || !got.Truncated {
+		t.Fatal(got, reads)
 	}
 }

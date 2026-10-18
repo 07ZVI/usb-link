@@ -150,6 +150,7 @@ func collectConnectionEnvironment(ctx context.Context, version string, files any
 		"monitor_counters":          connectionEnvironmentMonitorCounters(),
 		"experiments":               map[string]any{"debug": DeveloperDebugDiagnostics(), "detection": ConnectionTimingDiagnostics(), "photo_isolation": PhotoIsolationDiagnostics(), "photo_policy": LocalPhotoPolicyDiagnostics(), "ncm_direct": LocalNCMDirectDiagnostics(), "amds_hold": LocalAMDSHoldDiagnostics(), "wpd": localWPDTrace.snapshot()},
 		"default_network_isolation": DefaultNetworkIsolationDiagnostics(),
+		"trust_prompt":              TrustPromptDiagnostics(),
 		"native_usb_metadata":       desktopUSBTraceSummary(LocalUSBTraceDiagnostics()),
 		"native_pnp_metadata":       desktopUSBTraceSummary(LocalPnPTraceDiagnostics()),
 		"grouping":                  GroupingReceiptDiagnostics(),

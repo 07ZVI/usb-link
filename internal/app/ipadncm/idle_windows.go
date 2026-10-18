@@ -254,6 +254,10 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 		delay = 0
 	}
 	due := time.Now().Add(delay)
+	if unified && err != "" {
+		outcome := authorizationOutcomeSnapshot()
+		attemptFailures.record(attemptFailureRecord{SoftwareAttempt: currentSoftwareAttempt(), Code: err, ConsentStatus: outcome.Status, ReadErrorCodes: outcome.Details, ApplicationRan: applicationRan, AutoRetryEligible: delay > 0}, time.Now())
+	}
 	var stable sameAttachmentGate
 	var gate idleReconnectGate
 	var newDevice idleNewDeviceGate
@@ -301,6 +305,9 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 			lastDiagnostic, haveDiagnostic = diagnostic, true
 		}
 		if detached || newReady || sameReady {
+			if detached || newReady {
+				attemptFailures.newAttachment()
+			}
 			automaticRetries = autoRetryBudget{}
 			sameAttachmentRetry.Store(false)
 			return true
