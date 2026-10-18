@@ -33,7 +33,8 @@ public sealed partial class Dashboard
     readonly Dictionary<string, TextBlock> processHeadings = new();
     // Name stretches; the numeric columns are right-aligned so units line up.
     const string ProcessColumns = "*,56,60,84,88,88,170,110";
-    const double ProcessTableMinWidth = 880;
+    const double ProcessTableMinWidth = 880, ProcessDetailShare = .3;
+    ScrollViewer processDetailScroll = null!;
     static readonly (string Key, string Title, bool Numeric)[] ProcessColumnSpecs = [
         ("name", "程式名稱", false), ("pid", "PID", true), ("cpu", "CPU", true), ("memory", "記憶體", true), ("disk", "磁碟讀取", true), ("network", "網路收發", true),
         ("assessment", "來源判斷", false), ("trust", "簽章", false)];
@@ -43,14 +44,14 @@ public sealed partial class Dashboard
         if (taskWindow != null) { taskWindow.Activate(); return; }
         runningPrograms = []; processCapturing = false; processSort = "assessment"; processDescending = false; processHeadings.Clear();
         processCount = Label("正在讀取執行中的程式…", Scale.Secondary, key: "Muted");
-        processRateNote = Label("", Scale.Caption, key: "Subtle");
+        processRateNote = Label("", Scale.Caption, key: "Subtle"); processRateNote.IsVisible = false;
         processProblem = new Notice();
         processRefresh = Action("重新整理", () => _ = CaptureProcessesAsync(), Icons.Retry);
         processReverify = Action("重新驗證簽章", () => { processInventory?.Reverify(); _ = CaptureProcessesAsync(); });
         var table = BuildProcessTable();
         var window = taskWindow = AppWindow.Create("工作管理員", 1120, 760, 920, 560);
         window.Content = AppWindow.Page(AppWindow.Header("工作管理員", "依簽章、系統結構與 Windows 檔案保護判斷程式來源；選擇程式可查看依據。", processRefresh, processReverify),
-            Rows("Auto,*,Auto", BuildProcessToolbar(), table, BuildProcessDetails()),
+            ProcessBody(BuildProcessToolbar(), table, BuildProcessDetails()),
             Column(2, processCount, processRateNote, Hint("本機驗證，不連線查詢吊銷 · 簽章快取最長 30 秒 · CPU 依全部邏輯核心計算 · 1 MB = 1024 KB · — 表示未取得", "Subtle", Scale.Caption)),
             processProblem);
         window.KeyDown += (_, e) => {
@@ -79,6 +80,15 @@ public sealed partial class Dashboard
         processInventory = new ProcessInventory(); processTimer.Start(); _ = CaptureProcessesAsync();
     }
 
+    /// The table takes the height; the detail panel sizes to its content but never beyond a share of the body, scrolling inside.
+    Control ProcessBody(Control toolbar, Control table, Control details)
+    {
+        processDetailScroll = new ScrollViewer { Content = details, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = ProcessDetailShare * 400 };
+        var body = Rows("Auto,*,Auto", toolbar, table, processDetailScroll);
+        body.SizeChanged += (_, e) => processDetailScroll.MaxHeight = Math.Max(96, e.NewSize.Height * ProcessDetailShare);
+        return body;
+    }
+
     Control BuildProcessToolbar()
     {
         processSearch = new TextBox { Watermark = "搜尋程式、PID、簽署者或路徑", MinWidth = 260, InnerLeftContent = WithMargin(Icons.Make(Icons.Search, 14, "Subtle"), new Thickness(10, 0, 0, 0)) };
@@ -87,7 +97,7 @@ public sealed partial class Dashboard
         processAutomatic = Switch(); processAutomatic.IsChecked = true;
         AutomationProperties.SetName(processAutomatic, "每三秒更新進程列表");
         var toolbar = Columns("*,Auto,Auto", processSearch, processAttention, Row(8, Label("自動更新", Scale.Secondary, key: "Muted"), processAutomatic));
-        toolbar.ColumnSpacing = 20; toolbar.Margin = new Thickness(0, 0, 0, 10);
+        toolbar.ColumnSpacing = 20; toolbar.Margin = new Thickness(0, 0, 0, 6);
         return toolbar;
     }
 
@@ -105,7 +115,7 @@ public sealed partial class Dashboard
         for (var i = 0; i < ProcessColumnSpecs.Length; i++) {
             var (key, title, numeric) = ProcessColumnSpecs[i];
             var label = Label(title, Scale.Secondary, FontWeight.SemiBold, "Muted"); processHeadings[key] = label;
-            var button = new Button { Content = label, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0, 9), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = numeric ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+            var button = new Button { Content = label, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0, 7), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = numeric ? HorizontalAlignment.Right : HorizontalAlignment.Left };
             AutomationProperties.SetName(button, "依" + title + "排序");
             button.Click += (_, _) => {
                 processDescending = processSort == key ? !processDescending : key is "cpu" or "memory" or "disk" or "network";
@@ -127,10 +137,14 @@ public sealed partial class Dashboard
     {
         processDetailTitle = Label("", Scale.Section, FontWeight.SemiBold);
         processDetailPill = new StatusPill("", Scale.Caption);
-        processDetailSummary = Hint(""); processDetailSummary.IsVisible = false;
+        processDetailSummary = Hint("", "Muted", Scale.Secondary);
         processDetailReason = Hint("", "Ink", Scale.Body);
         processDetailText = new SelectableTextBlock { FontSize = Scale.Secondary, TextWrapping = TextWrapping.Wrap }.Res(TextBlock.ForegroundProperty, "Muted");
-        var technical = new Expander { Header = "憑證與技術細節", IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch, Content = new ScrollViewer { Content = processDetailText, MaxHeight = 150, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
+        // Path, publisher and certificate lines stay folded until asked for, so the collapsed panel is two lines tall.
+        var technical = Column(6, processDetailSummary, processDetailText); technical.IsVisible = false;
+        var toggle = Action("詳細資料 ▾", () => { }); var toggleLabel = (TextBlock)toggle.Content!;
+        toggle.Click += (_, _) => { technical.IsVisible = !technical.IsVisible; toggleLabel.Text = technical.IsVisible ? "詳細資料 ▴" : "詳細資料 ▾"; };
+        AutomationProperties.SetName(toggle, "顯示或隱藏路徑、憑證與技術細節");
         processCopy = Action("複製路徑", async () => {
             var owner = taskWindow;
             if (owner?.Clipboard is { } clipboard && processList.SelectedItem is RunningProgram item) {
@@ -139,9 +153,9 @@ public sealed partial class Dashboard
             }
         }, Icons.Copy);
         processCopy.IsEnabled = false;
-        var heading = Columns("Auto,Auto,*,Auto", processDetailTitle, processDetailPill, Gap(), processCopy); heading.ColumnSpacing = 10;
-        var card = Card(Column(6, heading, processDetailReason, processDetailSummary, technical), new Thickness(14, 12));
-        card.Margin = new Thickness(0, 12, 0, 0); return card;
+        var heading = Columns("Auto,Auto,*,Auto,Auto", processDetailTitle, processDetailPill, Gap(), toggle, processCopy); heading.ColumnSpacing = 10;
+        var card = Card(Column(4, heading, processDetailReason, technical), new Thickness(14, 10));
+        card.Margin = new Thickness(0, 8, 0, 0); return card;
     }
 
     void ShowProcessEmpty(string title, string text)
@@ -177,7 +191,7 @@ public sealed partial class Dashboard
     {
         var failed = status.Contains("系統管理員") || status.Contains("無法") || status.Contains("遺失") || status.Contains("停止");
         if (failed) processProblem.Show("Warn", status); else processProblem.Hide();
-        processRateNote.Text = failed ? "" : status; processRateNote.IsVisible = !failed; ToolTip.SetTip(processRateNote, status);
+        processRateNote.Text = failed ? "" : status; processRateNote.IsVisible = !failed && status.Length > 0; ToolTip.SetTip(processRateNote, status);
     }
 
     Control ProcessRow(RunningProgram item)
@@ -187,7 +201,7 @@ public sealed partial class Dashboard
             Label(item.Assessment.Label, Scale.Secondary, FontWeight.SemiBold, item.Assessment.Tone));
         var row = Columns(ProcessColumns, Label(item.Name, Scale.Body), Cell(item.Pid.ToString(), "Muted"), Cell(item.CpuText), Cell(item.MemoryText), Cell(item.DiskReadText), Cell(item.NetworkText),
             assessment, Label(item.SignatureLabel, Scale.Secondary, FontWeight.SemiBold, item.SignatureTone));
-        row.ColumnSpacing = 8; row.Margin = new Thickness(12, 8);
+        row.ColumnSpacing = 8; row.Margin = new Thickness(12, 6);
         ToolTip.SetTip(row, item.Path + "\n" + item.SignatureLabel + (item.Trust.Publisher.Length > 0 ? " · " + item.Trust.Publisher : "") + "\n" + item.Assessment.Reason + "\n磁碟讀取：" + item.DiskReadText + "\n網路接收：" + ProcessRate.Format(item.NetworkReceive) + " · 發送：" + ProcessRate.Format(item.NetworkSend));
         AutomationProperties.SetName(row, $"{item.Name}，PID {item.Pid}，{item.Assessment.Label}，磁碟讀取 {item.DiskReadText}，網路收發 {item.NetworkText}，{item.SignatureLabel}，{item.Trust.Publisher}，{item.Assessment.Reason}");
         return new Border { Child = row, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "Stroke");
@@ -241,17 +255,17 @@ public sealed partial class Dashboard
     {
         if (processList.SelectedItem is not RunningProgram item) {
             processDetailTitle.Text = "選擇程式以查看簽章與憑證"; processDetailPill.IsVisible = false;
-            processDetailReason.Text = processDetailText.Text = processDetailSummary.Text = ""; processDetailSummary.IsVisible = false; processCopy.IsEnabled = false; return;
+            processDetailReason.Text = processDetailText.Text = processDetailSummary.Text = ""; processCopy.IsEnabled = false; return;
         }
         var trust = item.Trust;
         processCopy.IsEnabled = item.Path.Length > 0;
         processDetailTitle.Text = $"{item.Name} · PID {item.Pid}";
         processDetailPill.IsVisible = true; processDetailPill.Set(item.SignatureTone == "Muted" ? "Idle" : item.SignatureTone, item.SignatureLabel);
         processDetailReason.Text = item.Assessment.Label + "：" + item.Assessment.Reason; processDetailReason.Res(TextBlock.ForegroundProperty, item.Assessment.Tone == "Muted" ? "Ink" : item.Assessment.Tone);
-        processDetailSummary.Text = "程式路徑：" + (item.Path.Length > 0 ? item.Path : "未取得一般 EXE 路徑") + (trust.Publisher.Length > 0 ? "\n" + (trust.Status == "valid" ? "已驗證簽署者：" : "聲稱的簽署者：") + trust.Publisher : "")
-            + "\n磁碟讀取 " + item.DiskReadText + " · 網路接收 " + ProcessRate.Format(item.NetworkReceive) + " · 網路發送 " + ProcessRate.Format(item.NetworkSend);
-        processDetailSummary.IsVisible = true;
-        var lines = new List<string>();
+        var publisher = trust.Publisher.Length > 0 ? (trust.Status == "valid" ? "已驗證簽署者：" : "聲稱的簽署者：") + trust.Publisher : "";
+        processDetailSummary.Text = "程式路徑：" + (item.Path.Length > 0 ? item.Path : "未取得一般 EXE 路徑") + (publisher.Length > 0 ? " · " + publisher : "");
+        ToolTip.SetTip(processDetailSummary, processDetailSummary.Text);
+        var lines = new List<string> { "磁碟讀取 " + item.DiskReadText + " · 網路接收 " + ProcessRate.Format(item.NetworkReceive) + " · 網路發送 " + ProcessRate.Format(item.NetworkSend) };
         if(item.Shape is { } shape) lines.Add($"系統快照：名稱 {shape.Name} · 父 PID {shape.ParentPid} · 執行緒 {shape.Threads} · 工作階段 {shape.Session?.ToString() ?? "未知"}");
         if(trust.WindowsProtected is bool wrp) lines.Add("Windows Resource Protection："+(wrp?"列為保護檔案，尚不代表內容完整":"未列為保護檔案，不代表不安全"));
         if(trust.ClaimedCompany!="")lines.Add("檔案聲稱的公司（可偽造）："+trust.ClaimedCompany);
