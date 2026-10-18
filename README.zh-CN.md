@@ -70,6 +70,7 @@ python3 scripts/project.py package
 - [工作区与 GitHub 同步](docs/WORKSPACE.md)
 - [架构](docs/ARCHITECTURE.md)
 - [网络共享](docs/INTERNET-SHARING.md)
+- [iPad USB 网络路径](docs/IPAD-USB-PATH.md)
 - [参与贡献](CONTRIBUTING.md) · [安全说明](SECURITY.md)
 
 原创代码采用 [GPL-3.0-only](LICENSE)，附带范围有限的[官方 Wintun DLL 链接例外](LICENSE-WINTUN-EXCEPTION)。第三方代码保留各自的许可证，详见[第三方声明](licenses/THIRD-PARTY.txt)。

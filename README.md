@@ -68,6 +68,7 @@ Outputs in `out/` include an unsigned Windows launcher, Mac network helper tools
 - [Workspace and GitHub synchronization](docs/WORKSPACE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Internet sharing](docs/INTERNET-SHARING.md)
+- [iPad USB network path](docs/IPAD-USB-PATH.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 Original code is licensed under [GPL-3.0-only](LICENSE), with the narrowly scoped [official Wintun DLL linking exception](LICENSE-WINTUN-EXCEPTION). Third-party code retains its own licenses; see [notices](licenses/THIRD-PARTY.txt).
