@@ -106,6 +106,13 @@ func smbLockFile(f *os.File, offset, length uint64, exclusive, unlock bool) erro
 var smbReOpenFile = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
 
 func smbReopenHandle(f *os.File, access uint32) (windows.Handle, error) {
+	var original windows.ByHandleFileInformation
+	if e := windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &original); e != nil {
+		return windows.InvalidHandle, e
+	}
+	if original.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		return smbReopenDirectory(f, access, &original)
+	}
 	if e := smbReOpenFile.Find(); e != nil {
 		return windows.InvalidHandle, e
 	}
@@ -116,8 +123,37 @@ func smbReopenHandle(f *os.File, access uint32) (windows.Handle, error) {
 	return windows.Handle(h), nil
 }
 
-// Reopen the existing handle with DELETE access; no second pathname lookup can
-// switch this operation to a replacement file. Root.OpenFile shares DELETE.
+// ReOpenFile answers ERROR_ACCESS_DENIED for directory handles that os.Root
+// opened without backup intent. Open the directory at the handle's current
+// path instead, and keep the result only if its volume and file ID match.
+func smbReopenDirectory(f *os.File, access uint32, original *windows.ByHandleFileInformation) (windows.Handle, error) {
+	buf := make([]uint16, 32768)
+	n, e := windows.GetFinalPathNameByHandle(windows.Handle(f.Fd()), &buf[0], uint32(len(buf)), 0) // FILE_NAME_NORMALIZED | VOLUME_NAME_DOS
+	if e != nil {
+		return windows.InvalidHandle, e
+	}
+	if n == 0 || int(n) >= len(buf) {
+		return windows.InvalidHandle, os.ErrPermission
+	}
+	name, e := windows.UTF16PtrFromString(windows.UTF16ToString(buf[:n]))
+	if e != nil {
+		return windows.InvalidHandle, e
+	}
+	h, e := windows.CreateFile(name, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if e != nil {
+		return windows.InvalidHandle, e
+	}
+	var opened windows.ByHandleFileInformation
+	if e = windows.GetFileInformationByHandle(h, &opened); e != nil || opened.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
+		opened.VolumeSerialNumber != original.VolumeSerialNumber || opened.FileIndexHigh != original.FileIndexHigh || opened.FileIndexLow != original.FileIndexLow {
+		windows.CloseHandle(h)
+		return windows.InvalidHandle, os.ErrPermission
+	}
+	return h, nil
+}
+
+// Reopen the existing handle with DELETE access; for files no second pathname
+// lookup can switch this operation to a replacement. Root.OpenFile shares DELETE.
 func smbRemoveOpened(f *os.File, _ *os.Root, _ string) error {
 	h, e := smbReopenHandle(f, windows.DELETE)
 	if e != nil {
