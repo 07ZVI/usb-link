@@ -60,6 +60,12 @@ internal static class Palette
         ("ToggleSwitchStrokeOnPressed", "#0F548C", "#3AAEEB"), ("ToggleSwitchStrokeOnDisabled", "#A9C9E6", "#2B4F61"),
         ("ToggleSwitchKnobFillOn", "#FFFFFF", "#10222E"), ("ToggleSwitchKnobFillOnPointerOver", "#FFFFFF", "#10222E"),
         ("ToggleSwitchKnobFillOnPressed", "#F4F4F4", "#10222E"), ("ToggleSwitchKnobFillOnDisabled", "#FFFFFF", "#6F8795"),
+        // Disclosure rows are flat: no outline, a faint fill only under the pointer.
+        ("ExpanderHeaderBackground", "#00000000", "#00000000"), ("ExpanderHeaderBackgroundPointerOver", "#0D000000", "#12FFFFFF"),
+        ("ExpanderHeaderBackgroundPressed", "#14000000", "#17FFFFFF"), ("ExpanderHeaderBackgroundDisabled", "#00000000", "#00000000"),
+        ("ExpanderHeaderBorderBrush", "#00000000", "#00000000"), ("ExpanderHeaderBorderBrushPointerOver", "#00000000", "#00000000"),
+        ("ExpanderHeaderBorderBrushPressed", "#00000000", "#00000000"), ("ExpanderContentBackground", "#00000000", "#00000000"),
+        ("ExpanderContentBorderBrush", "#00000000", "#00000000"),
     };
 
     public static void Install(IResourceDictionary resources)

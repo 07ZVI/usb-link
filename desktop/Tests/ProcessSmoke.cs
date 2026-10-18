@@ -106,7 +106,7 @@ public sealed partial class Dashboard
                 processAttention.IsChecked = false; processList.SelectedItem = invalid; RenderProcesses();
                 Require(processList.SelectedItem is RunningProgram selected && selected.Pid == invalid.Pid && processDetailReason.Text!.Contains("可疑"), "refresh preserves selection and details");
                 processList.SelectedItem = runningPrograms[0];
-                Require(processDetailText.Text!.Contains("時間戳記") && processDetailTitle.Text!.Contains("簽章有效"), "expired leaf with accepted timestamp remains valid");
+                Require(processDetailText.Text!.Contains("時間戳記") && processDetailPill.Label.Text!.Contains("簽章有效"), "expired leaf with accepted timestamp remains valid");
                 processList.SelectedItem = invalid;
                 if (attempt == 0) {
                     taskWindow!.UpdateLayout();
