@@ -1,5 +1,39 @@
 # iPad 重复“信任此电脑”提示调查
 
+## 0.10.54 候选：仅保留网络连接，提前封锁已记住的照片接口（2026-10-18，设备验收待做）
+
+用户目标：iPad 不信任这台 Windows 电脑，“信任此电脑？”不再出现，同时 USB 网络照常工作；可以放弃 Windows 照片导入和浏览 iPad 存储，但必须能还原。
+
+### 依据与此前缺口
+
+剩余提示与 Windows WPD/MTP 驱动（WUDFWpdMtp）在照片接口 MI_00 上打开 MTP 会话（OpenSession）的时刻吻合：插线进入配置 3 时一次，SET_MODE 后配置 5 出现的**另一个** MI_00 实例上又一次。两个实例的设备实例 ID 不同，但对同一台 iPad 各自稳定。0.10.46 的默认隔离是被动的：等到已授权根设备绑定后，约每秒扫描一次在位节点，再用 `CM_Disable_DevNode`（UI_NOT_OK|PERSIST）停用，WPD 可以先于它打开会话。这是时序推断，不是对 iPad 弹窗的直接观测，也没有证明 OpenSession 就是触发条件。
+
+### 设计
+
+- **记住**：运行期隔离每次停用并写入恢复记录的精确 MI_00 实例（配置 3 与配置 5 各一个），同时写入独立受保护文件 `local-photo-known-v1.json`（目录、ACL、写穿和读回方式与恢复记录相同，最多 16 个）。恢复原值后该身份仍保留；只有卸载在恢复读回成功后才删除。
+- **提前套用（核心变化）**：开关为开时，核心启动（默认隔离启动）、开关刚被打开、以及普通网络路径发送 SET_MODE 之前（复用已有的照片绑定位置，`check_windows.go` 同意与到达订阅之后），对每个已记住实例套用隔离，**无论是否在位**。在位实例仍走 `CM_Disable_DevNode` 持久路径；不在位的实例用 `SetupDi`（`DIGCF_ALLCLASSES`，不带 PRESENT）按精确实例 ID 打开，将 `SPDRP_CONFIGFLAGS` 置 `|= CONFIGFLAG_DISABLED(0x1)`，再由 SetupDi 与 `CM_Get_DevNode_Registry_Property` 两路读回。设备下次出现时 PnP 直接把它置为禁用（问题 22），不会启动 WUDFWpdMtp。
+- **写入前的身份核对**（全部取自该设备自己的属性，任何不符则不写、返回固定状态码）：精确实例 ID 等于记录且在完整枚举中唯一；SetupDi 与 CM 类别一致且属于现有扫描接受的 WPD/Image 类；`SPDRP_HARDWAREID` 含 `USB\VID_05AC&PID_12AB&MI_00`；服务为现有扫描接受的照片服务；CM 祖先链包含记录的 iPad 根实例（根实例 ID 即序列号绑定）；不在位时 CM 状态必须是 `CR_NO_SUCH_DEVINST`，且 SetupDi 与 CM 对 ConfigFlags 的读数一致。失败码：`PHOTO_KNOWN_IDENTITY_MISMATCH`、`PHOTO_ORIGINAL_UNPROVEN`、`PHOTO_ORIGINAL_CHANGED`、`PHOTO_KNOWN_UNPROVEN`、`PHOTO_KNOWN_UNREADABLE`、`PHOTO_KNOWN_SAVE_FAILED`。不触碰复合父设备、MI_01、NCM/网卡及不在记住集合中的任何节点；用户自己停用的实例（有禁用位但没有本程序恢复记录）保持排除。原值每次从当前读数新鲜捕获并先写入恢复记录，再写设备。
+- **被动扫描保留为首次未知实例的后备**，新发现的实例加入记住集合。
+- **恢复**：开关关闭、明确“退出程序”、卸载都会按恢复记录还原**全部**已修改实例的原始 ConfigFlags（在位走 `CM_Enable_DevNode`，不在位走 SetupDi），读回确认，失败则保留记录并显示待处理，不报告已恢复。启动时不再“先全部恢复再等待”：开关为开时保留并核对上次遗留记录，为关时恢复。绑定新根设备也不再恢复既有记录，统一在关闭/退出时恢复。
+- **开关**：主界面“设置与维护”中的“仅保留网络连接”，普通用户设置、**不受开发者调试总开关限制**，默认开。保存于 `connection-preferences.json` 的 `network_only_off`（只存显式关闭，旧文件视为开；降级到不认识该字段的旧版本时该文件会被拒绝读取，仅在用户关闭过开关后才会发生）。界面同时显示读回得到的实际状态（已封锁/正在还原/还原待确认及固定错误码），而不是只显示开关位置。
+
+### 边界与未证明
+
+- 首次连接某台 iPad 时没有记住的实例，仍只能靠被动扫描，第一次提示无法避免；本方案只针对之后的插拔、重插和程序重启。
+- 未用硬件证明：不在位 devnode 上 `CM_Get_Parent`、`CM_Get_DevNode_Status`=13 与注册表属性读写在这台机器上是否按预期工作（现有幽灵恢复代码依赖同一组读数，但同样待设备验证）；PnP 在设备出现时是否确实读取并遵守写入的 CONFIGFLAG_DISABLED；MI_00 实例 ID 是否在每次插拔、重启后保持不变；配置 3 与配置 5 的 MI_00 是否确有相同的根实例；禁用 MI_00 是否真的使“信任”提示消失。以上任一不成立，该候选都不能宣称消除提示。
+- Windows 将不能导入照片或浏览 iPad 存储；Apple Devices/iTunes 不受此开关管理，Apple 服务暂停仍按 0.10.46 默认策略。系统强杀或断电不会立即恢复，遗留记录由下次启动按开关状态核对或恢复。
+- 本版仅完成 Linux 单元测试、Windows 交叉编译与 vet；没有在 Windows 或 iPad 上运行。
+
+### 验收测试（需逐项计数“信任”提示次数，并核对 DHCP/IPv4 往返、Moonlight、LocalSend）
+
+1. 新装后首次开机、首次插线（预期仍可能出现一次；记录实例 ID 是否被记住）。
+2. 同一次运行内拔掉重插（预期 0 次）。
+3. 完全退出程序再启动，之后再插线（预期 0 次；确认启动时已提前套用，设备管理器中隐藏的 MI_00 为禁用）。
+4. 关闭开关：资源管理器重新显示 iPad，设备恢复启用，原 ConfigFlags 读回一致。
+5. 明确“退出程序”：所有修改实例恢复；重新启动后再次提前套用。
+6. 卸载：所有实例恢复，`local-photo-known-v1.json` 与恢复记录被删除。
+7. 每一项均确认网络可用：DHCP、双向 IPv4、Moonlight、LocalSend。失败项保留 `photo_isolation` 与 `network_only` 状态及诊断后再判断，不要用单次零提示认定有效。
+
 ## 0.10.43 本机模式差异已确认（2026-10-17，设备采集待复验）
 
 0.10.42 已通过 USB 安装并自动收回诊断。USB 查询的 GUID、名称、空日志名、最大文件大小和缓冲区均匹配，唯一失配是 mode=0x00800100；WPD schema2 同样返回 0x10800100。两者都比请求多 0x00800000，即 Windows 在未显式指定时选择的 PERSIST_ON_HYBRID_SHUTDOWN。该数值证据已定位会话校验误报，不是 iPad 双提示的直接原因。[微软日志模式说明](https://learn.microsoft.com/en-us/windows/win32/etw/logging-mode-constants)
