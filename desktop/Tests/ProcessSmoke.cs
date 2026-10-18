@@ -100,8 +100,12 @@ public sealed partial class Dashboard
                 processSearch.Text = "7312";
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
                 Require(processList.ItemCount == 1, "live search updates table");
+                processSearch.Text = "no-such-program";
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
+                Require(processList.ItemCount == 0 && processEmpty.IsVisible, "empty search shows the empty state");
                 processSearch.Text = "";
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
+                Require(processList.ItemCount == 9 && !processEmpty.IsVisible, "clearing the search restores the list");
                 processAttention.IsChecked = true; Require(processList.ItemCount == 4, "live attention filter");
                 processAttention.IsChecked = false; processList.SelectedItem = invalid; RenderProcesses();
                 Require(processList.SelectedItem is RunningProgram selected && selected.Pid == invalid.Pid && processDetailReason.Text!.Contains("可疑"), "refresh preserves selection and details");
@@ -111,7 +115,7 @@ public sealed partial class Dashboard
                 if (attempt == 0) {
                     taskWindow!.UpdateLayout();
                     var red = taskWindow.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "簽章無效");
-                    Require(red.Foreground is SolidColorBrush b && b.Color == Color.Parse("#C42B1C"), "visible invalid signature color");
+                    Require(red.Foreground is SolidColorBrush b && b.Color == Color.Parse(Program.DarkPreview ? "#FF99A4" : "#C42B1C"), "visible invalid signature color");
                     CaptureProcessPreview(folder, "task-manager-light.png");
                     taskWindow.RequestedThemeVariant = ThemeVariant.Dark;
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);

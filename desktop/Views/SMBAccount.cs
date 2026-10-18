@@ -22,7 +22,6 @@ public sealed partial class Dashboard
     bool smbAccountExists, smbAccountLoaded, smbAccountBusy, smbNameEdited, smbSettingPassword;
     string smbSavedAccountName = "", smbSavedPassword = "", smbLoginUsername = "", smbPendingID = "", smbPendingAction = "", smbPasswordPurpose = "";
     bool SMBPasswordChanged => smbPassword.Text is { Length: > 0 } text && text != smbSavedPassword;
-    void OpenSMBAccount() => OpenSMBManager();
     void OpenSMBManager()
     {
         if (smbAccountWindow != null) { smbAccountWindow.Activate(); return; }

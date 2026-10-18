@@ -19,7 +19,6 @@ public sealed partial class Dashboard
  sealed record ShareAccessDraft(string Path,string Account,string Guest);
  readonly Dictionary<string,ShareAccessDraft> shareAccessDrafts = new();
  void ShareRequest(object value) { if (preview) return; DesktopClient.SendRaw(JsonSerializer.Serialize(value));  }
- void OpenShareFolders() => OpenSMBManager();
  Control BuildShareFoldersPanel() {
   shareFolderRows = new() { Spacing = 10 }; shareNotice = new(); shareFolderIssue = "";
   shareBusy = false; sharePendingID = ""; shareRefreshQueued = false;

@@ -20,7 +20,7 @@ public sealed partial class Dashboard
             if (!ReferenceEquals(Icons.SharedGeometry(Icons.Shield), Icons.SharedGeometry(Icons.Shield)))
                 throw new InvalidOperationException("repeated icon geometry parsed twice");
             for (var i = 0; i < 3; i++) {
-                OpenSMBAccount();
+                OpenSMBManager();
                 using var account = JsonDocument.Parse("""{"account":{"exists":true,"username":"USBLinkShare","local_name":"USBLinkShare"},"guest":false,"problem":""}""");
                 UpdateSMBAccount(account.RootElement);
                 if (smbAccountName!.Text != "USBLinkShare")
@@ -74,7 +74,7 @@ public sealed partial class Dashboard
                 if (securityWindow != null) throw new InvalidOperationException("security close lifecycle");
             }
             for(var i=0;i<3;i++){
-                OpenShareFolders();
+                OpenSMBManager();
                 using var folders=JsonDocument.Parse("""
                 {"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Documents","path":"C:\u005cUsers\u005cExample\u005cDocuments","url":"http://10.6.9.1:10690/share/aaaaaaaaaaaaaaaaaaaaaaaa/"},{"id":"bbbbbbbbbbbbbbbbbbbbbbbb","name":"Media","path":"D:\u005cMedia","url":"http://10.6.9.1:10690/share/bbbbbbbbbbbbbbbbbbbbbbbb/"}],"problem":""}
                 """);
@@ -90,7 +90,7 @@ public sealed partial class Dashboard
             if(signatureLabels.Length!=3)throw new InvalidOperationException("all gateway EXEs need signature status");
             var signerFixtures=new[]{("Valid","Example publisher"),("HashMismatch","Claimed publisher"),("NotSigned","")};
             for(var i=0;i<3;i++)ShowSignature(signatureLabels[i],ExecutableSignature.Parse(JsonSerializer.Serialize(new{status=signerFixtures[i].Item1,publisher=signerFixtures[i].Item2})));
-            if(signatureLabels[1].Foreground is not SolidColorBrush red||red.Color!=Color.Parse("#C42B1C")||!signatureLabels[0].Text!.Contains("Example publisher"))throw new InvalidOperationException("signer and red invalid warning must be visible");
+            if(signatureLabels[1].Foreground is not SolidColorBrush red||red.Color!=Color.Parse(Program.DarkPreview ? "#FF99A4" : "#C42B1C")||!signatureLabels[0].Text!.Contains("Example publisher"))throw new InvalidOperationException("signer and red invalid warning must be visible");
             securityMode.Text="介面預覽 · 簽章範例，不代表實際程式驗證";
             SaveSecurityPreview(securityWindow,"usb-link-gateway-signatures-0138.png");
             securityWindow.Close();
@@ -105,6 +105,13 @@ public sealed partial class Dashboard
             if(ExecutableSignature.Parse("invalid JSON").Status!="unverified")throw new InvalidOperationException("malformed signature result accepted");
             if(ExecutableSignature.Parse(JsonSerializer.Serialize(new{status="Valid",publisher=new string('x',257)})).Status!="unverified")throw new InvalidOperationException("oversized signer accepted");
             if(ExecutableSignature.Parse(JsonSerializer.Serialize(new{status="Valid",publisher="Example\n\u202E"})).Publisher!="Example")throw new InvalidOperationException("signer control characters retained");
+            var (hotspot,hotspotCode)=Friendly.Explain("INTERNET_MOBILE_HOTSPOT_CONFLICT");
+            if(hotspotCode!="INTERNET_MOBILE_HOTSPOT_CONFLICT"||hotspot.Contains("INTERNET_")||!hotspot.Contains("行動熱點"))throw new InvalidOperationException("known code must become an actionable sentence and stay available");
+            var (unknown,unknownCode)=Friendly.Explain("FIREWALL_SOMETHING_NEW: 規則 A");
+            if(unknownCode!="FIREWALL_SOMETHING_NEW"||unknown.Contains("FIREWALL_")||!unknown.Contains("規則 A"))throw new InvalidOperationException("unknown code must fall back to a readable family sentence");
+            if(Friendly.Explain("讀取失敗") is not ("讀取失敗",""))throw new InvalidOperationException("plain text must pass through");
+            var notice=new Notice();notice.Show("Warn","0x80096010");
+            if(notice.Text.Contains("Windows 回報")==false||!notice.Text.Contains("0x80096010"))throw new InvalidOperationException("HRESULT must be translated with the code kept");
             Console.WriteLine("SECURITY_UI_SMOKE_OK");
             (Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown(0);
         } catch (Exception e) {

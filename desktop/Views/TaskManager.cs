@@ -32,8 +32,8 @@ public sealed partial class Dashboard
     bool processDescending, processCapturing;
     readonly Dictionary<string, TextBlock> processHeadings = new();
     // Name stretches; the numeric columns are right-aligned so units line up.
-    const string ProcessColumns = "*,64,64,92,96,96,190,120";
-    const double ProcessTableMinWidth = 860;
+    const string ProcessColumns = "*,56,60,84,88,88,170,110";
+    const double ProcessTableMinWidth = 880;
     static readonly (string Key, string Title, bool Numeric)[] ProcessColumnSpecs = [
         ("name", "程式名稱", false), ("pid", "PID", true), ("cpu", "CPU", true), ("memory", "記憶體", true), ("disk", "磁碟讀取", true), ("network", "網路收發", true),
         ("assessment", "來源判斷", false), ("trust", "簽章", false)];
@@ -48,7 +48,7 @@ public sealed partial class Dashboard
         processRefresh = Action("重新整理", () => _ = CaptureProcessesAsync(), Icons.Retry);
         processReverify = Action("重新驗證簽章", () => { processInventory?.Reverify(); _ = CaptureProcessesAsync(); });
         var table = BuildProcessTable();
-        var window = taskWindow = AppWindow.Create("工作管理員", 1120, 760, 900, 560);
+        var window = taskWindow = AppWindow.Create("工作管理員", 1120, 760, 920, 560);
         window.Content = AppWindow.Page(AppWindow.Header("工作管理員", "依簽章、系統結構與 Windows 檔案保護判斷程式來源；選擇程式可查看依據。", processRefresh, processReverify),
             Rows("Auto,*,Auto", BuildProcessToolbar(), table, BuildProcessDetails()),
             Column(2, processCount, processRateNote, Hint("本機驗證，不連線查詢吊銷 · 簽章快取最長 30 秒 · CPU 依全部邏輯核心計算 · 1 MB = 1024 KB · — 表示未取得", "Subtle", Scale.Caption)),
@@ -61,7 +61,7 @@ public sealed partial class Dashboard
         processAttention.IsCheckedChanged += (_, _) => RenderProcesses();
         processList.SelectionChanged += (_, _) => RenderProcessDetails();
         processTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        processTimer.Tick += (_, _) => { if (processAutomatic.IsChecked == true && window.WindowState != WindowState.Minimized && window.IsActive) _ = CaptureProcessesAsync(); };
+        processTimer.Tick += (_, _) => { if (processAutomatic.IsChecked == true && window.WindowState != WindowState.Minimized) _ = CaptureProcessesAsync(); };
         window.Closed += (_, _) => {
             processTimer?.Stop(); processTimer = null;
             processInventory?.Dispose(); processInventory = null;
