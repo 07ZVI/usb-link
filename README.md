@@ -28,7 +28,7 @@ These components are for the **Windows x64 host**. Prepare only those required b
 | Apple Mobile Device Support / Service | Windows-to-iPad communication; unnecessary for Mac-only connections | Checks the existing Apple communication service first; do not uninstall iTunes or other Apple software preemptively | [Apple iTunes for Windows](https://www.apple.com/itunes/) |
 | Apple USB driver | Windows recognition and connection of iPad | Skips installation when the target device already has the required driver binding; otherwise checks and prepares it | [Microsoft Update Catalog](https://www.catalog.update.microsoft.com/Search.aspx?q=Apple%20Mobile%20Device) |
 | Wintun 0.14.1 (AMD64) | Windows virtual network adapter for Mac connections and the iPad shared-host path | Official signed archive included; reuses an actually verified compatible DLL | [Wintun](https://www.wintun.net/) |
-| Zadig 2.9 | Preparing WinUSB bindings for Mac USB interfaces when needed | Unnecessary when those interfaces already use WinUSB; downloading the tool alone does not bind a driver | [Zadig](https://zadig.akeo.ie/) |
+| Zadig 2.9 | Preparing WinUSB bindings for Mac USB interfaces when needed | Unnecessary when those interfaces already use WinUSB; the official tool is included, and preparing it does not by itself bind a driver | [Zadig](https://zadig.akeo.ie/) |
 | Windows WinUSB, SMB and other OS components | USB device access, file sharing and network management | Provided by Windows, with no separate download; SMB still needs accounts, folders and permissions configured | Included with Windows |
 
 The [component preparation guide](docs/DEPENDENCIES.md) provides direct official downloads for pinned versions, existing-installation checks and preparation before going offline. SMB access on Mac/iPad uses Finder/Files without an additional SMB client.
@@ -36,7 +36,7 @@ The [component preparation guide](docs/DEPENDENCIES.md) provides direct official
 ## Getting started
 
 1. Connect your Mac or iPad to Windows with a USB Type-C cable that supports data transfer.
-2. Run USB Link as administrator on Windows. Follow the prompts to prepare required components and authorize the device.
+2. Run the USB Link installer (EXE) on Windows. Follow the wizard to accept the terms, choose components and install; then authorize the connected device.
 3. Wait for the connected device and its network address to appear. Device and USB interface support depends on the actual hardware detected.
 4. To share files, add folders and configure accounts and permissions in “SMB 共享” (SMB sharing), then use the connection address shown:
    - **Mac**: Finder → Go → Connect to Server (⌘K).

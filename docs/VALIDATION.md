@@ -1,4 +1,12 @@
-# Validation record: 0.9.5 candidate
+# Validation record
+
+## Current status (0.10.53)
+
+- Hardware acceptance remains pending for Windows, Mac and iPad. The hardware acceptance checklist below is still the to-do list; no item in it is claimed as passed.
+- Hosted Windows CI was failing on `go test` as of commit `0ebf3d2`; a fix is in progress. Do not treat the Windows software checks as green until a hosted run passes.
+- The rest of this file is the historical 0.9.5 candidate record. Its results describe that candidate only and are not a statement about 0.10.53.
+
+## Historical record: 0.9.5 candidate
 
 Baseline: 0.8.140. Public history starts with modular source, then dependency acquisition/rebuilding, then Internet sharing. The source-only refactor checkpoint preserves original runtime compatibility identities; distribution preparation is completed by the subsequent dependency commit. Validate the final HEAD for a public build.
 

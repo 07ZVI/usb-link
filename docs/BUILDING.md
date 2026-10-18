@@ -11,6 +11,8 @@ Requirements: Python 3.9+, Go 1.26.0 (matching `go.mod`), .NET SDK 10.0.100 (mat
 | `python3 scripts/project.py package` | Build plus distribution directory, binary ZIP, committed-source ZIP, recursive audit and checksums |
 | `python3 scripts/project.py verify` | Inspect generated packages including ZIP archives embedded in the Go PE; create checksums |
 
+`GOOS=windows go vet ./...` fails in `internal/app/launcher` until `python3 scripts/project.py package` has generated the embedded assets in `internal/app/launcher/assets/`, including `desktop.zip` (see `payload_windows.go`). Vet other packages directly, or run `package` first.
+
 The Windows launcher embeds only freshly built first-party executables, Avalonia's framework-dependent publish output, notices and content manifests. The desktop ZIP must not contain `coreclr.dll`, `hostfxr.dll` or `dotnet.exe`; it does contain the normal .NET apphost and linked Avalonia/Skia/HarfBuzz library binaries. Source archives use `git archive HEAD`; ignored assets, output, cache, .git history and local evidence do not enter them. Commit changes before creating the final source package.
 
 `VERSION` drives Go linker version injection, desktop publish version, generated manifests and output names. The freshly built bridge SHA-256 is injected into the launcher; no old executable is needed to discover it. ZIP metadata is normalized and archive entries sorted. Builds use `-trimpath` and do not embed workstation paths or Git dirty state. Binary determinism should be rechecked after changing SDKs/libraries; reproducible source and independent package inspection are mandatory.
