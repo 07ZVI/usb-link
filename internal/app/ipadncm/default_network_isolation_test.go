@@ -145,3 +145,32 @@ func TestDefaultIsolationRuntimeChoiceDoesNotReadOrWriteDebugPreferences(t *test
 		t.Fatal("AMDS not revoked")
 	}
 }
+
+func TestDefaultIsolationStartKeepsPhotoJournalOnlyWhileSwitchIsOn(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		var calls []string
+		c := &defaultIsolationLifecycle{
+			policy:   func() error { calls = append(calls, "policy"); return nil },
+			photo:    func() error { calls = append(calls, "photo"); return nil },
+			amds:     func() error { calls = append(calls, "amds"); return nil },
+			photoOn:  func() bool { return on },
+			activate: func() { calls = append(calls, "activate") }, quiesce: func() { calls = append(calls, "join") },
+		}
+		if err := c.start(); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"policy", "amds", "photo", "activate"}
+		if on {
+			want = []string{"policy", "amds", "activate"}
+		}
+		if !reflect.DeepEqual(calls, want) {
+			t.Fatal(on, calls)
+		}
+		if err := c.stop(); err != nil || !c.snapshot().Restored || !c.snapshot().PhotoRestored {
+			t.Fatal("exit must always restore the photo journal", err, c.snapshot())
+		}
+		if got := calls[len(calls)-1]; got != "photo" {
+			t.Fatal(calls)
+		}
+	}
+}

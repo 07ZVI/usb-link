@@ -22,17 +22,21 @@ func StartDefaultNetworkIsolation(ctx context.Context, dir string) func() {
 		c := &defaultIsolationLifecycle{
 			policy: func() error { return RestoreLocalPhotoPolicy(dir) },
 			photo:  func() error { return RestorePhotoIsolation(dir) },
-			amds:   func() error { return RestoreLocalAMDSHold(dir) },
+			// A switch that is on keeps and reconciles the previous journal.
+			photoOn: networkOnlySwitchOn,
+			amds:    func() error { return RestoreLocalAMDSHold(dir) },
 		}
 		c.activate = func() {
 			// Workers have a private lifetime so shutdown can first revoke all
 			// admissions, then join and read back both independent restorations.
 			localPhoto.runtimeAllowed = func() bool { return !c.revoked.Load() && ctx.Err() == nil }
 			localAMDSHold.runtimeAllowed = func() bool { return !c.revoked.Load() && ctx.Err() == nil }
+			// The choice is in place before the worker's first step so a kept
+			// journal is reconciled rather than restored.
+			localPhoto.runtimeDefault(networkOnlySwitchOn())
 			stopPhoto = StartPhotoIsolation(context.Background(), dir)
 			stopAMDS = StartLocalAMDSHold(context.Background(), dir)
 			defaultIsolationReady.Store(true)
-			localPhoto.runtimeDefault(true)
 			localAMDSHold.runtimeDefault(true)
 		}
 		c.quiesce = func() {

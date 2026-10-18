@@ -4,12 +4,15 @@ package ipadncm
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+var errPortableTargetAbsent = errors.New("portable exact receipt target absent")
 
 // Enumerate the entire bounded ALL set. A prefix or the first matching record
 // is insufficient ownership proof, even when a current MI_00 is also present.
@@ -26,7 +29,7 @@ func exactPortableTarget(n portableNodeReceipt) (windows.DevInfo, *windows.DevIn
 				return set, found, nil
 			}
 			set.Close()
-			return 0, nil, fmt.Errorf("portable exact receipt target absent")
+			return 0, nil, errPortableTargetAbsent
 		}
 		if e != nil {
 			set.Close()

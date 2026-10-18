@@ -112,6 +112,22 @@ func RestorePhotoIsolation(dir string) error {
 	}
 	return nil
 }
+
+// Uninstall: restore every owned node, then forget the remembered identities.
+func RetirePhotoIsolation(dir string) error {
+	if e := RestorePhotoIsolation(dir); e != nil {
+		return e
+	}
+	localPhotoNativeMutex.Lock()
+	defer localPhotoNativeMutex.Unlock()
+	if j, e := readLocalPhotoJournal(dir); e != nil || len(j.Entries) != 0 {
+		return errors.New("PHOTO_JOURNAL_UNREADABLE")
+	}
+	if removeLocalPhotoKnown(dir) != nil {
+		return errors.New("PHOTO_KNOWN_UNREADABLE")
+	}
+	return nil
+}
 func localPhotoSameOriginal(a, b portablePropertyOriginal) bool {
 	return samePortableReceipt(a.Node, b.Node) && a.Present == b.Present && a.Type == b.Type && a.Size == b.Size && a.Value == b.Value
 }

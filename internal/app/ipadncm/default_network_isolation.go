@@ -34,10 +34,13 @@ type defaultIsolationLifecycle struct {
 	mu                  sync.Mutex
 	state               defaultNetworkIsolationStatus
 	policy, photo, amds func() error
-	activate            func()
-	quiesce             func()
-	started, stopped    bool
-	revoked             atomic.Bool
+	// Nil means off: a previous photo journal is restored at start. When the
+	// network-only switch is on the journal is kept and reconciled instead.
+	photoOn          func() bool
+	activate         func()
+	quiesce          func()
+	started, stopped bool
+	revoked          atomic.Bool
 }
 
 func (c *defaultIsolationLifecycle) snapshot() defaultNetworkIsolationStatus {
@@ -49,7 +52,15 @@ func (c *defaultIsolationLifecycle) snapshot() defaultNetworkIsolationStatus {
 func (c *defaultIsolationLifecycle) restore() error {
 	// Attempt every independent recovery even if one fails. Unknown receipts
 	// remain owned by their original recovery code, never deleted here.
-	p, a, f := c.policy(), c.amds(), c.photo()
+	return c.restoreWith(true)
+}
+
+func (c *defaultIsolationLifecycle) restoreWith(photo bool) error {
+	p, a := c.policy(), c.amds()
+	var f error
+	if photo {
+		f = c.photo()
+	}
 	c.mu.Lock()
 	c.state.PolicyRestored, c.state.AMDSRestored, c.state.PhotoRestored = p == nil, a == nil, f == nil
 	c.state.Restored = p == nil && a == nil && f == nil
@@ -74,7 +85,7 @@ func (c *defaultIsolationLifecycle) start() error {
 	c.mu.Lock()
 	c.state = defaultNetworkIsolationStatus{Phase: "recovering_previous", Busy: true}
 	c.mu.Unlock()
-	err := c.restore()
+	err := c.restoreWith(c.photoOn == nil || !c.photoOn())
 	if err == nil && c.revoked.Load() {
 		err = errors.New("NETWORK_ISOLATION_CANCELLED")
 	}
@@ -122,9 +133,11 @@ func (c *localPhotoController) runtimeDefault(on bool) {
 	c.mu.Lock()
 	c.master, c.state.Requested = on, on
 	c.revision++
+	c.knownDirty = on
 	c.state.Persistence, c.state.Busy, c.state.SavedEnabled = "saved", false, false
 	if !on {
 		c.state.Effective = false
+		c.state.Phase = "recovering"
 	}
 	c.mu.Unlock()
 	c.signal()

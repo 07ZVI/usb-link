@@ -77,6 +77,17 @@ func (f *photoFakeBackend) restore(p portablePropertyOriginal) error {
 	f.disabledNodes[p.Node.ID] = false
 	return nil
 }
+func (f *photoFakeBackend) loadKnown() (localPhotoKnown, error) {
+	return localPhotoKnown{Schema: 1}, nil
+}
+func (f *photoFakeBackend) saveKnown(localPhotoKnown) error { return nil }
+func (f *photoFakeBackend) probe(portablePropertyOriginal) (localPhotoProbe, error) {
+	return localPhotoProbe{}, nil
+}
+func (f *photoFakeBackend) disableKnown(portablePropertyOriginal, func() bool) error {
+	return errors.New("unused")
+}
+func (f *photoFakeBackend) disabledKnown(portablePropertyOriginal) (bool, error) { return false, nil }
 func armPhoto(c *localPhotoController, root string) {
 	c.mu.Lock()
 	c.master = true
@@ -154,7 +165,7 @@ func TestLocalPhotoDurableFailureAndOffEpochBlockNativeWrite(t *testing.T) {
 		t.Fatal("late disable after off", f)
 	}
 }
-func TestLocalPhotoStartupRestoresBeforeFreshBinding(t *testing.T) {
+func TestLocalPhotoStartupKeepsOwnedJournalWhileOnAndRestoresWhileOff(t *testing.T) {
 	f := newPhotoFake()
 	n := photoNode("OLD")
 	f.journal.Entries = []portablePropertyOriginal{photoOriginal(n)}
@@ -165,11 +176,19 @@ func TestLocalPhotoStartupRestoresBeforeFreshBinding(t *testing.T) {
 	c.state.Requested = true
 	c.state.Persistence = "saved"
 	c.step()
-	if f.restores != 1 || f.disables != 0 || c.snapshot().Phase != "waiting_authorized_target" {
-		t.Fatal(f, c.snapshot())
+	if f.restores != 0 || f.disables != 0 || c.snapshot().OwnedNodes != 1 || c.snapshot().Phase != "waiting_authorized_target" {
+		t.Fatal("switch on must reconcile, not blanket-restore", f, c.snapshot())
 	}
-	if e := c.bind(n.Root); e != nil || f.disables != 1 {
-		t.Fatal(e, f)
+	if e := c.bind(n.Root); e != nil || f.restores != 0 || f.disables != 0 || !c.snapshot().Effective {
+		t.Fatal(e, f, c.snapshot())
+	}
+	off := newPhotoFake()
+	off.journal.Entries = []portablePropertyOriginal{photoOriginal(n)}
+	off.disabledNodes[n.ID] = true
+	d := newLocalPhotoController(off)
+	d.step()
+	if off.restores != 1 || len(off.journal.Entries) != 0 {
+		t.Fatal("switch off must restore the previous journal", off)
 	}
 }
 func TestLocalPhotoRestoreFailureRetainsObligationAndRejectsRootChange(t *testing.T) {
