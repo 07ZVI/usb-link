@@ -50,8 +50,8 @@ func coreLogOpen(path string, access, creation uint32, sa *windows.SecurityAttri
 	if directory {
 		flags |= windows.FILE_FLAG_BACKUP_SEMANTICS
 		// A rename relative to this handle fails with a sharing violation unless
-		// the directory handle itself allows FILE_SHARE_DELETE.
-		share |= windows.FILE_SHARE_DELETE
+		// the directory handle itself allows FILE_SHARE_WRITE and FILE_SHARE_DELETE.
+		share |= windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
 	}
 	h, e := windows.CreateFile(windows.StringToUTF16Ptr(path), access, share, sa, creation, flags, 0)
 	if e != nil {
