@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -99,11 +100,21 @@ func TestSimplifiedStartupGroupingNeverRestoresOrRestarts(t *testing.T) {
 			}
 		}
 	}
-	b, e := os.ReadFile("../launcher/main_windows.go")
-	if e != nil {
-		t.Fatal(e)
+	files, e := filepath.Glob("../launcher/*.go")
+	if e != nil || len(files) == 0 {
+		t.Fatal("launcher sources", e)
 	}
-	s := string(b)
+	var s string
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		b, e := os.ReadFile(file)
+		if e != nil {
+			t.Fatal(e)
+		}
+		s += string(b)
+	}
 	for _, forbidden := range []string{"ipadncm.RestoreNetworkOnly(", "ipadncm.UnpairedNetworkOnlyStartupProtection(", "ipadncm.RestoreNetworkOnlyPortableNodes(", "ipadncm.InitUnpairedNetworkOnlyProduct(", "ipadncm.RestoreUnpairedNetworkOnlyProduct("} {
 		if strings.Contains(s, forbidden) {
 			t.Fatal("production main retains old policy", forbidden)
