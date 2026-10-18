@@ -26,5 +26,13 @@ func openShareRoot(p string) (*os.Root, error) {
 			break
 		}
 	}
-	return os.OpenRoot(p)
+	root, e := os.OpenRoot(p)
+	if e != nil {
+		return nil, e
+	}
+	// os.OpenRoot omits FILE_SHARE_DELETE, so the pinned handle would stop the
+	// shared folder from being renamed or moved. Root.OpenRoot shares DELETE.
+	shared, e := root.OpenRoot(".")
+	root.Close()
+	return shared, e
 }

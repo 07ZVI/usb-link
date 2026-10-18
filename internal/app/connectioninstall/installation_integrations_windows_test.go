@@ -15,13 +15,17 @@ import (
 
 // Uses only a temp .lnk; no real startup tasks, product folders or registration.
 func TestNativeInstallationShortcutReadOnlyContract(t *testing.T) {
-	dir := t.TempDir()
+	// The shell reports the long form of the temp directory's 8.3 short name.
+	dir, e := filepath.EvalSymlinks(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
 	target := filepath.Join(dir, "source.exe")
 	path := filepath.Join(dir, "USB Link.lnk")
 	if e := os.WriteFile(target, bytes.Repeat([]byte("fixture"), 512), 0600); e != nil {
 		t.Fatal(e)
 	}
-	e := wincom.WithApartment(func() error {
+	e = wincom.WithApartment(func() error {
 		shell, e := wincom.Create("{72C24DD5-D70A-438B-8A42-98424B88AFB8}")
 		if e != nil {
 			return e

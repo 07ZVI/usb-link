@@ -164,6 +164,12 @@ func (s *Session) identity(ip []byte, in bool) (uint64, bool) {
 	m.Write(b[:48])
 	return seq, hmac.Equal(b[48:], m.Sum(nil)[:16])
 }
+
+// Zero means "not stamped" in a row. Windows monotonic clocks tick in
+// milliseconds, so an event in the session's first tick must still read as 1ns.
+func (s *Session) elapsed(at time.Time) int64 {
+	return max(1, at.Sub(s.started).Nanoseconds())
+}
 func Mark(ip []byte, in bool, phase string, at time.Time) {
 	s := active.Load()
 	if s == nil || !at.Before(s.deadline) {
@@ -177,7 +183,7 @@ func Mark(ip []byte, in bool, phase string, at time.Time) {
 	defer s.Unlock()
 	r := &s.rows[seq]
 	r.Sequence = seq
-	n := at.Sub(s.started).Nanoseconds()
+	n := s.elapsed(at)
 	switch phase {
 	case "usb":
 		if r.USBReceived == 0 {
@@ -238,7 +244,7 @@ func CompletionMarker(frames [][]byte, peer bridge.Peer) func(time.Time) {
 		defer s.Unlock()
 		for _, seq := range sequences {
 			s.rows[seq].Sequence = seq
-			s.rows[seq].USBObserved = at.Sub(s.started).Nanoseconds()
+			s.rows[seq].USBObserved = s.elapsed(at)
 		}
 	}
 }

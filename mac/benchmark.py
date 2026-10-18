@@ -16,7 +16,7 @@ def measure(direction, size, address='10.77.0.2', source='10.77.0.1', port=47772
         stream = sock.makefile('rb')
         if stream.readline(256) != f'READY {nonce}\n'.encode():
             raise RuntimeError('unexpected benchmark handshake')
-        start = time.monotonic(); digest = hashlib.sha256(); transferred = 0
+        start = time.perf_counter(); digest = hashlib.sha256(); transferred = 0
         while transferred < size:
             count = min(CHUNK, size - transferred)
             if direction == 'UP':
@@ -27,7 +27,7 @@ def measure(direction, size, address='10.77.0.2', source='10.77.0.1', port=47772
                     raise RuntimeError('incomplete or corrupt download')
             digest.update(part); transferred += count
         result = json.loads(stream.readline(4096))
-        elapsed = time.monotonic() - start
+        elapsed = max(time.perf_counter() - start, 1e-9)
         if result['nonce'] != nonce or result['direction'] != direction or result['bytes'] != size or result['sha256'] != digest.hexdigest():
             raise RuntimeError('benchmark integrity mismatch')
         return dict(direction=direction, bytes=size, sha256=digest.hexdigest(), seconds=elapsed,

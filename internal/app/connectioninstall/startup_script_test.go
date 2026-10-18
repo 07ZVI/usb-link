@@ -33,7 +33,11 @@ func TestStartupRegistrationAdversarialProviderFixtures(t *testing.T) {
 		{"create_collision", "1,2", "CREATE", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+			// PowerShell resolves 8.3 short names; the fixture paths must already be long.
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
 			root := filepath.Join(dir, "product")
 			exe := filepath.Join(root, "0.8.91", BinaryName)
 			calls := filepath.Join(dir, "provider-calls.txt")
