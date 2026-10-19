@@ -109,7 +109,7 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		completed, runError := ExecuteInstallation(ctx, t, ops)
 		// Deletion-only recovery consumes the old journal/inventory unchanged.
 		// Only after durable rolled-back state may this setup start its OWN plan.
-		if runError == nil && completed.Phase == InstallRolledBack && t.Previous == nil {
+		if runError == nil && completed.Phase == InstallRolledBack && (t.Previous == nil || rollbackOnly) {
 			t = completed
 		} else {
 			if runError == nil {
