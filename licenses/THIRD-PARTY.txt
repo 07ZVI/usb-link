@@ -4,8 +4,6 @@ Original USB Link code: GPL-3.0-only, with LICENSE-WINTUN-EXCEPTION.
 Go 1.26.0 and Go packages retain their original BSD/MIT license notices.
 Avalonia and the locked desktop libraries retain their original notices.
 See libraries.json for exact versions, sources and notice paths.
-Imported compatibility SMB retains the MIT license and provenance under
-provenance/SMB-LICENSES-0.8.36.txt and SMB-SOURCES-0.8.36.json.
 
 Apple software and USB drivers, Wintun DLL, Zadig/libwdi executables and the
 .NET runtime are external downloads and are not included in this distribution.

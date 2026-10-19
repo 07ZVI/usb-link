@@ -3,33 +3,6 @@
   "libraries": [
     {
       "ecosystem": "Go",
-      "name": "github.com/hirochachacha/go-smb2",
-      "version": "v1.1.0",
-      "source": "https://github.com/hirochachacha/go-smb2",
-      "notices": [
-        "licenses/libraries/github.com-hirochachacha-go-smb2-LICENSE.txt"
-      ]
-    },
-    {
-      "ecosystem": "Go",
-      "name": "github.com/geoffgarside/ber",
-      "version": "v1.1.0",
-      "source": "https://github.com/geoffgarside/ber",
-      "notices": [
-        "licenses/libraries/github.com-geoffgarside-ber-LICENSE.txt"
-      ]
-    },
-    {
-      "ecosystem": "Go",
-      "name": "golang.org/x/crypto",
-      "version": "v0.57.0",
-      "source": "https://golang.org/x/crypto",
-      "notices": [
-        "licenses/libraries/golang.org-x-crypto-LICENSE.txt"
-      ]
-    },
-    {
-      "ecosystem": "Go",
       "name": "golang.org/x/net",
       "version": "v0.59.0",
       "source": "https://golang.org/x/net",
