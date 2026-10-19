@@ -26,7 +26,6 @@ func InitSimplifiedIPadNetwork(dir string) error {
 	simplifiedNetworkConfigured.Store(true)
 	simplifiedNetworkFeatures.Store(false)
 	unpairedProductConfigured.Store(false)
-	unpairedProductFeatures.Store(false)
 	networkOnly.Lock()
 	networkOnly.dir, networkOnly.available, networkOnly.enabled = dir, false, false
 	networkOnly.pending, networkOnly.busy, networkOnly.blocked = false, false, false

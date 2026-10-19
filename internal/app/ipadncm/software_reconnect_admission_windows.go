@@ -23,10 +23,6 @@ func softwareReconnectUpgradeHeld() bool {
 	return f != nil && f()
 }
 
-// Existing AMDS/candidate/network-only/hold admission sites must use this
-// predicate while holding ipadActionAdmission. This file avoids modifying the
-// controllers concurrently being changed by B.
-func IPadSoftwareReconnectAdmissionBusy() bool { return IPadSoftwareReconnectBusy() }
 func IPadSoftwareReconnectExecuting() bool {
 	softwareReconnectManager.Lock()
 	defer softwareReconnectManager.Unlock()

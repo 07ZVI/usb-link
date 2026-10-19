@@ -102,26 +102,14 @@ func idleExactRootReadiness(ctx context.Context, expected string) (string, idleR
 
 func WaitForUSBConnection(ctx context.Context) string {
 	for ctx.Err() == nil {
-		if UnpairedExperimentPending() {
-			return "iPad unpaired experiment"
-		}
 		if IPadSoftwareReconnectPending() {
 			return "iPad software reconnect"
-		}
-		if IPadCandidatePending() {
-			return "iPad candidate"
 		}
 		if NetworkOnlyPending() {
 			return "iPad settings"
 		}
-		if AMDSModeDiagnosticPending() {
-			return "iPad diagnostic"
-		}
-		if IPadModeDiagnosticHeld() {
-			return "iPad diagnostic hold"
-		}
 		kind, p := idleUSBPresence(ctx)
-		productAllowed := p.candidate && !AMDSModeDiagnosticActive() && NetworkOnlyCanConnect() && IPadSoftwareReconnectCanConnect()
+		productAllowed := p.candidate && NetworkOnlyCanConnect() && IPadSoftwareReconnectCanConnect()
 		if productAllowed {
 			if ctx.Err() != nil {
 				continue
@@ -203,19 +191,10 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 		gate.minimum = 15 * time.Second
 	}
 	for ctx.Err() == nil {
-		if UnpairedExperimentPending() {
-			return true
-		}
 		if IPadSoftwareReconnectPending() {
 			return true
 		}
-		if IPadCandidatePending() {
-			return true
-		}
 		if NetworkOnlyPending() {
-			return true
-		}
-		if AMDSModeDiagnosticPending() || IPadModeDiagnosticHeld() {
 			return true
 		}
 		var p idlePresence
@@ -277,5 +256,5 @@ func waitAfterUSBAttempt(ctx context.Context, err string, applicationRan, unifie
 }
 
 func idleConnectionAllowed() bool {
-	return !(UnpairedExperimentPending() || IPadSoftwareReconnectPending() || IPadCandidatePending() || NetworkOnlyPending() || AMDSModeDiagnosticPending() || IPadModeDiagnosticHeld() || AMDSModeDiagnosticActive() || !NetworkOnlyCanConnect() || !IPadSoftwareReconnectCanConnect())
+	return !(IPadSoftwareReconnectPending() || NetworkOnlyPending() || !NetworkOnlyCanConnect() || !IPadSoftwareReconnectCanConnect())
 }

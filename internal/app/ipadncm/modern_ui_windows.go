@@ -294,16 +294,6 @@ func (u *modernUI) action(a string) {
 		return
 	}
 	switch a {
-	case "trust-service-trial-start":
-		if buildinfo.LocalDiagnostics == "true" {
-			if err := StartLocalTrustServiceTrial(u.lifetime, productVersion); err != nil {
-				u.setNotice("臨時對照未開始：" + err.Error())
-			}
-		}
-	case "trust-service-trial-cancel":
-		if buildinfo.LocalDiagnostics == "true" {
-			CancelAMDSModeDiagnostic()
-		}
 	case "select-mac":
 		selectDevice("Mac")
 	case "select-ipad":
@@ -496,9 +486,6 @@ func (u *modernUI) desktopStatus() any {
 		}
 		if b, err := json.Marshal(PhotoIsolationDiagnostics()); err == nil {
 			status.Detail += "\r\niPad 照片介面隔離（不代表信任提示已消失）：" + string(b)
-		}
-		if b, err := json.Marshal(LocalTrustServiceTrialSnapshot()); err == nil {
-			status.Detail += "\r\nApple 服務臨時對照（恢復結果以此處為準）：" + string(b)
 		}
 	}
 	if problem := StartupSettingProblem(); problem != "" {

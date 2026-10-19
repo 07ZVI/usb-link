@@ -53,7 +53,6 @@ func decodeUnpairedProductChoice(b []byte) (bool, error) {
 }
 
 var unpairedProductConfigured atomic.Bool
-var unpairedProductFeatures atomic.Bool
 
 func validUnpairedReceiptSchema(version int, persistent bool) bool {
 	return version == 1 && !persistent || version == 2 && persistent
