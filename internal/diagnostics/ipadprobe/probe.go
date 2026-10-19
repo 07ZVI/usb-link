@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 // Package ipadprobe checks an already-paired iPad over USB. It does not pair,
 // change settings, open file services, or create a system network interface.
 package ipadprobe

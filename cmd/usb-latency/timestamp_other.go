@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && usblink_local_remote
 
 package main
 

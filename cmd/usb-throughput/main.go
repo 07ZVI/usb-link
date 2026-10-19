@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 // Temporary Mac-side native test responder; no installation or elevation.
 package main
 

@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 package ipadprobe
 
 import (

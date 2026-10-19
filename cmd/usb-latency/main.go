@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 // usb-latency observes 64-byte authenticated UDP round trips on the USB subnet.
 // It never changes firewall policy or accepts arbitrary hosts/ports.
 package main

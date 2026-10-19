@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 // Package devicecheck performs read-only USB role inventory. A USB-C connector,
 // charging capability or installed UFX file is not proof of a usable data link.
 package devicecheck
