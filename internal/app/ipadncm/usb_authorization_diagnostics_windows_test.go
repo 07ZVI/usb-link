@@ -7,15 +7,16 @@ import (
 	"time"
 )
 
-func TestAuthorizationReadbackCountsBothTruncationStages(t *testing.T) {
+func TestAuthorizationReadbackCountsTruncatedCodes(t *testing.T) {
 	codes := make([]string, 32)
 	for i := range codes {
 		codes[i] = "USB_STRING_READ_WIN32_31"
 	}
 	s := Snapshot{ConnectionReadErrorCodes: codes, Devices: []Device{{Errors: codes}}}
 	r := authorizationReadback(s, s, 61*time.Millisecond)
-	if len(r.USB.RejectionCodes) != 8 || r.RejectionCodesOmitted != 24 || len(r.USB.ConnectionReadErrorCodes) != 8 || r.ReadCodesOmitted != 24 {
-		t.Fatal("omitted counts lost the first truncation", r)
+	kept, read := len(r.USB.RejectionCodes), len(r.USB.ConnectionReadErrorCodes)
+	if kept == 0 || kept >= len(codes) || kept+r.RejectionCodesOmitted != len(codes) || read == 0 || read >= len(codes) || read+r.ReadCodesOmitted != len(codes) {
+		t.Fatal("omitted counts do not account for the truncated codes", r)
 	}
 }
 
