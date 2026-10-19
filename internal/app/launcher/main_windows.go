@@ -28,7 +28,6 @@ import (
 	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/transport/wintun"
 	"sync/atomic"
 	"time"
@@ -460,7 +459,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			return macconnection.PruneRetiredRuntimes(recoveryDir)
 		})()
 	}
-	fileshare.USB.Native.Store(true)
 	ipadncm.SetConnectionContext(ctx)
 	ipadncm.SetDesktopLauncher(func() (string, error) {
 		defer debug.FreeOSMemory()
@@ -918,7 +916,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		clearHostJoin()
 		softwareConsentContext.Store(nil)
 		lease.Close()
-		fileshare.USB.Native.Store(true)
 		ipadncm.SetConnectionContext(ctx)
 		if reason := authorization.SecurityFailure(); reason != "" {
 			r.Error = reason

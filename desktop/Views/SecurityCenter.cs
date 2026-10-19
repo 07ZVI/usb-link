@@ -77,7 +77,7 @@ public sealed partial class Dashboard
             for(var i=0;i<3;i++){
                 OpenSMBManager();
                 using var folders=JsonDocument.Parse("""
-                {"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Documents","path":"C:\u005cUsers\u005cExample\u005cDocuments","url":"http://10.6.9.1:10690/share/aaaaaaaaaaaaaaaaaaaaaaaa/"},{"id":"bbbbbbbbbbbbbbbbbbbbbbbb","name":"Media","path":"D:\u005cMedia","url":"http://10.6.9.1:10690/share/bbbbbbbbbbbbbbbbbbbbbbbb/"}],"problem":""}
+                {"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Documents","path":"C:\u005cUsers\u005cExample\u005cDocuments"},{"id":"bbbbbbbbbbbbbbbbbbbbbbbb","name":"Media","path":"D:\u005cMedia"}],"problem":""}
                 """);
                 UpdateShareFolders(folders.RootElement);
                 if(shareFolderRows.Children.Count!=2)throw new InvalidOperationException("multi-folder rendering");

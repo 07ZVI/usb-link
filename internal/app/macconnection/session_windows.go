@@ -14,7 +14,6 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"io"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,7 +32,6 @@ import (
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/usbgateway"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/sharing/usbhttp"
 	"suhang/usbnet/internal/sharing/usbservice"
 	"suhang/usbnet/internal/transport/bridge"
@@ -513,12 +511,6 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 			speedTest.Close()
 		}
 	}()
-	var shareServer *fileshare.Server
-	defer func() {
-		if shareServer != nil {
-			shareServer.Close()
-		}
-	}()
 	start := time.Now()
 	previousTime := start
 	var previousIn, previousOut uint64
@@ -802,7 +794,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				mu.Lock()
 				state := out
 				mu.Unlock()
-				evidence := map[string]any{"stage": state.Stage, "parent_executable": boundedServiceText(parentExe), "bridge_executable": boundedServiceText(bridgeExe), "services_ready": state.ServicesReady, "services_error": state.ServicesError, "share_ready": state.ShareReady, "share_error": state.ShareError, "service_retry_failures": servicesRetry.Failures, "gateway": boundedGatewayEvidence(usbgateway.Evidence()), "shared_host": usbhost.Details()}
+				evidence := map[string]any{"stage": state.Stage, "parent_executable": boundedServiceText(parentExe), "bridge_executable": boundedServiceText(bridgeExe), "services_ready": state.ServicesReady, "services_error": state.ServicesError, "service_retry_failures": servicesRetry.Failures, "gateway": boundedGatewayEvidence(usbgateway.Evidence()), "shared_host": usbhost.Details()}
 				proofs, proofError := gate.OwnedInterfaces()
 				if h, ok := usbhost.Proof(); ok {
 					proofs = append(proofs, h)
@@ -952,36 +944,17 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 						return fmt.Errorf("FILE_SPEED_PREPARATION_FAILED: %w", er)
 					}
 					service.Benchmark = test
-					catalog, shareErr := connectioninstall.ShareCatalog()
-					var share *fileshare.Server
-					if shareErr == nil {
-						share, shareErr = fileshare.NewMulti(catalog, "10.6.9.2", &fileshare.USB, serviceGuard)
-					}
-					if shareErr != nil {
-						update(func(r *Result) { r.ShareError = "SHARE_DIRECTORY_UNAVAILABLE: " + boundedServiceText(shareErr.Error()) })
-					}
-					var smbHandler func(context.Context, net.Conn)
-					if share != nil {
-						smbHandler = share.ServeSMB
-					}
-					stop, er := usbhttp.RegisterWithBinary(ctx, "10.6.9.1:10690", "10.6.9.2", localMaintenanceHandler(service, serviceGuard), smbHandler)
+					stop, er := usbhttp.Register(ctx, "10.6.9.1:10690", "10.6.9.2", localMaintenanceHandler(service, serviceGuard))
 					if er != nil {
 						test.Close()
-						if share != nil {
-							share.Close()
-						}
 						return fmt.Errorf("FILE_LISTENER_UNAVAILABLE: %w", er)
 					}
-					stopServices, speedTest, shareServer = stop, test, share
+					stopServices, speedTest = stop, test
 					throughput.SetDeviceCurrent("Mac", test)
 					update(func(r *Result) {
 						r.ServicesReady = true
 						r.BenchmarkURL = "http://10.6.9.1:10690/speed/"
-						r.ShareReady = share != nil
 						r.ServicesError = ""
-						if share != nil {
-							r.ShareError = ""
-						}
 					})
 					l.Print("MAC_USB_SERVICES_READY port=10690")
 					firewallShadowOnce.tryStart(ctx, netconfig.FirewallShadowEnabled(), !netconfig.ResidentFirewallEnabled() && !netconfig.NativeNetworkEnabled(), nativeBindingValid, func() {
@@ -1031,7 +1004,6 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	out.CleanupConfirmed = cleanup.confirmed()
 	out.Stage = "MAC_SESSION_ENDED"
 	out.ServicesReady = false
-	out.ShareReady = false
 	return
 }
 

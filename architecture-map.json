@@ -20,7 +20,6 @@
     "internal/securitypolicy": "internal/security/securitypolicy",
     "internal/usbgateway": "internal/security/usbgateway",
     "internal/fileshare": "internal/sharing/fileshare",
-    "internal/smbcore": "internal/sharing/smbcore",
     "internal/usbhttp": "internal/sharing/usbhttp",
     "internal/background": "internal/platform/windows/background",
     "internal/devicecheck": "internal/platform/windows/devicecheck",

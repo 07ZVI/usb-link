@@ -482,8 +482,6 @@ func UpdateMacMonitor(m macconnection.Result) {
 			r.MacBridgeDrops = m.BridgeDrops
 			r.ServicesReady = m.ServicesReady
 			r.Benchmark = m.Benchmark
-			r.ShareReady = m.ShareReady
-			r.ShareError = m.ShareError
 			r.ServicesError = m.ServicesError
 			r.Error = m.Error
 			r.RuntimePreparationError = m.PreparationError

@@ -30,8 +30,6 @@ type ApplicationResult struct {
 	BenchmarkURL                                   string                                `json:"benchmark_url,omitempty"`
 	Benchmark                                      throughput.Report                     `json:"throughput_test"`
 	DesktopError                                   string                                `json:"desktop_error,omitempty"`
-	ShareReady                                     bool                                  `json:"share_ready"`
-	ShareError                                     string                                `json:"share_error,omitempty"`
 	MacDHCPStarted                                 bool                                  `json:"mac_dhcp_started"`
 	MacDHCPDiscoveries, MacDHCPOffers, MacDHCPACKs uint64
 	MacSunshineTCPObserved                         bool                    `json:"mac_sunshine_usb_tcp_observed"`

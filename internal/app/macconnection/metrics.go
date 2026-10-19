@@ -27,8 +27,6 @@ type Result struct {
 	PreparationError           string                                `json:"runtime_preparation_error,omitempty"`
 	BenchmarkURL               string                                `json:"benchmark_url,omitempty"`
 	Benchmark                  throughput.Report                     `json:"throughput_test"`
-	ShareReady                 bool                                  `json:"share_ready"`
-	ShareError                 string                                `json:"share_error,omitempty"`
 	DHCPStarted                bool                                  `json:"mac_usb_dhcp_started"`
 	DHCPDiscoveries            uint64                                `json:"mac_dhcp_discoveries"`
 	DHCPOffers                 uint64                                `json:"mac_dhcp_offers"`

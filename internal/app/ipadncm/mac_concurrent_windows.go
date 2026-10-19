@@ -34,7 +34,6 @@ func setMacStatus(status, problem string) {
 			r.Error = problem
 			if status == "MONITOR_WAITING" {
 				r.ServicesReady = false
-				r.ShareReady = false
 				r.ObservedReceiveMbps = 0
 				r.ObservedTransmitMbps = 0
 			}

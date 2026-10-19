@@ -20,7 +20,6 @@ import (
 	"suhang/usbnet/internal/diagnostics/throughput"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/sharing/usbhttp"
 	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/transport/usbaddress"
@@ -619,17 +618,6 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 	defer speedTest.Close()
 	throughput.SetDeviceCurrent("iPad", speedTest)
 
-	var shareServer *fileshare.Server
-	if catalog, shareErr := connectioninstall.ShareCatalog(); shareErr == nil {
-		shareServer, _ = fileshare.NewMulti(catalog, plan.PeerIP(), &fileshare.USB, func() bool { return ctx.Err() == nil })
-	}
-	s.update(func(r *ApplicationResult) { r.ShareReady = shareServer != nil })
-	defer func() {
-		s.update(func(r *ApplicationResult) { r.ShareReady = false })
-		if shareServer != nil {
-			shareServer.Close()
-		}
-	}()
 	usbHandler := http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 		host, _, e := net.SplitHostPort(q.RemoteAddr)
 		if e != nil || host != plan.PeerIP() {
@@ -668,21 +656,7 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 			http.NotFound(w, q)
 		}
 	})
-	var smbHandler func(context.Context, net.Conn)
-	if shareServer != nil {
-		smbHandler = func(ctx context.Context, conn net.Conn) {
-			fresh, er := guard()
-			if er != "" {
-				return
-			}
-			current, er := targetPeerMAC(fresh, net.ParseIP(plan.PeerIP()))
-			if er != "" || current != mac {
-				return
-			}
-			shareServer.ServeSMB(ctx, conn)
-		}
-	}
-	stopHTTP, e := usbhttp.RegisterWithBinary(ctx, peerAddrString(plan), plan.PeerIP(), usbHandler, smbHandler)
+	stopHTTP, e := usbhttp.Register(ctx, peerAddrString(plan), plan.PeerIP(), usbHandler)
 	if e != nil {
 		s.update(func(r *ApplicationResult) { r.Error = "USB_HTTP_LISTENER_UNAVAILABLE" })
 		return

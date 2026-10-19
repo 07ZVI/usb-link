@@ -1,14 +1,12 @@
 package fileshare
 
 import (
-	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestCatalogMountIsolationAndRevocation(t *testing.T) {
+func TestCatalogAddRemoveKeepsLocalData(t *testing.T) {
 	c := NewCatalog(nil)
 	defer c.Close()
 	aDir, bDir := realTemp(t), realTemp(t)
@@ -20,59 +18,24 @@ func TestCatalogMountIsolationAndRevocation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f := catalogFS{c}
-	ctx := context.Background()
-	write := func(path, body string) {
-		h, err := f.OpenFile(ctx, path, os.O_CREATE|os.O_WRONLY, 0600)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err = h.Write([]byte(body)); err != nil {
-			t.Fatal(err)
-		}
-		h.Close()
+	if e = os.WriteFile(filepath.Join(aDir, "hello"), []byte("one"), 0600); e != nil {
+		t.Fatal(e)
 	}
-	read := func(path string) string {
-		h, err := f.OpenFile(ctx, path, os.O_RDONLY, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer h.Close()
-		data, err := io.ReadAll(h)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(data)
+	if p, e := c.Path(a.ID); e != nil || p != aDir {
+		t.Fatal(p, e)
 	}
-	write(a.ID+"/hello", "one")
-	write(b.ID+"/hello", "two")
-	if read(a.ID+"/hello") != "one" || read(b.ID+"/hello") != "two" {
-		t.Fatal("mounts mixed")
-	}
-	if e = f.Rename(context.Background(), a.ID+"/hello", b.ID+"/stolen"); e == nil {
-		t.Fatal("cross-root rename allowed")
-	}
-	if e = f.RemoveAll(context.Background(), a.ID); e == nil {
-		t.Fatal("mount root deleted")
-	}
-	allowed := c.allowed(a.ID + "/hello")
 	if e = c.Remove(a.ID); e != nil {
 		t.Fatal(e)
 	}
-	if allowed() {
-		t.Fatal("inflight access not revoked")
-	}
-	if h, err := f.OpenFile(ctx, a.ID+"/hello", os.O_RDONLY, 0); err == nil {
-		h.Close()
-		t.Fatal("removed share accessible")
+	if _, e = c.Path(a.ID); e == nil {
+		t.Fatal("removed share still resolves")
 	}
 	if data, e := os.ReadFile(filepath.Join(aDir, "hello")); e != nil || string(data) != "one" {
 		t.Fatal("local data removed", e)
 	}
-	if read(b.ID+"/hello") != "two" {
-		t.Fatal("other mount broken")
+	if _, e = c.Path(b.ID); e != nil {
+		t.Fatal("other folder broken", e)
 	}
-
 }
 func TestCatalogRejectsRedirectedRootAndDuplicate(t *testing.T) {
 	c := NewCatalog(nil)
@@ -95,7 +58,7 @@ func TestCatalogRejectsRedirectedRootAndDuplicate(t *testing.T) {
 		t.Fatal("invalid id")
 	}
 }
-func TestCatalogUsesUserForEveryFilesystemMutation(t *testing.T) {
+func TestCatalogUsesUserForEveryFilesystemProbe(t *testing.T) {
 	allowed := true
 	calls := 0
 	c := NewCatalog(func(f func() error) error {
@@ -106,19 +69,14 @@ func TestCatalogUsesUserForEveryFilesystemMutation(t *testing.T) {
 		return f()
 	})
 	defer c.Close()
-	a, e := c.Add("", realTemp(t))
-	if e != nil {
+	if _, e := c.Add("", realTemp(t)); e != nil {
 		t.Fatal(e)
 	}
 	allowed = false
-	f := catalogFS{c}
-	if _, e = f.OpenFile(context.Background(), a.ID+"/new", os.O_CREATE|os.O_WRONLY, 0600); e == nil {
-		t.Fatal("elevated creation")
+	if _, e := c.Add("", realTemp(t)); e == nil {
+		t.Fatal("elevated probe")
 	}
-	if e = f.Mkdir(context.Background(), a.ID+"/directory", 0700); e == nil {
-		t.Fatal("elevated mkdir")
-	}
-	if calls != 3 {
+	if calls != 2 {
 		t.Fatal(calls)
 	}
 }
@@ -146,8 +104,8 @@ func TestUnavailableFolderDoesNotBreakOtherShares(t *testing.T) {
 	if len(c.List()) != 2 {
 		t.Fatal("missing item hidden")
 	}
-	if c.allowed(b.ID + "/data")() {
-		t.Fatal("unavailable share exported")
+	if _, e = c.Path(b.ID); e == nil {
+		t.Fatal("unavailable share resolves")
 	}
 	if _, e = c.Path(a.ID); e != nil {
 		t.Fatal("other share broken", e)
