@@ -8,7 +8,7 @@ flowchart TD
     ui[Avalonia views and state] --> client[DesktopClient / authenticated IPC v1]
     client --> app
     app --> deps[Dependency manager / native progress]
-    app --> sharing[Native SMB / compatibility SMB]
+    app --> sharing[Native SMB / USB diagnostics HTTP]
     app --> security[Authorization / WFP / Internet policy]
     app --> transport[USB / NCM / DHCP / routing]
     app --> platform[Windows adapters and recovery]
@@ -23,7 +23,7 @@ flowchart TD
 | `internal/dependencies` | Pinned official catalog, detection, bounded downloads, verification, native progress and platform installation |
 | `internal/app` | Lifecycle, connection coordination, upgrades, installation and recovery orchestration |
 | `internal/transport` | WinUSB/Wintun, NCM packets, DHCP, point-to-point addresses and routing admission |
-| `internal/sharing` | SMB folder/account policy, compatibility SMB, network diagnostics and protocol helpers |
+| `internal/sharing` | shared-folder catalog, per-peer USB HTTP listener (speed test and diagnostics) and protocol helpers |
 | `internal/security` | Device/application authorization, USB WFP scope, native Internet backend |
 | `internal/platform/windows` | Native Windows APIs, network configuration, service/driver adaptation |
 | `internal/contracts` | Authenticated IPC v1 request/response contract |
@@ -42,9 +42,9 @@ C# interpretation, including stale-slot removal and shutdown.
 
 Policy and native mutation have separate boundaries: `dependencies.Platform` controls detect/verify/install; `internet.Backend` controls preflight/journal/create/open/close/readback. Routing policy contains no system calls. Existing Windows implementations remain separated by build tags from pure policy/tests. Go's compiler rejects package cycles, and `scripts/check_architecture.py` checks ownership and lower-layer imports. Integration tests may import application fixtures without changing production dependencies.
 
-## Native SMB and compatibility SMB
+## Native SMB
 
-Native SMB uses Windows' service, account and folder ACL APIs on port 445. Compatibility SMB stays in `internal/sharing/smbcore` on port 10690 with its original MIT provenance and local security changes. Their authority, account lifecycle, directory access checks, diagnostics and acceptance are separate. Neither a successful compatibility test nor a mount from retained history proves native SMB acceptance.
+Native SMB uses Windows' service, account and folder ACL APIs on port 445; the program ships no SMB server of its own. The former built-in compatibility SMB server (port 10690) was removed in 0.10.56. Port 10690 now serves only the HTTP speed test, USB verification page and maintenance discovery, and `internal/sharing/fileshare` keeps only the folder catalog that native SMB shares from. A mount from retained history does not prove native SMB acceptance.
 
 ## IPC and authority
 
