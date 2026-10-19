@@ -390,7 +390,7 @@ func (o *nativeInstallation) Quiesce(ctx context.Context, t InstallationTransact
 	}
 	if b == *t.Previous {
 		if e = closeInstallationLoginClients(ctx, b, func() error { return StopExpectedCoreService(b) }); e != nil {
-			return e
+			return fmt.Errorf("close_clients: %w", e)
 		}
 	}
 	return StopExpectedCoreService(b)
@@ -468,26 +468,31 @@ func (o *nativeInstallation) Publish(t InstallationTransaction) error {
 }
 
 func (o *nativeInstallation) Start(t InstallationTransaction) error {
+	began := time.Now()
 	RepairProtectedStores()
 	exe := filepath.Join(o.app, BinaryName)
 	if e := bindCoreService(exe, nil, "", false); e != nil {
-		return e
+		return fmt.Errorf("bind_service: %w", e)
 	}
 	if e := SetStartupContext(context.Background(), t.StartupEnabled, exe); e != nil {
-		return e
+		return fmt.Errorf("startup_context: %w", e)
 	}
 	if e := Register(exe, t.Next.Version); e != nil {
-		return e
+		return fmt.Errorf("register: %w", e)
 	}
 	if e := UpdateShortcut(exe, false); e != nil {
-		return e
+		return fmt.Errorf("shortcut: %w", e)
 	}
 	if e := SetCoreAutomatic(t.StartupEnabled); e != nil {
-		return e
+		return fmt.Errorf("set_automatic: %w", e)
 	}
-	return StartCoreService()
+	return startEvidence(StartCoreService(), t.Next.Version, began)
 }
 func (o *nativeInstallation) AwaitAcceptance(ctx context.Context, t InstallationTransaction) error {
+	began := time.Now()
+	return startEvidence(o.awaitAcceptance(ctx, t), t.Next.Version, began.Add(-30*time.Second))
+}
+func (o *nativeInstallation) awaitAcceptance(ctx context.Context, t InstallationTransaction) error {
 	began := time.Now()
 	wait, stop := context.WithTimeout(ctx, 90*time.Second)
 	defer stop()
@@ -573,17 +578,18 @@ func (o *nativeInstallation) Cleanup(t InstallationTransaction) error {
 	return nil
 }
 func (o *nativeInstallation) Restore(t InstallationTransaction) error {
+	began := time.Now()
 	RepairProtectedStores()
 	if e := o.Verify(t); e != nil {
-		return e
+		return fmt.Errorf("restore_verify: %w", e)
 	}
 	current, found, e := readCoreBinding()
 	if e != nil {
-		return e
+		return fmt.Errorf("restore_read_binding: %w", e)
 	}
 	if found {
 		if e = StopExpectedCoreService(current); e != nil {
-			return e
+			return fmt.Errorf("restore: %w", e)
 		}
 	}
 	if t.Previous == nil {
@@ -642,7 +648,7 @@ func (o *nativeInstallation) Restore(t InstallationTransaction) error {
 	}
 
 	if e = bindCoreService(old.Executable, nil, "", false); e != nil {
-		return e
+		return fmt.Errorf("restore: bind_service: %w", e)
 	}
 	// An old release still reads its original Program Files metadata. Keep that
 	// exact binding in sync before restarting it; protected state is retained.
@@ -667,24 +673,25 @@ func (o *nativeInstallation) Restore(t InstallationTransaction) error {
 	}
 	r, e := readReceipt(filepath.Dir(old.Executable))
 	if e != nil {
-		return e
+		return fmt.Errorf("restore_read_receipt: %w", e)
 	}
+	rv := r.Version
 	if e = Register(old.Executable, r.Version); e != nil {
-		return e
+		return fmt.Errorf("restore: register: %w", e)
 	}
 	if e = UpdateShortcut(old.Executable, false); e != nil {
-		return e
+		return fmt.Errorf("restore: shortcut: %w", e)
 	}
 	if e = SetStartupContext(context.Background(), t.StartupEnabled, old.Executable); e != nil {
-		return e
+		return fmt.Errorf("restore: startup_context: %w", e)
 	}
 	if t.PreviousStartType != 0 {
 		if e = SetCoreAutomatic(t.PreviousStartType == 2); e != nil {
-			return e
+			return fmt.Errorf("restore: set_automatic: %w", e)
 		}
 	}
 	if e = StartCoreService(); e != nil {
-		return e
+		return fmt.Errorf("restore: %w", startEvidence(e, rv, began))
 	}
 	if !strings.EqualFold(filepath.Dir(old.Executable), o.app) {
 		if e = removeReleaseFiles(o.app, t.NextFiles); e != nil {

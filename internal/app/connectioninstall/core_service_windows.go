@@ -388,23 +388,30 @@ func StartCoreService() (result error) {
 		return fmt.Errorf("CORE_SERVICE_TRANSITION_PENDING")
 	}
 	if e = s.Start(); e != nil {
-		return e
+		if errors.Is(e, windows.ERROR_SERVICE_REQUEST_TIMEOUT) {
+			// SCM gives no reason; the state and exit codes tell a core that
+			// ended before dispatching from one that is still starting.
+			if st, qe := s.Query(); qe == nil {
+				return fmt.Errorf("start_service: %w (%s)", e, formatCoreServiceExit(&coreServiceExit{uint32(st.State), st.Win32ExitCode, st.ServiceSpecificExitCode}))
+			}
+		}
+		return fmt.Errorf("start_service: %w", e)
 	}
 	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		state, e = s.Query()
 		if e != nil {
-			return e
+			return fmt.Errorf("query_service: %w", e)
 		}
 		if state.State == svc.Running {
 			return nil
 		}
 		if state.State == svc.Stopped {
-			return fmt.Errorf("CORE_SERVICE_START_FAILED")
+			return fmt.Errorf("start_service: CORE_SERVICE_START_FAILED (%s)", formatCoreServiceExit(&coreServiceExit{uint32(state.State), state.Win32ExitCode, state.ServiceSpecificExitCode}))
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("CORE_SERVICE_START_PENDING")
+	return fmt.Errorf("start_service: CORE_SERVICE_START_PENDING")
 }
 func StopCoreService() (result error) {
 	unlock, e := coreLifecycleLock()
@@ -458,7 +465,10 @@ func StopExpectedCoreService(expected CoreServiceBinding) (result error) {
 	if current != expected {
 		return fmt.Errorf("CORE_SERVICE_EXPECTED_BINDING_CHANGED")
 	}
-	return stopCore(s)
+	if e = stopCore(s); e != nil {
+		return fmt.Errorf("stop_service: %w", e)
+	}
+	return nil
 }
 func VerifyCoreServiceProcess(pid uint32) error {
 	m, e := mgr.Connect()

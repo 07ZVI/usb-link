@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc/eventlog"
 	"io"
 	"log"
 	"os"
@@ -88,34 +89,85 @@ var coreLogStartup atomic.Value
 var prompts = coreprompt.New()
 var coreUpdateNotices = coreupdatenotice.New(verifyCoreNoticeClientLifetime)
 
+// coreDispatched is set once SCM hosts this process. Until then any return is
+// a start timeout (1053) to SCM with no visible reason, so it is recorded.
+var coreDispatched atomic.Bool
+
+func coreEarlyExit(stage string, err error) {
+	connectioninstall.RecordCoreEarlyExit(version, stage, err)
+	if l, e := eventlog.Open("USB Link"); e == nil {
+		_ = l.Error(1, fmt.Sprintf("USB Link core %s ended before the service dispatcher: stage=%s error=%v", version, stage, err))
+		_ = l.Close()
+	}
+}
+
+// guardStartup runs advisory pre-dispatch work: a panic is turned into a line
+// for the core log and never keeps the core from reaching the dispatcher.
+func guardStartup(stage string, work func()) (line string) {
+	defer func() {
+		if r := recover(); r != nil {
+			line = fmt.Sprintf("CORE_PREDISPATCH_PANIC stage=%s panic=%v", stage, r)
+			coreterm.Stage("predispatch_"+stage, line)
+		}
+	}()
+	work()
+	return ""
+}
+
 func runCoreService() {
+	defer func() {
+		if r := recover(); r != nil {
+			if !coreDispatched.Load() {
+				coreEarlyExit("PANIC", fmt.Errorf("%v", r))
+			}
+			panic(r)
+		}
+	}()
 	exe, err := os.Executable()
 	if err != nil {
+		coreEarlyExit("CORE_EXECUTABLE_UNKNOWN", err)
 		return
 	}
 	binding, err := connectioninstall.ActivateCoreOwner(exe)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "CORE_ACTIVATION_FAILED:", err)
+		coreEarlyExit("CORE_ACTIVATION_FAILED", err)
 		return
 	}
 	coreProcessMode = true
 	releaseSource, err := connectioninstall.PinCoreSelfSource(exe)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "CORE_SOURCE_PIN_FAILED:", err)
+		coreEarlyExit("CORE_SOURCE_PIN_FAILED", err)
 		return
 	}
 	defer releaseSource()
 	remoteInstallID, err = connectioninstall.CoreRemoteLaunch(version)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "CORE_REMOTE_LAUNCH_FAILED:", err)
+		coreEarlyExit("CORE_REMOTE_LAUNCH_FAILED", err)
 		return
 	}
 	logger := log.New(os.Stderr, "USBLinkCore ", log.LstdFlags|log.LUTC)
-	repaired, repairs := repairProtectedStores()
+	var repaired []string
+	var repairs []protectedacl.Repair
+	note := func(line string) {
+		if line != "" {
+			repaired = append(repaired, line)
+		}
+	}
+	note(guardStartup("protected_repair", func() {
+		var lines []string
+		lines, repairs = repairProtectedStores()
+		repaired = append(repaired, lines...)
+	}))
 	// Only here: after the repair, before any store or core.log opens.
-	repaired = append(repaired, connectioninstall.MigrateMachineFolders(repairs)...)
-	coreLogStartup.Store(connectioninstall.CoreLogEvidence())
-	if output, _, logErr := connectioninstall.OpenCoreLog(); logErr == nil {
+	note(guardStartup("folder_migration", func() { repaired = append(repaired, connectioninstall.MigrateMachineFolders(repairs)...) }))
+	note(guardStartup("core_log_evidence", func() { coreLogStartup.Store(connectioninstall.CoreLogEvidence()) }))
+	var output io.WriteCloser
+	logErr := errors.New("CORE_LOG_OPEN_PANIC")
+	note(guardStartup("core_log_open", func() { output, _, logErr = connectioninstall.OpenCoreLog() }))
+	if logErr == nil && output != nil {
 		logger.SetOutput(output)
 		log.SetOutput(output)
 		defer func() { log.SetOutput(os.Stderr); _ = output.Close() }()
@@ -135,6 +187,7 @@ func runCoreService() {
 	}
 	if err = background.RunCoreService(background.CoreOptions{
 		Executable: exe, OwnerSID: binding.OwnerSID, Verify: verifyCore, Log: logger,
+		Dispatched: func() { coreDispatched.Store(true); connectioninstall.ClearCoreEarlyExit() },
 		Terminated: func(reason string, code uint32) { coreterm.End(reason, code, time.Now()) },
 		Run: func(ctx context.Context, owner background.CoreContext) error {
 			appCtx, cancel := context.WithCancel(ctx)
@@ -217,6 +270,9 @@ func runCoreService() {
 		}, Handle: handleCoreRequest,
 	}); err != nil {
 		logger.Print(err)
+		if !coreDispatched.Load() {
+			coreEarlyExit("CORE_SERVICE_DISPATCH", err)
+		}
 	}
 }
 

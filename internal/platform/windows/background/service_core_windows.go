@@ -35,6 +35,8 @@ type CoreOptions struct {
 	Log    *log.Logger
 	Run    func(context.Context, CoreContext) error
 	Handle func(context.Context, coreipc.Peer, coreipc.Request) (coreipc.Response, error)
+	// Dispatched runs when SCM first hosts the service, before any check.
+	Dispatched func()
 	// Terminated reports why the service is returning, for diagnostics only.
 	Terminated func(reason string, exitCode uint32)
 }
@@ -67,6 +69,9 @@ type coreService struct{ options CoreOptions }
 func (s *coreService) Execute(_ []string, requests <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	changes <- svc.Status{State: svc.StartPending, WaitHint: 30000, CheckPoint: 1}
 	o := s.options
+	if o.Dispatched != nil {
+		o.Dispatched()
+	}
 	terminated := func(reason string, code uint32) {
 		if o.Terminated != nil {
 			o.Terminated(reason, code)

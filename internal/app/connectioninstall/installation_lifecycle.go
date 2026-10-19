@@ -151,14 +151,14 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		result = t
 		return nil
 	}
-	step := func(action func() error) error {
+	step := func(name string, action func() error) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
 		if e := ops.Verify(t); e != nil {
-			return e
+			return fmt.Errorf("INSTALL_%s_VERIFY_FAILED: %w", name, e)
 		}
-		return action()
+		return installStepError(name, action())
 	}
 	// Once accepted, an interrupted cleanup resumes cleanup, never rolls a
 	// successfully running release back merely because an old file was busy.
@@ -166,7 +166,7 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		if e := set(InstallCleaning); e != nil {
 			return result, e
 		}
-		if e := step(func() error { return ops.Cleanup(t) }); e != nil {
+		if e := step("CLEANUP", func() error { return ops.Cleanup(t) }); e != nil {
 			return result, e
 		}
 		err = set(InstallComplete)
@@ -176,7 +176,7 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		return result, ops.Verify(t)
 	}
 	if t.Phase == InstallRestoring {
-		if e := step(func() error { return ops.Restore(t) }); e != nil {
+		if e := step("RESTORE", func() error { return ops.Restore(t) }); e != nil {
 			return result, e
 		}
 		err = set(InstallRolledBack)
@@ -201,7 +201,7 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		}
 	}()
 	if t.Phase == InstallStaged {
-		if e := step(func() error { return nil }); e != nil {
+		if e := step("STAGE", func() error { return nil }); e != nil {
 			return result, e
 		}
 		if e := set(InstallQuiescing); e != nil {
@@ -209,10 +209,10 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		}
 	}
 	if t.Phase == InstallQuiescing {
-		if e := step(func() error { return ops.Quiesce(ctx, t) }); e != nil {
+		if e := step("QUIESCE", func() error { return ops.Quiesce(ctx, t) }); e != nil {
 			return result, e
 		}
-		if e := step(func() error { return ops.BindPrevious(t) }); e != nil {
+		if e := step("BIND_PREVIOUS", func() error { return ops.BindPrevious(t) }); e != nil {
 			return result, e
 		}
 		if e := set(InstallPreviousBound); e != nil {
@@ -220,7 +220,7 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		}
 	}
 	if t.Phase == InstallPreviousBound {
-		if e := step(func() error { return ops.Publish(t) }); e != nil {
+		if e := step("PUBLISH", func() error { return ops.Publish(t) }); e != nil {
 			return result, e
 		}
 		if e := set(InstallPublished); e != nil {
@@ -228,7 +228,7 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		}
 	}
 	if t.Phase == InstallPublished {
-		if e := step(func() error { return ops.Start(t) }); e != nil {
+		if e := step("START", func() error { return ops.Start(t) }); e != nil {
 			return result, e
 		}
 		if e := set(InstallStarted); e != nil {
@@ -236,7 +236,7 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 		}
 	}
 	if t.Phase == InstallStarted {
-		if e := step(func() error { return ops.AwaitAcceptance(ctx, t) }); e != nil {
+		if e := step("AWAIT_ACCEPTANCE", func() error { return ops.AwaitAcceptance(ctx, t) }); e != nil {
 			return result, e
 		}
 		if e := set(InstallAccepted); e != nil {
@@ -246,11 +246,20 @@ func ExecuteInstallation(ctx context.Context, t InstallationTransaction, ops Ins
 	if e := set(InstallCleaning); e != nil {
 		return result, e
 	}
-	if e := step(func() error { return ops.Cleanup(t) }); e != nil {
+	if e := step("CLEANUP", func() error { return ops.Cleanup(t) }); e != nil {
 		return result, e
 	}
 	err = set(InstallComplete)
 	return result, err
+}
+
+// installStepError names the lifecycle operation that failed; a cancelled
+// context keeps its bare identity and every cause stays in the %w chain.
+func installStepError(name string, e error) error {
+	if e == nil || errors.Is(e, context.Canceled) {
+		return e
+	}
+	return fmt.Errorf("INSTALL_%s_FAILED: %w", name, e)
 }
 
 func installationInventoriesEqual(a, b map[string]string) bool {
