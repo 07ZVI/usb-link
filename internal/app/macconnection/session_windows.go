@@ -589,6 +589,9 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					}
 				}
 			}
+			if summary, ok := parseDescriptorSummary(line); ok {
+				update(func(r *Result) { r.NCMDescriptors = summary })
+			}
 			if mtu, healthy, ok := parsePathState(line); ok {
 				update(func(r *Result) {
 					r.EffectiveMTU = mtu

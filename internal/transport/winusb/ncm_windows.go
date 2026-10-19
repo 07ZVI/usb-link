@@ -149,6 +149,7 @@ func initializeNCM(group int, parent bool, timeoutMS uint32, l *log.Logger, tria
 		return nil, e
 	}
 	l.Printf("configuration descriptor=%x", config)
+	l.Print(ncm.DescriptorSummaryPrefix + describeNCMDescriptors(dev, config, cd.Number, dataSettings, dataPipes[1]))
 	f, e := ncm.ParsePairedFunction(config, cd.Number, dataSettings[0], dataSettings[1], dataPipes[1])
 	if e != nil {
 		return nil, e
@@ -289,6 +290,17 @@ func initializeNCM(group int, parent bool, timeoutMS uint32, l *log.Logger, tria
 
 	ok = true
 	return &NCMDevice{Control: control, Data: data, In: in, Out: out, Parameters: p, MaxSegment: f.MaxSegment, ReadSize: readSize, handles: handles, logger: l, Datagram: datagram, ControlNumber: uint16(cd.Number)}, nil
+}
+
+// describeNCMDescriptors summarizes descriptors this function already read. It
+// issues no USB request, and a failure here can never change initialization.
+func describeNCMDescriptors(device, config []byte, control byte, settings [2]InterfaceDescriptor, pipes []Pipe) (text string) {
+	defer func() {
+		if recover() != nil {
+			text = "unavailable"
+		}
+	}()
+	return ncm.SummarizeDescriptors(device, config, control, settings[0], settings[1], pipes).String()
 }
 
 // MatchesOpenedPair checks the immutable paths used by these actual owned

@@ -8,6 +8,7 @@ import (
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/transport/ipadsession"
+	"suhang/usbnet/internal/transport/ncm"
 )
 
 type Result struct {
@@ -20,6 +21,7 @@ type Result struct {
 	NativeDiagnosticSource     string                                `json:"native_diagnostic_source,omitempty"`
 	NativeStartupFailure       netconfig.NativeStepDiagnostic        `json:"native_startup_failure,omitempty"`
 	InterfaceConfig            []interfaceconfig.OperationTiming     `json:"mac_interface_configuration_operations,omitempty"`
+	NCMDescriptors             string                                `json:"mac_ncm_descriptor_summary,omitempty"`
 	EffectiveMTU               int                                   `json:"effective_mtu,omitempty"`
 	PathMTUWarning             string                                `json:"path_mtu_warning,omitempty"`
 	PreparationError           string                                `json:"runtime_preparation_error,omitempty"`
@@ -70,6 +72,26 @@ func parsePathState(line string) (mtu int, healthy, ok bool) {
 		return
 	}
 	return n, v == "true", true
+}
+
+var descriptorSummaryPattern = regexp.MustCompile(`^[A-Za-z0-9 _{}()\[\],:=./-]+$`)
+
+// parseDescriptorSummary accepts only the bridge's fixed numeric one-line
+// summary. It is display text for the exported diagnostics, never an input to
+// any connection decision.
+func parseDescriptorSummary(line string) (string, bool) {
+	if len(line) > 4096 {
+		return "", false
+	}
+	i := strings.Index(line, ncm.DescriptorSummaryPrefix)
+	if i < 0 {
+		return "", false
+	}
+	summary := strings.TrimSpace(line[i+len(ncm.DescriptorSummaryPrefix):])
+	if summary == "" || len(summary) > 2048 || !descriptorSummaryPattern.MatchString(summary) {
+		return "", false
+	}
+	return summary, true
 }
 
 var counterPattern = regexp.MustCompile(`\b(ToMacBytes|ToWindowsBytes|Dropped):([0-9]+)\b`)

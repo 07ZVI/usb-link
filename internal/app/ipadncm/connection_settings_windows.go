@@ -469,6 +469,7 @@ func UpdateMacMonitor(m macconnection.Result) {
 			r.WindowsIPv4 = "10.6.9.1"
 			r.MacPeerResolved = m.PeerResolved
 			r.MacEffectiveMTU = m.EffectiveMTU
+			r.MacNCMDescriptors = m.NCMDescriptors
 			r.MacPathMTUWarning = m.PathMTUWarning
 			r.MacDHCPStarted = m.DHCPStarted
 			r.MacDHCPDiscoveries, r.MacDHCPOffers, r.MacDHCPACKs = m.DHCPDiscoveries, m.DHCPOffers, m.DHCPACKs

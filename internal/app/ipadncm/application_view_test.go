@@ -128,3 +128,21 @@ func TestIPadWaitingViewHintsUSBRestrictedMode(t *testing.T) {
 		t.Fatal("hint only while waiting for a device")
 	}
 }
+
+func TestMacNCMDescriptorSummaryReachesExportedDetailOnly(t *testing.T) {
+	r := ApplicationResult{DeviceKind: "Mac", Status: "MAC_RUNNING", WindowsIPv4: "10.6.9.1"}
+	if _, _, detail := applicationView(r, false); strings.Contains(detail, "NCM 描述符") {
+		t.Fatal("absent summary must not add a line", detail)
+	}
+	r.MacNCMDescriptors = "device{vid=05ac pid=1903} iad{present=no}"
+	title, _, detail := applicationView(r, false)
+	if !strings.Contains(detail, "Mac NCM 描述符摘要（唯讀，取自初始化時已讀取的描述符）：device{vid=05ac pid=1903} iad{present=no}") {
+		t.Fatal("summary missing from exported detail", detail)
+	}
+	other := r
+	other.MacNCMDescriptors = ""
+	otherTitle, _, _ := applicationView(other, false)
+	if title != otherTitle || connectionSubtitle(r) != connectionSubtitle(other) {
+		t.Fatal("summary must not change titles or connection state")
+	}
+}

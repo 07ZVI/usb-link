@@ -16,3 +16,20 @@ func TestBridgeStatsUseDirectionalBytesAndRejectMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestDescriptorSummaryLineIsFixedNumericTextOnly(t *testing.T) {
+	good := "2026/10/19 USB_MAC_NCM_DESCRIPTOR_SUMMARY device{vid=05ac pid=1903 bcdDevice=0x0510} iad{present=no} data{pipes_alt1=0x81:bulk:max1024:iv0 bulk_in=yes}"
+	got, ok := parseDescriptorSummary(good)
+	if !ok || !strings.HasPrefix(got, "device{vid=05ac") || strings.Contains(got, "USB_MAC") {
+		t.Fatal("summary rejected or prefix retained", got, ok)
+	}
+	for _, bad := range []string{
+		"no marker", "USB_MAC_NCM_DESCRIPTOR_SUMMARY ", "USB_MAC_NCM_DESCRIPTOR_SUMMARY serial=ABC\u0000",
+		"USB_MAC_NCM_DESCRIPTOR_SUMMARY a;b", "USB_MAC_NCM_DESCRIPTOR_SUMMARY \"quoted\"",
+		"USB_MAC_NCM_DESCRIPTOR_SUMMARY " + strings.Repeat("a", 2049), strings.Repeat("x", 4097),
+	} {
+		if _, ok := parseDescriptorSummary(bad); ok {
+			t.Fatalf("accepted %q", bad)
+		}
+	}
+}
