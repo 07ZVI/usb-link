@@ -994,6 +994,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		_, _ = save(r)
 		ipadncm.SetMonitorStatus("MONITOR_RECOVERY_PENDING", r.Error)
 	}
+	ipadncm.RemoveTrayAndWait()
 	shutdowntrace.Wrap(shutdowntrace.PhaseUIStop, closeUI)()
 	// Normal exit performs network cleanup only. Diagnostics remain opt-in in
 	// the live UI; never archive or launch Explorer as a shutdown side effect.

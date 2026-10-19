@@ -511,6 +511,8 @@ func setCoreStartup(ctx context.Context, enabled bool, exe string) error {
 }
 
 func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, minimized bool) {
+	// Whatever the exit path, no tray icon may outlive this process.
+	defer ipadncm.RemoveTrayAndWait()
 	loginStarted := time.Now()
 	var loginNonce [16]byte
 	loginRequest := ""
