@@ -35,33 +35,6 @@ func desktopExperimentControl(value any) any {
 	return result
 }
 
-// Keep event samples and provider details in diagnostics, not the UI envelope.
-func desktopUSBTraceSummary(value any) any {
-	b, err := json.Marshal(value)
-	if err != nil {
-		return nil
-	}
-	var source map[string]json.RawMessage
-	if json.Unmarshal(b, &source) != nil || source == nil {
-		return nil
-	}
-	if string(source["available"]) == "false" && string(source["phase"]) == `"local_build_required"` {
-		return nil
-	}
-	result := map[string]json.RawMessage{}
-	for _, key := range []string{"available", "requested", "active", "phase", "error", "coverage", "target_scope", "started_utc", "last_event_utc", "stopped_utc", "received", "accepted", "queue_overflow", "schema_rejected", "events_lost", "realtime_buffers_lost", "queue_dropped", "unregister_failed", "archive_rejected", "late_events", "timestamp_unknown", "cancelled_events", "cancelled_starts", "cancelled_before_ready", "cancelled_start_queue_dropped", "subscriptions_ready_utc", "rejected", "rejected_size", "rejected_instance_metadata", "rejected_interface_metadata", "query_ownership", "first_query_failure"} {
-		if v, ok := source[key]; ok {
-			result[key] = v
-		}
-	}
-	for _, key := range []string{"received_semantics", "callbacks_received", "session_metadata_callbacks", "session_header_callbacks", "unknown_provider_callbacks", "invalid_header_callbacks", "known_provider_shape_rejected", "known_provider_template_rejected", "known_provider_scalar_rejected", "rejected_header_count", "rejected_header_signatures_omitted"} {
-		if v, ok := source[key]; ok {
-			result[key] = v
-		}
-	}
-	return result
-}
-
 var desktopSnapshotObservation struct {
 	sync.Mutex
 	Status  string `json:"status"`

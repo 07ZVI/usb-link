@@ -190,7 +190,7 @@ func TestSoftwareRestartFlagsRejectMixedModesBeforeFileOrNetworkAccess(t *testin
 		{"--restart", "--status"}, {"--restart", "--restart-status"}, {"--restart=false"},
 		{"--restart", "--exe", "unreadable"}, {"--restart-status", "--stage-only"},
 		{"--restart", "--sign-key", "must-not-open"}, {"--restart", "--init-key", "must-not-create"},
-		{"--restart-status", "--collect-archives", "must-not-create"}, {"--restart-status", "--version", "1.0.0"},
+		{"--restart-status", "--version", "1.0.0"},
 	} {
 		if err := run(flags, io.Discard); err == nil || !strings.Contains(err.Error(), "choose restart or restart-status") {
 			t.Fatalf("mixed restart flags reached file or network access: %q %v", flags, err)

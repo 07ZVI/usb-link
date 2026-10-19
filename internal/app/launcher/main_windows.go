@@ -47,10 +47,6 @@ func ApplicationExitCleanupError() error {
 	return nil
 }
 
-// Publisher-only diagnostic candidate: ordinary iPad auto-connect is held.
-// Default OFF; this is not a persisted user setting or remotely supplied flag.
-const unpairedDiagnosticStartupHold = false
-
 // Frozen publisher-only rollback fixture. Never selected by IPC, environment or UI.
 const intentionalCandidateFailure = false
 
@@ -388,12 +384,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		_ = ipadncm.InitSimplifiedIPadNetwork(recoveryDir)
 		r.Recovery = ipadncm.InspectPersistentNetworkGrouping(recoveryDir)
 		ipadncm.RecordSimplifiedGroupingWarning(r.Recovery.Error)
-		defer ipadncm.StartConnectionArchive(ctx, recoveryDir)()
-		defer shutdowntrace.Wrap(shutdowntrace.PhaseEnvironmentStop, ipadncm.StartConnectionEnvironment(ctx, version))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseDefaultIsolationStop, ipadncm.StartDefaultNetworkIsolation(ctx, recoveryDir))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseWPDStop, ipadncm.StartLocalWPDTrace(ctx, recoveryDir))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseUSBStop, ipadncm.StartLocalUSBTrace(ctx, recoveryDir))()
-		defer shutdowntrace.Wrap(shutdowntrace.PhasePnPStop, ipadncm.StartLocalPnPTrace(ctx))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseDirectStop, ipadncm.StartLocalNCMDirect(ctx, recoveryDir))()
 	}
 	var macRecovery macconnection.RecoveryReport
@@ -496,20 +489,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		developerRemote.SetMeasurementRootBaseline(macconnection.SetRootPollingBaseline)
 		developerRemote.SetIPadDiagnostic(func(kind string) (any, error) {
 			switch kind {
-			case "IPADUNPAIREDPREFLIGHT":
-				var metadata ipadncm.UnpairedPairMetadataReadback
-				preflight := ipadncm.InspectUnpairedExperimentPreflight(func(s ipadncm.Snapshot) (ipadncm.UnpairedPairMetadata, error) {
-					metadata = ipadncm.InspectUnpairedPairMetadataReadback(s)
-					if metadata.Error != "" {
-						return metadata.Metadata, fmt.Errorf("%s", metadata.Error)
-					}
-					return metadata.Metadata, nil
-				})
-				return map[string]any{"preflight": preflight, "pair_file_metadata": metadata}, nil
-			case "IPADUNPAIREDPREP", "IPADUNPAIREDFINISH", "IPADUNPAIREDREPLIED", "IPADAMDSRUNNING", "IPADAMDSSTOPPED":
+			case "IPADUNPAIREDPREFLIGHT", "IPADUNPAIREDSTATE", "IPADCANDIDATESTATE", "IPADUNPAIREDPREP", "IPADUNPAIREDFINISH", "IPADUNPAIREDREPLIED", "IPADAMDSRUNNING", "IPADAMDSSTOPPED":
 				return nil, fmt.Errorf("legacy isolation diagnostics retired")
-			case "IPADUNPAIREDSTATE":
-				return ipadncm.UnpairedExperimentSnapshot(), nil
 			case "IPADSOFTRECONNECT":
 				if err := ipadncm.RequestIPadSoftwareReconnect(ctx); err != nil {
 					return nil, err
@@ -571,13 +552,11 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 				return ipadncm.SimplifiedIPadNetworkSnapshot(), nil
 			case "IPADNETWORKONLYON", "IPADNETWORKONLYOFF", "IPADNETWORKONLYPHASEON", "IPADNETWORKONLYPHASEOFF", "IPADDIAGNOSTICHOLD", "IPADDIAGNOSTICCANCEL", "IPADDIAGNOSTICRESULT", "IPADCANDIDATE3", "IPADCANDIDATE41", "IPADCANDIDATE42", "IPADCANDIDATE43", "IPADCANDIDATE5", "IPADCANDIDATEDEFAULT":
 				return nil, fmt.Errorf("legacy isolation diagnostics retired")
-			case "IPADCANDIDATESTATE":
-				return ipadncm.IPadCandidateSnapshot(), nil
 			default:
 				return nil, fmt.Errorf("unknown iPad diagnostic")
 			}
 		}, func() bool {
-			return ipadncm.UnpairedExperimentBusy() || ipadncm.AMDSModeDiagnosticActive() || ipadncm.IPadCandidateBusy() || ipadncm.NetworkOnlySnapshot().Busy || ipadncm.IPadSoftwareReconnectBusy()
+			return ipadncm.NetworkOnlySnapshot().Busy || ipadncm.IPadSoftwareReconnectBusy()
 		})
 		developerRemote.SetRecoveryTest(func() error {
 			if !ipadncm.RemoteUSBConnectionHealthy() {
@@ -621,34 +600,14 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			return result
 		})
 		developerRemote.SetRuntimeDetails(func() any {
-			return map[string]any{"intentional_candidate_failure": intentionalCandidateFailure, "wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(), "firewall_shadow": netconfig.FirewallShadowDiagnostics(), "resident_firewall_failures": netconfig.ResidentFirewallFailureDiagnostics(), "ipad_address_projection": netconfig.IPadAddressProjectionSnapshot(), "owned_dad_observations": ownedDADDiagnostics(recoveryDir), "connections": ipadncm.ConnectionRuntimeDetails(), "mac_native_failure": macconnection.NativeStartupFailureDetails(), "recovery": lastRecovery.Load(), "startup_timing": startuptelemetry.Snapshot(), "startup_task": connectioninstall.LastStartupTaskObservation(), "startup_trigger_details": connectioninstall.NativeStartupTriggerDetails(), "core_service": connectioninstall.CoreServiceStatus(), "startup_options": startupopt.Snapshot(), "connection_measurement": ipadncm.ConnectionMonitorDiagnostics(), "native_firewall_schema": nativeFirewallSchema.Load(), "native_interface_schema": nativeInterfaceSchema.Load(), "native_read_compatibility": nativeReadCompatibility.Load(), "network_operation_timings": netconfig.NativeOperationTimingsSnapshot(), "interface_operation_timings": interfaceconfig.ObservationsSnapshot(), "shared_host_startup": sharedHostStartupDiagnostics(recoveryDir), "ui_events": ipadncm.UIEvents(), "ui_open_timings": uistartup.Snapshot(), "device_guard_watch": ipadncm.DeviceWatchDetails(), "ipad_network": ipadncm.SimplifiedIPadNetworkSnapshot(), "ipad_candidate": ipadncm.IPadCandidateSnapshot(), "ipad_unpaired_experiment": ipadncm.UnpairedExperimentSnapshot(), "ipad_software_reconnect": ipadncm.IPadSoftwareReconnectSnapshot()}
+			return map[string]any{"intentional_candidate_failure": intentionalCandidateFailure, "wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(), "firewall_shadow": netconfig.FirewallShadowDiagnostics(), "resident_firewall_failures": netconfig.ResidentFirewallFailureDiagnostics(), "ipad_address_projection": netconfig.IPadAddressProjectionSnapshot(), "owned_dad_observations": ownedDADDiagnostics(recoveryDir), "connections": ipadncm.ConnectionRuntimeDetails(), "mac_native_failure": macconnection.NativeStartupFailureDetails(), "recovery": lastRecovery.Load(), "startup_timing": startuptelemetry.Snapshot(), "startup_task": connectioninstall.LastStartupTaskObservation(), "startup_trigger_details": connectioninstall.NativeStartupTriggerDetails(), "core_service": connectioninstall.CoreServiceStatus(), "startup_options": startupopt.Snapshot(), "connection_measurement": ipadncm.ConnectionMonitorDiagnostics(), "native_firewall_schema": nativeFirewallSchema.Load(), "native_interface_schema": nativeInterfaceSchema.Load(), "native_read_compatibility": nativeReadCompatibility.Load(), "network_operation_timings": netconfig.NativeOperationTimingsSnapshot(), "interface_operation_timings": interfaceconfig.ObservationsSnapshot(), "shared_host_startup": sharedHostStartupDiagnostics(recoveryDir), "ui_events": ipadncm.UIEvents(), "ui_open_timings": uistartup.Snapshot(), "device_guard_watch": ipadncm.DeviceWatchDetails(), "ipad_network": ipadncm.SimplifiedIPadNetworkSnapshot(), "ipad_software_reconnect": ipadncm.IPadSoftwareReconnectSnapshot()}
 		})
 		configureLocalRemote(developerRemote)
 		macconnection.DeveloperStatus = func() any { return developerRemote.ListenerStatus() }
 	}
 	if buildinfo.LocalDiagnostics == "true" {
-		macconnection.ConnectionArchiveEvidence = func() any {
-			return map[string]any{"core_version": version, "connection_archive": ipadncm.ConnectionArchiveDiagnostics()}
-		}
-		ipadncm.StartRuntimeNetworkDiagnostics(ctx)
-		ipadncm.StartTrustDiagnostics(ctx)
-		macconnection.TrustEvidence = func() any {
-			return map[string]any{"core_version": version, "ipad_trust_timeline": ipadncm.TrustDiagnosticsSnapshot(), "apple_service_trial": ipadncm.LocalTrustServiceTrialSnapshot()}
-		}
-		macconnection.TimingEvidence = func() any {
-			return map[string]any{"core_version": version, "connection_timing": ipadncm.ConnectionTimingDiagnostics()}
-		}
 		macconnection.PhotoEvidence = func() any {
 			return map[string]any{"core_version": version, "photo_isolation": ipadncm.PhotoIsolationDiagnostics()}
-		}
-		macconnection.WPDTraceEvidence = func() any {
-			return map[string]any{"core_version": version, "wpd_trace": ipadncm.LocalWPDTraceDiagnostics()}
-		}
-		macconnection.NativeUSBEvidence = func() any {
-			return map[string]any{"core_version": version, "local_usb_trace": ipadncm.LocalUSBTraceDiagnostics()}
-		}
-		macconnection.NativePnPEvidence = func() any {
-			return map[string]any{"core_version": version, "pnp_native_trace": ipadncm.LocalPnPTraceDiagnostics()}
 		}
 		macconnection.PhotoPolicyEvidence = func() any {
 			return map[string]any{"core_version": version, "photo_policy": ipadncm.LocalPhotoPolicyDiagnostics()}
@@ -658,9 +617,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		macconnection.AMDSHoldEvidence = func() any {
 			return map[string]any{"core_version": version, "amds_hold": ipadncm.LocalAMDSHoldDiagnostics(), "default_network_isolation": ipadncm.DefaultNetworkIsolationDiagnostics()}
-		}
-		macconnection.RuntimeNetworkEvidence = func() any {
-			return map[string]any{"core_version": version, "ipad_runtime_network": ipadncm.RuntimeNetworkDiagnostics()}
 		}
 	}
 	macconnection.CoreHealthEvidence = func() []any {
@@ -687,7 +643,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	}
 	defer func() { cancel(); closeUI() }()
 	memorydiag.RecordStage("parent_ui_monitor_started")
-	ipadncm.ConfigureUnpairedDiagnosticStartupHold(unpairedDiagnosticStartupHold)
 	macPayload, pe := macArchive("assets/mac-payload.zip")
 	macManifest, me := payload.ReadFile("assets/mac-sources.json")
 	if pe != nil || me != nil {
@@ -820,30 +775,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			}
 			continue
 		}
-		if ipadncm.UnpairedDiagnosticStartupHeld() {
-			ipadncm.SetMonitorStatus("MONITOR_UNPAIRED_PREFLIGHT_PAUSED", "本候選版本暫停 iPad 自動接入以核對只讀診斷；Mac 連線保留。")
-			if !ipadncm.WaitForIPadSettingsRecovery(ctx) {
-				break
-			}
-			continue
-		}
-		if ipadncm.IPadModeDiagnosticHeld() {
-			ipadncm.SetMonitorStatus("MONITOR_DIAGNOSTIC_PAUSED", "模式對照期間暫停普通 iPad 自動接入；Mac 連線保留")
-			if !ipadncm.WaitForIPadSettingsRecovery(ctx) {
-				break
-			}
-			continue
-		}
-		if !ipadncm.UnpairedExperimentCanConnect() || !ipadncm.IPadSoftwareReconnectCanConnect() || !ipadncm.NetworkOnlyCanConnect() || !ipadncm.IPadCandidateCanConnect() {
-			detail := ipadncm.NetworkOnlySnapshot().Notice + " " + ipadncm.IPadCandidateSnapshot().Problem + " " + ipadncm.IPadSoftwareReconnectSnapshot().Problem
-			switch ipadncm.UnpairedExperimentSnapshot().State {
-			case "FINISHED":
-				detail += " 本次無配對測試已結束，Apple 設定已還原，等待結果確認。"
-			case "REJECTED":
-				detail += " 本次無配對測試尚未開始，請查看診斷原因。"
-			case "RESTORE_PENDING":
-				detail += " 本次測試的 Apple 設定仍待還原，iPad 連線暫停。"
-			}
+		if !ipadncm.IPadSoftwareReconnectCanConnect() || !ipadncm.NetworkOnlyCanConnect() {
+			// The retired candidate controller contributed an always-empty problem text.
+			detail := ipadncm.NetworkOnlySnapshot().Notice + "  " + ipadncm.IPadSoftwareReconnectSnapshot().Problem
 			ipadncm.SetMonitorStatus("MONITOR_PAUSED", detail)
 			if !ipadncm.WaitForIPadSettingsRecovery(ctx) {
 				break
@@ -852,7 +786,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		ipadncm.SetMonitorStatus("MONITOR_WAITING", "")
 		kind := ipadncm.WaitForUSBConnection(ctx)
-		if kind == "iPad unpaired experiment" || kind == "iPad diagnostic" || kind == "iPad diagnostic hold" || kind == "iPad settings" || kind == "iPad candidate" || kind == "iPad software reconnect" {
+		if kind == "iPad settings" || kind == "iPad software reconnect" {
 			runIPadPending(ctx, recoveryDir, system, !cleanupPending)
 			continue
 		}
@@ -863,9 +797,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		ipadncm.SetMonitorStatus("WAITING_SHARED_HOST", "")
 		lease := usbhost.NewAttemptLease(ctx, usbhost.AcquireSharedHost)
 		if !startupopt.Enabled(startupopt.ParallelPrepare) {
-			ipadncm.RecordConnectionTimingStage("shared_host_wait_begin")
 			joinError := lease.Join()
-			ipadncm.RecordConnectionTimingStage("shared_host_wait_end")
 			if joinError != nil {
 				lease.Close()
 				break
@@ -883,13 +815,10 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		ipadncm.SetConnectionContext(attemptCtx)
 		r = Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "PREPARE", UpgradeStop: handoff, LegacyServiceRetired: retired, LegacyCleanupWarning: legacyWarning, MacRecovery: macRecovery, InstallVersionCleanup: pruned, ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest, Authorization: authorization, DeviceKind: kind, AppleSessionsNotRequested: true}
 		ipadncm.RecordConnectionAttemptFor(kind)
-		if kind == "iPad" {
-			ipadncm.RecordConnectionTimingAttemptStart()
-		}
 		if remoteInstallID != "" {
 			_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "BEGIN_"+kind+"_SESSION", "")
 		}
-		detachDiagnostic := ipadncm.AttachAMDSDiagnosticAttempt(stopAttempt)
+		ipadncm.AdmitIPadAttempt(stopAttempt)
 		detachSoftwareReconnect := ipadncm.AttachIPadSoftwareReconnectAttempt(stopAttempt)
 		if attemptCtx.Err() == nil {
 			inspect(&r, system, recoveryDir)
@@ -897,7 +826,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 			r.Stage = "ATTEMPT_CANCELLED_BEFORE_USB_SETUP"
 		}
 		detachSoftwareReconnect()
-		detachDiagnostic()
 
 		if remoteInstallID != "" {
 			problem := r.Error
@@ -911,7 +839,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		authorization.FinishSecurityAttempt()
 		ipadncm.ClearSimplifiedIPadConnectionScope()
 		hostInvalidated := lease.Invalidated()
-		ipadncm.RecordConnectionArchiveEvent("owner_phase", map[string]any{"phase": "session_cancel_begin", "device_kind": kind})
 		stopAttempt()
 		clearHostJoin()
 		softwareConsentContext.Store(nil)
@@ -945,8 +872,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		lastRecovery.Store(recoverySummary(r))
 		ipadncm.MarkIPadSoftwareReconnectSessionCleanup(!unsafeCleanup)
-		ipadncm.RecordConnectionArchiveEvent("owner_phase", map[string]any{"phase": "session_cleanup_complete", "device_kind": kind, "cleanup_safe": !unsafeCleanup})
-		ipadncm.RequestConnectionEnvironmentCapture()
 		if unsafeCleanup {
 			cleanupPending = true
 			runIPadPending(ctx, recoveryDir, system, false)
@@ -968,7 +893,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		if runIPadPending(ctx, recoveryDir, system, !unsafeCleanup) {
 			continue
 		}
-		if !ipadncm.IPadSoftwareReconnectCanConnect() || !ipadncm.IPadCandidateCanConnect() || !ipadncm.NetworkOnlyCanConnect() {
+		if !ipadncm.IPadSoftwareReconnectCanConnect() || !ipadncm.NetworkOnlyCanConnect() {
 			continue
 		}
 		if !ipadncm.WaitAfterUSBAttempt(ctx, r.Error, applicationRan) {
@@ -1010,9 +935,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 // has cleaned up. No RPC handler mutates active driver/grouping state.
 func runIPadPending(ctx context.Context, dir, system string, safe bool) bool {
 	if ipadncm.RunPendingIPadSoftwareReconnect(ctx, safe) {
-		return true
-	}
-	if ipadncm.RunPendingAMDSModeDiagnostic(ctx, version, dir, safe) {
 		return true
 	}
 	return false

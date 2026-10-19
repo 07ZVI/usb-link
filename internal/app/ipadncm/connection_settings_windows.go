@@ -259,7 +259,6 @@ func (a *ConnectionAuthorization) Allow() (allowed bool) {
 			failure.ConsentStatus = a.ConsentStatus
 			failure.ContextActive = a.guardContext != nil && a.guardContext.Err() == nil
 			failure.ElapsedMS = time.Since(started).Milliseconds()
-			RecordConnectionArchiveEvent("usb_authorization", sanitizedAuthorizationFailure(failure))
 		}
 	}()
 	var firstRead *Snapshot

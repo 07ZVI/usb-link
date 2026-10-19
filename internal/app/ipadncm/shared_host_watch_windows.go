@@ -22,7 +22,6 @@ func WatchSharedHostDeviceChanges(ctx context.Context) func() {
 	}
 	events, unsubscribe, err := deviceguard.SubscribeFilteredChanges(match)
 	interfaces, unsubscribeInterfaces, interfaceError := deviceguard.SubscribeUSBInterfaceChanges(match)
-	RecordConnectionTimingNativeRegistration(err == nil || interfaceError == nil)
 	watchCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -62,8 +61,6 @@ func WatchSharedHostDeviceChanges(ctx context.Context) func() {
 			case <-watchCtx.Done():
 				return
 			case <-events:
-				archiveOwnerNotice("watcher_delivery", "device_instance_hint", 0)
-				RecordConnectionTimingNativeNotice(0)
 				// A native Apple root event triggers even when a fast same-root
 				// unplug/replug coalesces to an unchanged present-device inventory.
 				usbhost.NudgeSharedHost()
@@ -72,11 +69,6 @@ func WatchSharedHostDeviceChanges(ctx context.Context) func() {
 				// before admitting a device. This is never a consent/ready signal.
 				signalConnectionChanged(0)
 			case <-interfaces:
-				if !connectionTimingUSBInterfaceWakeEnabled() {
-					continue
-				}
-				archiveOwnerNotice("watcher_delivery", "usb_interface_hint", 1)
-				RecordConnectionTimingNativeNotice(1)
 				usbhost.NudgeSharedHost()
 				signalConnectionChanged(0)
 			case <-fallback:

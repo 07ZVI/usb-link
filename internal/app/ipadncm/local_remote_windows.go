@@ -19,10 +19,6 @@ func SetLocalRemoteControl(f func(bool) (string, error), save func(bool) error, 
 }
 
 func setLocalExperimentMaster(on bool) {
-	SetConnectionArchiveMaster(on)
-	SetLocalWPDTraceMaster(on)
-	SetLocalUSBTraceMaster(on)
-	SetLocalPnPTraceMaster(on)
 	SetLocalNCMDirectMaster(on)
 	SetLocalMacMTUCapMaster(on)
 }
@@ -42,8 +38,6 @@ func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 	switch action {
 	case "photo-isolation-on", "photo-isolation-off":
 		set = SetPhotoIsolation
-	case "wpd-trace-on", "wpd-trace-off":
-		set = SetLocalWPDTrace
 	case "photo-policy-on", "photo-policy-off":
 		set = SetLocalPhotoPolicy
 	case "ncm-direct-on", "ncm-direct-off":
@@ -70,7 +64,7 @@ func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 			return true
 		}
 		go func() {
-			on := action == "photo-isolation-on" || action == "wpd-trace-on" || action == "photo-policy-on" || action == "ncm-direct-on" || action == "amds-hold-on"
+			on := action == "photo-isolation-on" || action == "photo-policy-on" || action == "ncm-direct-on" || action == "amds-hold-on"
 			if err := set(on, request.ID); err != nil {
 				u.setNotice("本地實驗設定未完成：" + err.Error())
 			}
@@ -90,9 +84,6 @@ func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 		return true
 	}
 	localDeveloperDebug.request(action == "local-usb-update-on", request.ID)
-	if action == "local-usb-update-off" {
-		ResetConnectionTimingTrial()
-	}
 	u.requestRefresh()
 	return true
 }

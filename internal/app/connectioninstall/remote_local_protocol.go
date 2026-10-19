@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// The transport permits only installation and the fixed read-only archive API.
+// The transport permits only installation, status and the restart API.
 func localRemoteHandler(api http.Handler, generationActive func() bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -22,7 +22,7 @@ func localRemoteHandler(api http.Handler, generationActive func() bool) http.Han
 			http.Error(w, "verified USB peer required", http.StatusForbidden)
 			return
 		}
-		allowed := r.Method == "GET" && (r.URL.Path == "/v1/restart" || r.URL.Path == "/v1/status" || r.URL.Path == "/v1/diagnostics/index") || r.Method == "POST" && (r.URL.Path == "/v1/restart" || r.URL.Path == "/v1/prepare" || r.URL.Path == "/v1/apply" || r.URL.Path == "/v1/cancel" || r.URL.Path == "/v1/diagnostics/chunk")
+		allowed := r.Method == "GET" && (r.URL.Path == "/v1/restart" || r.URL.Path == "/v1/status") || r.Method == "POST" && (r.URL.Path == "/v1/restart" || r.URL.Path == "/v1/prepare" || r.URL.Path == "/v1/apply" || r.URL.Path == "/v1/cancel")
 		if !allowed || r.URL.RawQuery != "" {
 			http.NotFound(w, r)
 			return

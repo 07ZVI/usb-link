@@ -31,7 +31,7 @@ func TestUpgradeSoftwareReconnectRejectsExecutionAndWithdrawsOnlyIdle(t *testing
 	if _, err := reserveIPadUpgrade(); err == nil {
 		t.Fatal("executing native job admitted for upgrade")
 	}
-	if RequestIPadCandidateStage(0) == nil || RequestNetworkOnly(false) == nil || HoldIPadModeDiagnostics() == nil || StartAMDSModeDiagnostic(context.Background(), "0.8.74", "running") == nil {
+	if RequestNetworkOnly(false) == nil {
 		t.Fatal("another iPad action escaped software execution guard")
 	}
 	softwareReconnectManager.Lock()

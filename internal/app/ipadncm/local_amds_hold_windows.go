@@ -21,7 +21,7 @@ func StartLocalAMDSHold(ctx context.Context, dir string) func() {
 		localAMDSHold.mu.Unlock()
 		localAMDSHold.stamp = func() (string, string, int64) {
 			now := time.Now()
-			id, ms := trustDiagnostics.stamp(now)
+			id, ms := "", int64(-1) // the trust timeline observer no longer exists
 			return now.UTC().Format(time.RFC3339Nano), id, ms
 		}
 		localAMDSHold.backend = &localAMDSHoldNative{dir: dir}

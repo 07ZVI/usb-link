@@ -2,7 +2,6 @@ package ipadncm
 
 import (
 	"encoding/binary"
-	"sync"
 	"unicode/utf16"
 )
 
@@ -22,21 +21,6 @@ type usbTraceQueryEvidence struct {
 	FileOffset  uint32 `json:"file_offset"`
 	BufferBytes uint32 `json:"buffer_bytes"`
 	Mismatch    uint32 `json:"mismatch"`
-}
-
-func usbTraceRecordQuery(q usbTraceQueryEvidence) {
-	usbTraceQueries.Lock()
-	defer usbTraceQueries.Unlock()
-	usbTraceQueries.last = q
-	if q.Mismatch != 0 && !usbTraceQueries.first.Observed {
-		usbTraceQueries.first = q
-	}
-}
-
-func usbTraceQuerySnapshot() (usbTraceQueryEvidence, usbTraceQueryEvidence) {
-	usbTraceQueries.Lock()
-	defer usbTraceQueries.Unlock()
-	return usbTraceQueries.last, usbTraceQueries.first
 }
 
 func usbTraceCompareQuery(raw []byte, q usbTraceQueryEvidence, expectedName string) usbTraceQueryEvidence {
@@ -78,11 +62,6 @@ const usbTraceRealtimeMode uint32 = 0x00000100
 
 const usbTraceStopOnHybridShutdown uint32 = 0x00400000
 
-var usbTraceQueries struct {
-	sync.Mutex
-	last, first usbTraceQueryEvidence
-}
-
 func usbTraceQueryText(raw []byte, offset uint32) (string, bool) {
 	if offset < 120 || offset%2 != 0 || uint64(offset)+2 > uint64(len(raw)) {
 		return "", false
@@ -110,24 +89,3 @@ func usbTraceSessionModeOwned(mode uint32) bool {
 }
 
 const usbTracePersistOnHybridShutdown uint32 = 0x00800000
-
-func usbTraceResetQueries() {
-	usbTraceQueries.Lock()
-	usbTraceQueries.last = usbTraceQueryEvidence{}
-	usbTraceQueries.first = usbTraceQueryEvidence{}
-	usbTraceQueries.Unlock()
-}
-
-// The controller may call stop again from its deferred cleanup. An already
-// failed cleanup must never become success just because its handle was closed.
-type usbTraceStopResult struct {
-	done bool
-	err  error
-}
-
-func (r *usbTraceStopResult) finish(err error) {
-	if !r.done {
-		r.done = true
-		r.err = err
-	}
-}

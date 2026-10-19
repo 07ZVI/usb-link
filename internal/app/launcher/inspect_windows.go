@@ -41,10 +41,6 @@ func inspect(r *Result, system, recoveryDir string) {
 		r.Error = ipadncm.AuthorizationFailureError("USB_LAYOUT_UNCONFIRMED_DECLINED_OR_CHANGED")
 		return
 	}
-	if err := ipadncm.ValidateIPadCandidateDevice(); err != nil {
-		r.Stage, r.Error = "CANDIDATE_DEVICE_UNCONFIRMED", err.Error()
-		return
-	}
 	r.Workflow = ipadeasy.Run(func() string {
 		prepare(r, system)
 		if r.Error != "" {

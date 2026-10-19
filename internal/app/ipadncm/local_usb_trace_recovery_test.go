@@ -3,7 +3,6 @@ package ipadncm
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -69,39 +68,6 @@ func TestUSBTraceQueryOwnershipStillRejectsEveryForeignProperty(t *testing.T) {
 	}
 	if got := usbTraceCompareQuery(copyRaw, base, name); got.Mismatch&16 == 0 || got.FileValid {
 		t.Fatal("unterminated file allowed")
-	}
-}
-
-func TestUSBTraceQueryFailureSurvivesSuccessfulCleanupQuery(t *testing.T) {
-	usbTraceResetQueries()
-	defer usbTraceResetQueries()
-	bad := usbTraceQueryEvidence{Observed: true, Mode: 0x101, Mismatch: 4}
-	usbTraceRecordQuery(bad)
-	usbTraceRecordQuery(usbTraceQueryEvidence{Observed: true, NativeCode: 4201})
-	last, first := usbTraceQuerySnapshot()
-	if last.NativeCode != 4201 || first != bad {
-		t.Fatal("failure overwritten")
-	}
-	first.Mode = 0
-	_, copy := usbTraceQuerySnapshot()
-	if copy.Mode != 0x101 {
-		t.Fatal("snapshot alias")
-	}
-}
-
-func TestUSBTraceSecondStopCannotClearFailedRecovery(t *testing.T) {
-	var r usbTraceStopResult
-	failure := errors.New("USB_TRACE_SESSION_NOT_OWNED")
-	r.finish(failure)
-	r.finish(nil)
-	if !r.done || r.err != failure {
-		t.Fatal("second cleanup cleared recovery failure")
-	}
-	var success usbTraceStopResult
-	success.finish(nil)
-	success.finish(failure)
-	if !success.done || success.err != nil {
-		t.Fatal("completed stop changed retrospectively")
 	}
 }
 

@@ -55,11 +55,7 @@ var ConnectionEvidence func() any
 // CoreHealthEvidence returns small independent rows (core lifecycle, pipe
 // failures) so a large unrelated row can never displace them.
 var CoreHealthEvidence func() []any
-var RuntimeNetworkEvidence func() any
-var TrustEvidence func() any
-var TimingEvidence func() any
 var PhotoEvidence func() any
-var WPDTraceEvidence func() any
 var PhotoPolicyEvidence func() any
 var NCMDirectEvidence func() any
 var AMDSHoldEvidence func() any
@@ -67,9 +63,6 @@ var AMDSHoldEvidence func() any
 // MacMTUCapSetting returns the developer MTU cap for the next Mac session:
 // "auto", "9000" or "1500". Nil or an unknown value means auto.
 var MacMTUCapSetting func() string
-var ConnectionArchiveEvidence func() any
-var NativeUSBEvidence func() any
-var NativePnPEvidence func() any
 
 func safeExisting(path string) bool {
 	v, e := os.Lstat(path)
@@ -736,17 +729,10 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	lastEvidence := ""
 	lastConnectionEvidence := connectionEvidenceLogState{}
 	var lastCoreHealthEvidence [2]connectionEvidenceLogState
-	lastRuntimeNetworkEvidence := connectionEvidenceLogState{}
-	lastTrustEvidence := connectionEvidenceLogState{}
-	lastTimingEvidence := connectionEvidenceLogState{}
 	lastPhotoEvidence := connectionEvidenceLogState{}
-	lastWPDTraceEvidence := connectionEvidenceLogState{}
 	lastPhotoPolicyEvidence := connectionEvidenceLogState{}
 	lastNCMDirectEvidence := connectionEvidenceLogState{}
 	lastAMDSHoldEvidence := connectionEvidenceLogState{}
-	lastConnectionArchiveEvidence := connectionEvidenceLogState{}
-	lastNativeUSBEvidence := connectionEvidenceLogState{}
-	lastNativePnPEvidence := connectionEvidenceLogState{}
 	loops := 0
 	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
@@ -787,15 +773,6 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				if ConnectionEvidence != nil {
 					_ = appendChangedConnectionEvidence(dir, ConnectionEvidence(), &lastConnectionEvidence, time.Now())
 				}
-				if RuntimeNetworkEvidence != nil {
-					_ = appendChangedConnectionEvidence(dir, RuntimeNetworkEvidence(), &lastRuntimeNetworkEvidence, time.Now())
-				}
-				if TrustEvidence != nil {
-					_ = appendChangedConnectionEvidence(dir, TrustEvidence(), &lastTrustEvidence, time.Now())
-				}
-				if TimingEvidence != nil {
-					_ = appendChangedConnectionEvidence(dir, TimingEvidence(), &lastTimingEvidence, time.Now())
-				}
 				if PhotoEvidence != nil {
 					_ = appendChangedConnectionEvidence(dir, PhotoEvidence(), &lastPhotoEvidence, time.Now())
 				}
@@ -803,8 +780,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					evidence func() any
 					state    *connectionEvidenceLogState
 				}{
-					{WPDTraceEvidence, &lastWPDTraceEvidence}, {PhotoPolicyEvidence, &lastPhotoPolicyEvidence}, {NCMDirectEvidence, &lastNCMDirectEvidence}, {AMDSHoldEvidence, &lastAMDSHoldEvidence}, {ConnectionArchiveEvidence, &lastConnectionArchiveEvidence},
-					{NativeUSBEvidence, &lastNativeUSBEvidence}, {NativePnPEvidence, &lastNativePnPEvidence},
+					{PhotoPolicyEvidence, &lastPhotoPolicyEvidence}, {NCMDirectEvidence, &lastNCMDirectEvidence}, {AMDSHoldEvidence, &lastAMDSHoldEvidence},
 				} {
 					if item.evidence != nil {
 						_ = appendChangedConnectionEvidence(dir, item.evidence(), item.state, time.Now())
