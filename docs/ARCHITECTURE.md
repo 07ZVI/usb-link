@@ -19,7 +19,7 @@ flowchart TD
 
 | Directory | Responsibility |
 | --- | --- |
-| `cmd/` | Production argument/start entry wrappers; diagnostic command tools |
+| `cmd/` | Production argument/start entry wrappers; standalone diagnostic tools exist only in developer builds (`usblink_local_remote`) |
 | `internal/dependencies` | Pinned official catalog, detection, bounded downloads, verification, native progress and platform installation |
 | `internal/app` | Lifecycle, connection coordination, upgrades, installation and recovery orchestration |
 | `internal/transport` | WinUSB/Wintun, NCM packets, DHCP, point-to-point addresses and routing admission |
@@ -74,7 +74,7 @@ A failed service read produces a bounded `backend-unavailable` event with a fixe
 
 ## ipadncm package decomposition plan
 
-Status: plan only; no code moved. `internal/app/ipadncm` holds 360 files (126 tests). Filename prefixes (`ls | cut`) show the subdomains. Lines count all files with the prefix, including tests.
+Status: plan only; no package split yet. `internal/app/ipadncm` holds about 360 files (126 tests). See [CLEANUP-INVENTORY.md](CLEANUP-INVENTORY.md): most `local_wpd_*`, `local_usb_trace_*`, `local_pnp_trace_*`, `local_connection_archive_*` and `connection_timing*` code is now developer-build only (build tag `usblink_local_remote`); public builds keep only the leftover-session recovery core. Counts below predate that move. Filename prefixes (`ls | cut`) show the subdomains. Lines count all files with the prefix, including tests.
 
 | Prefix | Files (tests) | Lines | Proposed package |
 |---|---|---|---|
