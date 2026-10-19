@@ -823,6 +823,25 @@ type CoreServiceObservation struct {
 	Automatic       bool   `json:"automatic"`
 }
 
+// coreServiceExitStatus is a read-only SCM query of the owned core service.
+func coreServiceExitStatus() (*coreServiceExit, error) {
+	m, e := mgr.Connect()
+	if e != nil {
+		return nil, e
+	}
+	defer m.Disconnect()
+	s, _, e := ownedCoreService(m)
+	if e != nil {
+		return nil, e
+	}
+	defer s.Close()
+	st, e := s.Query()
+	if e != nil {
+		return nil, e
+	}
+	return &coreServiceExit{uint32(st.State), st.Win32ExitCode, st.ServiceSpecificExitCode}, nil
+}
+
 func CoreServiceStatus() CoreServiceObservation {
 	out := CoreServiceObservation{ObservationOnly: true}
 	m, e := mgr.Connect()

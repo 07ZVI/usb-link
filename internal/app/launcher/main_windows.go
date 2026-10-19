@@ -5,6 +5,7 @@ package launcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"os"
@@ -254,6 +255,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		recoveryDir, lock, recoveryError = ipadncm.OpenGroupingRecoveryStore()
 	}
 	if recoveryError != "" {
+		coreStartupStopped(service, "recovery_store", recoveryError)
 		installationFailure(&r, recoveryError, "安裝程式尚未取得連線管理權。已嘗試正常結束可驗證的舊版，具體結果已保存於診斷。")
 		return
 	}
@@ -267,6 +269,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		serviceDiagnosticDirectory.Store(recoveryDir)
 		// How the previous core ended is evidence even when this run is healthy.
 		_ = macconnection.RecordCoreEvidence(recoveryDir, coreLifecycleRow(coreterm.Begin(recoveryDir, version, uint32(os.Getpid()), time.Now())))
+		coreterm.Stage("recovery_store_open", "")
 	}
 	defer func() {
 		if lock != 0 {
@@ -279,16 +282,23 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	var installed string
 	if service {
 		installed, e = os.Executable()
-		if e != nil || connectioninstall.VerifyCoreExecutable(installed) != nil {
+		if e == nil {
+			e = connectioninstall.VerifyCoreExecutable(installed)
+		}
+		if e != nil {
+			coreStartupStopped(service, "verify_core_executable", e)
 			return
 		}
 		settingsDir, settingsError := connectioninstall.StateDirectory()
 		if settingsError != nil {
+			coreStartupStopped(service, "state_directory", settingsError)
 			return
 		}
 		if e = ipadncm.InitConnectionSettings(settingsDir, func(enabled bool) error { return setCoreStartup(ctx, enabled, installed) }); e != nil {
+			coreStartupStopped(service, "connection_settings", e)
 			return
 		}
+		coreterm.Stage("connection_settings", "")
 	} else if !uninstall {
 		installed, e = connectioninstall.Prepare(version)
 		if e != nil {
@@ -355,6 +365,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	}
 	memorydiag.RecordStage("parent_installation_ready")
 	if service && !uninstall {
+		coreterm.Stage("startup_recovery", "")
 		// Observe the existing strict reboot fence before slow legacy cleanup.
 		// Failure only records diagnostics; the supervisor retains authority.
 		early := recoverInterruptedHostEarly(ctx, recoveryDir)
@@ -364,6 +375,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	r.LegacyServiceRetired, r.LegacyCleanupWarning = retired, legacyWarning
 	if legacyError != nil {
 		r.LegacyMigrationError = legacyError.Error()
+		coreStartupStopped(service, "LEGACY_SERVICE_UPGRADE_FAILED", legacyError)
 		installationFailure(&r, "LEGACY_SERVICE_UPGRADE_FAILED", "舊版服務的自動停止或清理未完成。詳細原因已保存於診斷，沒有開始新的連線。")
 		return
 	}
@@ -371,13 +383,16 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		if e := ipadncm.RecoverIPadSoftwareReconnect(recoveryDir); e != nil {
 			r.Stage, r.Error = "SOFTWARE_RECONNECT_RESTORE_PENDING", e.Error()
 			_, _ = save(r)
+			coreStartupStopped(service, r.Stage, e)
 			runRecoveryMaintenance(r, recoveryDir, installed, resident, cancel)
 			return
 		}
 		if e := ipadncm.InitIPadSoftwareReconnect(recoveryDir, false); e != nil {
+			coreStartupStopped(service, "SOFTWARE_RECONNECT_INITIALIZATION_FAILED", e)
 			installationFailure(&r, "SOFTWARE_RECONNECT_INITIALIZATION_FAILED", e.Error())
 			return
 		}
+		coreterm.Stage("application_recovery", "")
 		r.ApplicationRecovery = ipadncm.RecoverApplicationSession(recoveryDir, system)
 		// One compatibility migration restores AMDS/WPD originals only. Its failure
 		// keeps iPad paused while the independent Mac and signed-upgrade path run.
@@ -392,6 +407,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	var macRecovery macconnection.RecoveryReport
 	var macRecoveryError error
 	if !uninstall {
+		coreterm.Stage("mac_recovery", "")
 		macRecovery, macRecoveryError = macconnection.RecoverWithReport(recoveryDir)
 	}
 	r.MacRecovery = macRecovery
@@ -399,6 +415,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		r.Stage, r.Error = "MAC_RECOVERY_UNCONFIRMED", macRecoveryError.Error()
 		if !uninstall {
 			_, _ = save(r)
+			coreStartupStopped(service, r.Stage, macRecoveryError)
 			runRecoveryMaintenance(r, recoveryDir, installed, resident, cancel)
 		} else {
 			installationFailure(&r, "MAC_RECOVERY_UNCONFIRMED", macconnection.RecoveryMessage(macRecoveryError.Error()))
@@ -408,6 +425,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	if r.ApplicationRecovery.Error != "" || r.ApplicationRecovery.Pending && !r.ApplicationRecovery.JournalCleared {
 		r.Stage, r.Error = "APPLICATION_RECOVERY_PENDING", r.ApplicationRecovery.Error
 		_, _ = save(r)
+		coreStartupStopped(service, r.Stage, r.Error)
 		if !uninstall {
 			runRecoveryMaintenance(r, recoveryDir, installed, resident, cancel)
 		}
@@ -429,11 +447,14 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		return
 	}
 	if service {
+		coreterm.Stage("acceptance", "")
 		if e := connectioninstall.AcceptInstallationReady(); e != nil {
 			r.Stage, r.Error = "INSTALL_ACCEPTANCE_FAILED", e.Error()
 			_, _ = save(r)
+			coreStartupStopped(service, r.Stage, e)
 			return
 		}
+		coreterm.Stage("acceptance_written", "")
 	}
 	var pruned []string
 	defer ipadncm.StartStartupTimingEvidence(ctx, recoveryDir, version)()
@@ -638,6 +659,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		closeUI, uiError = ipadncm.StartConnectionMonitor(ctx, cancel, resident)
 	}
 	if uiError != "" {
+		coreStartupStopped(service, "connection_monitor", uiError)
 		dialog("無法開啟連線視窗："+uiError, 0x10)
 		return
 	}
@@ -646,6 +668,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	macPayload, pe := macArchive("assets/mac-payload.zip")
 	macManifest, me := payload.ReadFile("assets/mac-sources.json")
 	if pe != nil || me != nil {
+		coreStartupStopped(service, "mac_payload", errors.Join(pe, me))
 		dialog("Mac 傳輸元件缺失。", 0x10)
 		return
 	}
@@ -719,6 +742,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	defer func() { cancel(); <-macDone }()
 	if remoteInstallID != "" {
 		if developerRemote == nil {
+			coreStartupStopped(service, "developer_remote_unavailable", "")
 			return
 		}
 		// A live UI is not a usable USB connection. A failed candidate must not

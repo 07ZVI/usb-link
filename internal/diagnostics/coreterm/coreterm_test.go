@@ -61,3 +61,32 @@ func TestDamagedOrRedirectedRecordNeverBlocksStart(t *testing.T) {
 	}
 	End("test", 0, time.Now())
 }
+
+func TestStagePersistsAndEarlyValuesAreAdopted(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(release)
+	state.Lock()
+	state.dir, state.early = "", Run{}
+	state.Unlock()
+	LogUnavailable("CORE_LOG_PRIVATE_ACL_REQUIRED")
+	Stage("early", "x")
+	t0 := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	st := Begin(dir, "0.10.60", 1, t0)
+	if st.Current.LogError != "CORE_LOG_PRIVATE_ACL_REQUIRED" || st.Current.Stage != "early" {
+		t.Fatalf("%+v", st.Current)
+	}
+	Stage("mac_recovery", "start")
+	Fail("mac_recovery", "MAC_RECOVERY_UNCONFIRMED: café "+strings.Repeat("x", 1000))
+	f, err := read(dir)
+	if err != nil || f.Current.Stage != "mac_recovery" || f.Current.FailStage != "mac_recovery" || len(f.Current.FailDetail) != 240 || !strings.Contains(f.Current.FailDetail, "caf? ") {
+		t.Fatalf("%v %+v", err, f.Current)
+	}
+	if s := Snapshot(); s.Current.FailStage != "mac_recovery" {
+		t.Fatalf("%+v", s)
+	}
+	End("CORE_APPLICATION_STOPPED_BEFORE_CANCELLATION", 3, t0)
+	Stage("late", "ignored")
+	if f, _ = read(dir); f.Current.Stage != "mac_recovery" {
+		t.Fatalf("%+v", f.Current)
+	}
+}

@@ -51,6 +51,17 @@ func coreLifecycleRow(s coreterm.Status) map[string]any {
 	return map[string]any{"core_version": version, "core_lifecycle": s}
 }
 
+// A service has no visible dialog and may have no core.log, so an early end of
+// startup is logged and kept in the core run record.
+func coreStartupStopped(service bool, stage string, detail any) {
+	if !service {
+		return
+	}
+	text := fmt.Sprint(detail)
+	log.Printf("CORE_STARTUP_STOPPED stage=%s error=%v", stage, text)
+	coreterm.Fail(stage, text)
+}
+
 var prompts = coreprompt.New()
 var coreUpdateNotices = coreupdatenotice.New(verifyCoreNoticeClientLifetime)
 
@@ -83,6 +94,7 @@ func runCoreService() {
 		defer func() { log.SetOutput(os.Stderr); _ = output.Close() }()
 	} else {
 		logger.Printf("CORE_LOG_UNAVAILABLE: %v", logErr)
+		coreterm.LogUnavailable(logErr.Error())
 	}
 	verifyCore := func(path string) error {
 		fresh, err := connectioninstall.CurrentCoreBinding()

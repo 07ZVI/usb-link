@@ -30,6 +30,13 @@ type Run struct {
 	StopCode    uint32 `json:"stop_exit_code,omitempty"`
 	StoppedUTC  string `json:"stopped_utc,omitempty"`
 	CrashOutput string `json:"crash_output,omitempty"`
+	// Startup progress survives without core.log: the last stage reached, the
+	// stage that ended startup before acceptance, and why core.log was absent.
+	Stage      string `json:"startup_stage,omitempty"`
+	StageNote  string `json:"startup_stage_detail,omitempty"`
+	FailStage  string `json:"startup_stopped_stage,omitempty"`
+	FailDetail string `json:"startup_stopped_detail,omitempty"`
+	LogError   string `json:"core_log_error,omitempty"`
 }
 
 type Abnormal struct {
@@ -60,6 +67,7 @@ var state struct {
 	status Status
 	stop   chan struct{}
 	crash  *os.File
+	early  Run // set before Begin knows the directory
 }
 
 func read(dir string) (file, error) {
@@ -167,6 +175,9 @@ func Begin(dir, version string, pid uint32, now time.Time) Status {
 		}
 	}
 	next.Current = Run{PID: pid, Version: version, StartedUTC: utc, AliveUTC: utc, State: "running"}
+	e := state.early
+	state.early = Run{}
+	next.Current.Stage, next.Current.StageNote, next.Current.LogError = e.Stage, e.StageNote, e.LogError
 	st.Current = next.Current
 	st.LastAbnormal = next.LastAbnormal
 	if err := write(dir, next); err != nil && st.PersistenceErr == "" {
@@ -229,6 +240,40 @@ func End(reason string, exitCode uint32, now time.Time) {
 	_ = write(state.dir, state.data)
 }
 
+func apply(f func(*Run)) {
+	if state.dir == "" {
+		f(&state.early)
+		return
+	}
+	if state.data.Current.State != "running" {
+		return
+	}
+	f(&state.data.Current)
+	_ = write(state.dir, state.data)
+}
+
+// Stage records the latest startup step reached; before Begin it is held for
+// Begin to adopt.
+func Stage(stage, detail string) {
+	state.Lock()
+	defer state.Unlock()
+	apply(func(r *Run) { r.Stage, r.StageNote = boundedASCII(stage, 64), boundedASCII(detail, 240) })
+}
+
+// Fail records the stage that ended startup early and the reason.
+func Fail(stage, detail string) {
+	state.Lock()
+	defer state.Unlock()
+	apply(func(r *Run) { r.FailStage, r.FailDetail = boundedASCII(stage, 64), boundedASCII(detail, 240) })
+}
+
+// LogUnavailable records why core.log could not be opened.
+func LogUnavailable(detail string) {
+	state.Lock()
+	defer state.Unlock()
+	apply(func(r *Run) { r.LogError = boundedASCII(detail, 160) })
+}
+
 func boundedASCII(s string, n int) string {
 	out := make([]byte, 0, min(len(s), n))
 	for _, r := range s {
@@ -242,6 +287,13 @@ func boundedASCII(s string, n int) string {
 		}
 	}
 	return string(out)
+}
+
+// Read returns the current-run record in dir for a reader that is not the
+// core (the installer). The same bounded, regular-file-only read applies.
+func Read(dir string) (Run, bool) {
+	f, err := read(dir)
+	return f.Current, err == nil && f.Current.State != ""
 }
 
 // Snapshot is the evidence row for exported diagnostics.

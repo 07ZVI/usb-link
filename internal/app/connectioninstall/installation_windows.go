@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc/mgr"
 	"suhang/usbnet/internal/app/remoteupdate"
+	"suhang/usbnet/internal/diagnostics/coreterm"
 	"suhang/usbnet/internal/transport/ipadsession"
 )
 
@@ -483,13 +484,27 @@ func (o *nativeInstallation) Start(t InstallationTransaction) error {
 	return StartCoreService()
 }
 func (o *nativeInstallation) AwaitAcceptance(ctx context.Context, t InstallationTransaction) error {
+	began := time.Now()
 	wait, stop := context.WithTimeout(ctx, 90*time.Second)
 	defer stop()
-	for wait.Err() == nil {
+	stopped := 0
+	for tick := 0; wait.Err() == nil; tick++ {
 		b, e := coreProtectedRead(filepath.Join(o.state, installationReadyName), false, true)
 		var r installationReady
 		if e == nil && json.Unmarshal(b, &r) == nil && r.Product == ProductID && r.SHA256 == t.Next.SHA && installationReadyProcess(r) {
 			return nil
+		}
+		// A core that has already ended cannot accept; fail with its reason
+		// instead of waiting out the deadline. Two one-second polls ride out a
+		// transition.
+		if tick%10 == 9 {
+			if exit, run := observeCoreEnd(t.Next.Version, began); coreEndedBeforeAcceptance(exit, run) {
+				if stopped++; stopped >= 2 {
+					return fmt.Errorf("INSTALL_CORE_INITIALIZATION_NOT_ACCEPTED: %s", acceptanceDiagnosis(exit, run))
+				}
+			} else {
+				stopped = 0
+			}
 		}
 		timer := time.NewTimer(100 * time.Millisecond)
 		select {
@@ -498,7 +513,23 @@ func (o *nativeInstallation) AwaitAcceptance(ctx context.Context, t Installation
 		case <-timer.C:
 		}
 	}
-	return fmt.Errorf("INSTALL_CORE_INITIALIZATION_NOT_ACCEPTED: %w", wait.Err())
+	exit, run := observeCoreEnd(t.Next.Version, began)
+	return fmt.Errorf("INSTALL_CORE_INITIALIZATION_NOT_ACCEPTED: %s: %w", acceptanceDiagnosis(exit, run), wait.Err())
+}
+
+// observeCoreEnd reads the SCM state and, if it belongs to this release's run,
+// the core's own run record. Either may be absent; both are evidence only.
+func observeCoreEnd(version string, began time.Time) (*coreServiceExit, *coreterm.Run) {
+	exit, _ := coreServiceExitStatus()
+	w, e := windows.GetWindowsDirectory()
+	if e != nil {
+		return exit, nil
+	}
+	run, ok := coreterm.Read(filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery"))
+	if !ok || !ownCoreRun(run, version, began.Add(-5*time.Minute)) {
+		return exit, nil
+	}
+	return exit, &run
 }
 func (o *nativeInstallation) Cleanup(t InstallationTransaction) error {
 	if e := verifyReleaseFiles(o.app, t.NextFiles, false); e != nil {

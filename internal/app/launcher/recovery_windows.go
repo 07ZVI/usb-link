@@ -49,6 +49,7 @@ func runRecoveryMaintenance(r Result, recoveryDir, installed string, resident bo
 	var e error
 	developerRemote, e = connectioninstall.NewRecoveryRemoteManager(version, installed, cancel, func() string { return "" }, approveRecoveryUpdate)
 	if e != nil {
+		coreStartupStopped(coreProcessMode, "recovery_maintenance_remote", e)
 		dialog("USB 恢復維護無法啟動："+e.Error(), 0x10)
 		return
 	}
@@ -80,6 +81,7 @@ func runRecoveryMaintenance(r Result, recoveryDir, installed string, resident bo
 		closeUI, problem = ipadncm.StartConnectionMonitor(ctx, cancel, resident)
 	}
 	if problem != "" {
+		coreStartupStopped(coreProcessMode, "recovery_maintenance_monitor", problem)
 		dialog(problem, 0x10)
 		return
 	}
