@@ -31,12 +31,12 @@ func TestMatchesIsExactAndOrderInsensitive(t *testing.T) {
 
 func TestDecide(t *testing.T) {
 	good := Object{Directory: true, Links: 1, Owner: AdminsSID, ACL: want}
-	if a, e := Decide(good, want); a != Keep || e != nil {
+	if a, e := Decide(good, want, nil); a != Keep || e != nil {
 		t.Fatal(a, e)
 	}
 	explorer := good
 	explorer.ACL = ACL{true, append(append([]ACE{}, want.ACEs...), ACE{0, 0, 0x1f01ff, "S-1-5-21-1-2-3-1001"})}
-	if a, e := Decide(explorer, want); a != Reset || e != nil {
+	if a, e := Decide(explorer, want, nil); a != Reset || e != nil {
 		t.Fatal(a, e)
 	}
 	for name, c := range map[string]struct {
@@ -48,16 +48,16 @@ func TestDecide(t *testing.T) {
 		"owner":    {Object{Directory: true, Owner: "S-1-5-21-1-2-3-1001"}, ErrOwner},
 		"no owner": {Object{Directory: true}, ErrOwner},
 	} {
-		if a, e := Decide(c.o, want); a != Keep || !errors.Is(e, c.err) {
+		if a, e := Decide(c.o, want, nil); a != Keep || !errors.Is(e, c.err) {
 			t.Fatal(name, a, e)
 		}
 	}
 	file := Object{Links: 1, Owner: SystemSID, ACL: ACL{true, want.ACEs[:1]}}
-	if a, e := Decide(file, want); a != Reset || e != nil {
+	if a, e := Decide(file, want, nil); a != Reset || e != nil {
 		t.Fatal(a, e)
 	}
 	// Directories may legitimately report any link count.
-	if _, e := Decide(Object{Directory: true, Links: 0, Owner: SystemSID, ACL: want}, want); e != nil {
+	if _, e := Decide(Object{Directory: true, Links: 0, Owner: SystemSID, ACL: want}, want, nil); e != nil {
 		t.Fatal(e)
 	}
 }
@@ -84,5 +84,16 @@ func TestRepairString(t *testing.T) {
 	r := Repair{Path: "p", Changed: 2, Checked: 5, PreviousACEs: 3}
 	if !r.Repaired() || r.String() != "p reset=2 checked=5 skipped=0 previous_aces=3" {
 		t.Fatal(r.String())
+	}
+}
+
+func TestInstallingOwnerAdmitted(t *testing.T) {
+	want := ACL{Protected: true, ACEs: []ACE{{Mask: 0x1f01ff, SID: SystemSID}}}
+	o := Object{Directory: true, Owner: "S-1-5-21-1-2-3-1001", ACL: want}
+	if _, e := Decide(o, want, nil); !errors.Is(e, ErrOwner) {
+		t.Fatal("foreign owner admitted", e)
+	}
+	if a, e := Decide(o, want, []string{"", o.Owner}); a != Keep || e != nil {
+		t.Fatal("installing owner refused", a, e)
 	}
 }

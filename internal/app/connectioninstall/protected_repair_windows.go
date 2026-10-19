@@ -40,8 +40,16 @@ func RepairProtectedStores() ([]protectedacl.Repair, string) {
 	dirs, err := ProtectedStoreDirectories()
 	var repairs []protectedacl.Repair
 	var notes []string
+	// The installing administrator owns files an elevated installer created.
+	var owners []string
+	if u, e := windows.GetCurrentProcessToken().GetTokenUser(); e == nil {
+		owners = append(owners, u.User.Sid.String())
+	}
+	if b, e := CurrentCoreBinding(); e == nil {
+		owners = append(owners, b.OwnerSID)
+	}
 	for _, dir := range dirs {
-		r, e := protectedacl.RepairProtectedDirectory(dir, protectedStoreDirSDDL, protectedStoreFileSDDL)
+		r, e := protectedacl.RepairProtectedDirectory(dir, protectedStoreDirSDDL, protectedStoreFileSDDL, owners...)
 		if e != nil {
 			err = errors.Join(err, fmt.Errorf("%s: %w", dir, e))
 			continue

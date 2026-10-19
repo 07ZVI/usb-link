@@ -50,7 +50,20 @@ func (a ACL) Matches(want ACL) bool {
 	return true
 }
 
-func OwnerAllowed(sid string) bool { return sid == SystemSID || sid == AdminsSID }
+// OwnerAllowed admits SYSTEM, Administrators and the caller-supplied owners:
+// an elevated installer's files are owned by the installing administrator
+// when Windows uses the default "object creator" owner policy.
+func OwnerAllowed(sid string, owners []string) bool {
+	if sid == SystemSID || sid == AdminsSID {
+		return true
+	}
+	for _, o := range owners {
+		if o != "" && sid == o {
+			return true
+		}
+	}
+	return false
+}
 
 type Object struct {
 	Directory, Reparse bool
@@ -69,18 +82,18 @@ const (
 var (
 	ErrReparse = errors.New("reparse point refused")
 	ErrLinks   = errors.New("hard-linked file refused")
-	ErrOwner   = errors.New("owner is not SYSTEM or Administrators")
+	ErrOwner   = errors.New("owner is not SYSTEM, Administrators or the installing owner")
 )
 
 // Decide never deletes or reinterprets: an object is kept, reset to the
 // expected DACL, or the whole tree is refused.
-func Decide(o Object, want ACL) (Action, error) {
+func Decide(o Object, want ACL, owners []string) (Action, error) {
 	switch {
 	case o.Reparse:
 		return Keep, ErrReparse
 	case !o.Directory && o.Links != 1:
 		return Keep, ErrLinks
-	case !OwnerAllowed(o.Owner):
+	case !OwnerAllowed(o.Owner, owners):
 		return Keep, fmt.Errorf("%w: %s", ErrOwner, o.Owner)
 	case o.ACL.Matches(want):
 		return Keep, nil

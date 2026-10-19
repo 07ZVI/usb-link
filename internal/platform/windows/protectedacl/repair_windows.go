@@ -80,6 +80,7 @@ type walker struct {
 	dirACL, fileACL   ACL
 	dirDACL, fileDACL *windows.ACL
 	apply             bool
+	owners            []string
 	budget            Budget
 	r                 Repair
 }
@@ -98,7 +99,7 @@ func (w *walker) visit(path string, depth int) error {
 	if o.Directory {
 		want, dacl = w.dirACL, w.dirDACL
 	}
-	act, e := Decide(o, want)
+	act, e := Decide(o, want, w.owners)
 	if e != nil {
 		return fmt.Errorf("%s: %w", path, e)
 	}
@@ -156,9 +157,9 @@ func rejectRedirected(path string) error {
 // RepairProtectedDirectory resets path (a fixed absolute directory chosen by
 // the caller, never user input) and its bounded subtree to the given protected
 // SDDLs. It needs a SYSTEM or elevated Administrators caller, refuses reparse
-// points, hard links and objects not owned by SYSTEM/Administrators, and never
+// points, hard links and objects not owned by SYSTEM/Administrators/owners, and never
 // deletes. Nothing is changed unless the whole subtree was first admitted.
-func RepairProtectedDirectory(path, dirSDDL, fileSDDL string) (Repair, error) {
+func RepairProtectedDirectory(path, dirSDDL, fileSDDL string, owners ...string) (Repair, error) {
 	r := Repair{Path: path}
 	vol := filepath.VolumeName(path)
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || len(vol) != 2 || vol[1] != ':' || len(path) <= 3 {
@@ -184,7 +185,7 @@ func RepairProtectedDirectory(path, dirSDDL, fileSDDL string) (Repair, error) {
 	}
 	var final Repair
 	for _, apply := range []bool{false, true} {
-		w := &walker{dirACL: dirACL, fileACL: fileACL, dirDACL: dirDACL, fileDACL: fileDACL, apply: apply, r: Repair{Path: path}}
+		w := &walker{dirACL: dirACL, fileACL: fileACL, dirDACL: dirDACL, fileDACL: fileDACL, apply: apply, owners: owners, r: Repair{Path: path}}
 		w.budget.Admit(0)
 		if e := w.visit(path, 0); e != nil {
 			return r, e
