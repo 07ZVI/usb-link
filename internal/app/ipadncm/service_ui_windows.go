@@ -94,6 +94,7 @@ func ApplyServiceMonitorResults(results map[string]ApplicationResult) {
 		}
 		if s := deviceMonitor(device); s != nil {
 			s.Lock()
+			preserveMacUSBSpeed(&r, s.r)
 			s.r = r
 			s.Unlock()
 		}

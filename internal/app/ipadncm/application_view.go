@@ -178,7 +178,14 @@ func macApplicationView(r ApplicationResult, stopping bool) (title, ip, detail s
 	if r.MacSunshineTCPObserved {
 		proof = "已觀察到 Mac 經 USB 連到 Sunshine；串流品質仍須實測"
 	}
-	detail = fmt.Sprintf("設備授權：%s\r\nWindows：10.6.9.1 / Mac：10.6.9.2\r\n自動分配：請求 %d / 提供 %d / 確認 %d（確認不代表已套用）\r\n應用連接：%s\r\n\r\n目前電腦 → Mac：%.1f Mbps\r\n目前 Mac → 電腦：%.1f Mbps\r\n峰值：傳送 %.1f / 接收 %.1f Mbps\r\n累計：傳送 %s / 接收 %s\r\nUSB 橋接丟棄／過濾計數：%d（不是 Moonlight 丟包率）\r\n流量取樣每 5 秒；尚未測量本輪最高頻寬或端到端延遲。\r\n\r\nMac 與 iPad 共用 Windows 10.6.9.1；Mac 10.6.9.2，iPad 10.6.9.3。Mac 可用 Moonlight 連接上方 Windows IP。", r.DeviceAuthorization, r.MacDHCPDiscoveries, r.MacDHCPOffers, r.MacDHCPACKs, proof, r.ObservedTransmitMbps, r.ObservedReceiveMbps, r.Traffic.PeakTransmitMbps, r.Traffic.PeakReceiveMbps, formatTransfer(r.Traffic.SentBytes), formatTransfer(r.Traffic.ReceivedBytes), r.MacBridgeDrops)
+	usb := r.USBSpeed
+	if usb == "" {
+		usb = "尚未取得目前 USB 協商級別"
+		if r.USBSpeedError != "" {
+			usb = "未取得（" + r.USBSpeedError + "）"
+		}
+	}
+	detail = fmt.Sprintf("設備授權：%s\r\nWindows：10.6.9.1 / Mac：10.6.9.2\r\n自動分配：請求 %d / 提供 %d / 確認 %d（確認不代表已套用）\r\nUSB 協商級別：%s\r\n應用連接：%s\r\n\r\n目前電腦 → Mac：%.1f Mbps\r\n目前 Mac → 電腦：%.1f Mbps\r\n峰值：傳送 %.1f / 接收 %.1f Mbps\r\n累計：傳送 %s / 接收 %s\r\nUSB 橋接丟棄／過濾計數：%d（不是 Moonlight 丟包率）\r\n流量取樣每 5 秒；尚未測量本輪最高頻寬或端到端延遲。\r\n\r\nMac 與 iPad 共用 Windows 10.6.9.1；Mac 10.6.9.2，iPad 10.6.9.3。Mac 可用 Moonlight 連接上方 Windows IP。", r.DeviceAuthorization, r.MacDHCPDiscoveries, r.MacDHCPOffers, r.MacDHCPACKs, usb, proof, r.ObservedTransmitMbps, r.ObservedReceiveMbps, r.Traffic.PeakTransmitMbps, r.Traffic.PeakReceiveMbps, formatTransfer(r.Traffic.SentBytes), formatTransfer(r.Traffic.ReceivedBytes), r.MacBridgeDrops)
 	if r.Status == "MONITOR_PAUSED" || r.Status == "MONITOR_WAITING" {
 		detail = "目前未執行 USB 初始化。下方保留上一輪結果。\r\n\r\n" + detail
 	}

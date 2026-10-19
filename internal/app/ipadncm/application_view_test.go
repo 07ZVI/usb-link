@@ -146,3 +146,64 @@ func TestMacNCMDescriptorSummaryReachesExportedDetailOnly(t *testing.T) {
 		t.Fatal("summary must not change titles or connection state")
 	}
 }
+
+func TestApplicationViewsUSBSpeed(t *testing.T) {
+	for _, tc := range []struct {
+		name, speed, problem, mac, ipad string
+	}{
+		{"5 Gbps", "USB SuperSpeed（5 Gbps 級別）", "", "USB SuperSpeed（5 Gbps 級別）", "USB SuperSpeed（5 Gbps 級別）"},
+		{"10 Gbps takes precedence", "USB SuperSpeedPlus（10 Gbps 級別）", "OLD_ERROR", "USB SuperSpeedPlus（10 Gbps 級別）", "USB SuperSpeedPlus（10 Gbps 級別）"},
+		{"error only", "", "USB_SPEED_QUERY_FAILED", "未取得（USB_SPEED_QUERY_FAILED）", "尚未取得目前 USB 協商級別"},
+		{"not read", "", "", "尚未取得目前 USB 協商級別", "尚未取得目前 USB 協商級別"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, kind := range []string{"Mac", "iPad"} {
+				r := ApplicationResult{DeviceKind: kind, USBSpeed: tc.speed, USBSpeedError: tc.problem}
+				want := tc.ipad
+				if kind == "Mac" {
+					want = tc.mac
+				}
+				_, _, detail := applicationView(r, false)
+				line := "USB 協商級別：" + want + "\r\n"
+				if strings.Count(detail, line) != 1 {
+					t.Fatalf("%s missing speed line %q: %s", kind, line, detail)
+				}
+				if kind == "Mac" {
+					_, _, direct := macApplicationView(r, false)
+					if direct != detail || !strings.Contains(detail, "（確認不代表已套用）\r\n"+line+"應用連接：") {
+						t.Fatal("Mac speed must follow allocation", direct)
+					}
+				}
+				if tc.speed != "" && desktopDeviceStatus(r, false).Speed != "USB 協商速率："+tc.speed {
+					t.Fatal("card lost negotiated speed", kind)
+				}
+			}
+		})
+	}
+}
+
+func TestPreserveMacUSBSpeed(t *testing.T) {
+	previous := ApplicationResult{DeviceKind: "Mac", USBSpeed: "5 Gbps", USBSpeedError: "OLD_ERROR"}
+	for _, tc := range []struct {
+		name, kind, speed, problem, wantSpeed, wantProblem string
+	}{
+		{"omitted", "Mac", "", "", "5 Gbps", "OLD_ERROR"},
+		{"new speed", "Mac", "10 Gbps", "", "10 Gbps", "OLD_ERROR"},
+		{"new error", "Mac", "", "NEW_ERROR", "5 Gbps", "NEW_ERROR"},
+		{"both new", "Mac", "10 Gbps", "NEW_ERROR", "10 Gbps", "NEW_ERROR"},
+		{"other device", "iPad", "", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			next := ApplicationResult{DeviceKind: tc.kind, Status: "MONITOR_WAITING", USBSpeed: tc.speed, USBSpeedError: tc.problem}
+			preserveMacUSBSpeed(&next, previous)
+			if next.USBSpeed != tc.wantSpeed || next.USBSpeedError != tc.wantProblem || next.Status != "MONITOR_WAITING" {
+				t.Fatal(next)
+			}
+		})
+	}
+	next := ApplicationResult{DeviceKind: "Mac"}
+	preserveMacUSBSpeed(&next, ApplicationResult{DeviceKind: "iPad", USBSpeed: "other device"})
+	if next.USBSpeed != "" {
+		t.Fatal("must not copy another device's speed")
+	}
+}

@@ -449,7 +449,9 @@ func (a *ConnectionAuthorization) allowUSB(kind, root, pid string, current func(
 func SetMonitorDeviceKind(kind string) {
 	if s := connectionMonitor(); s != nil {
 		s.update(func(r *ApplicationResult) {
-			*r = ApplicationResult{DeviceKind: kind, RemainingSeconds: -1}
+			next := ApplicationResult{DeviceKind: kind, RemainingSeconds: -1}
+			preserveMacUSBSpeed(&next, *r)
+			*r = next
 			if kind == "Mac" {
 				r.WindowsIPv4 = "10.6.9.1"
 			} else {

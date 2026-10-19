@@ -145,3 +145,16 @@ func applyMacBridgeDiagnostics(r *ApplicationResult, m macconnection.Result) {
 		r.MacFirewallAnchorProjection = netconfig.CopyMacAnchorProjection(m.FirewallAnchorProjection)
 	}
 }
+
+// Monitor snapshots can omit USB speed because it is read separately from the bridge.
+func preserveMacUSBSpeed(next *ApplicationResult, previous ApplicationResult) {
+	if next.DeviceKind != "Mac" || previous.DeviceKind != "Mac" {
+		return
+	}
+	if next.USBSpeed == "" {
+		next.USBSpeed = previous.USBSpeed
+	}
+	if next.USBSpeedError == "" {
+		next.USBSpeedError = previous.USBSpeedError
+	}
+}
