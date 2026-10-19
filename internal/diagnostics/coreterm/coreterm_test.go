@@ -10,6 +10,7 @@ import (
 
 func TestPreviousRunWithoutStopIsReportedUncleanWithCrashOutput(t *testing.T) {
 	dir := t.TempDir()
+	t.Cleanup(release)
 	t0 := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
 	first := Begin(dir, "0.10.19", 100, t0)
 	if first.PreviousEnded != "none" || first.Current.State != "running" {
@@ -45,6 +46,7 @@ func TestPreviousRunWithoutStopIsReportedUncleanWithCrashOutput(t *testing.T) {
 
 func TestDamagedOrRedirectedRecordNeverBlocksStart(t *testing.T) {
 	dir := t.TempDir()
+	t.Cleanup(release)
 	if err := os.WriteFile(filepath.Join(dir, runLeaf), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}

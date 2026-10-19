@@ -195,6 +195,22 @@ func Begin(dir, version string, pid uint32, now time.Time) Status {
 	return st
 }
 
+// release stops the heartbeat and closes the crash output so a test's
+// temporary directory can be removed; Windows refuses to delete open files.
+func release() {
+	state.Lock()
+	defer state.Unlock()
+	if state.stop != nil {
+		close(state.stop)
+		state.stop = nil
+	}
+	if state.crash != nil {
+		_ = debug.SetCrashOutput(nil, debug.CrashOptions{})
+		_ = state.crash.Close()
+		state.crash = nil
+	}
+}
+
 // End marks an orderly or reported stop. A process that never reaches End is
 // reported as an unclean end by the next Begin.
 func End(reason string, exitCode uint32, now time.Time) {
