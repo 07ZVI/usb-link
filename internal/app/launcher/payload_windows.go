@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-//go:embed assets/desktop.zip assets/mac-payload.zip assets/mac-sources.json assets/notices.txt assets/setup-license.txt assets/sources.json assets/smb-licenses.txt assets/smb-sources.json assets/wintun-0.14.1.zip assets/zadig-2.9.exe
+//go:embed assets/desktop.zip assets/mac-payload.zip assets/mac-sources.json assets/notices.txt assets/setup-license.txt assets/sources.json assets/wintun-0.14.1.zip assets/zadig-2.9.exe
 var payload embed.FS
 
 func bundledDependencyArchive(a dependencies.Asset) []byte {
@@ -58,7 +58,7 @@ func bundledFile(name string) ([]byte, error) {
 }
 
 func writeNotices(dir string) error {
-	for name, src := range map[string]string{"SMB-LICENSES.txt": "assets/smb-licenses.txt", "SMB-SOURCES.json": "assets/smb-sources.json", "LICENSES.txt": "assets/notices.txt", "SOURCES.json": "assets/sources.json", "MAC-SOURCES.json": "assets/mac-sources.json", "MAC-LICENSES.txt": "assets/notices.txt"} {
+	for name, src := range map[string]string{"LICENSES.txt": "assets/notices.txt", "SOURCES.json": "assets/sources.json", "MAC-SOURCES.json": "assets/mac-sources.json", "MAC-LICENSES.txt": "assets/notices.txt"} {
 		b, e := payload.ReadFile(src)
 		if e != nil {
 			return e

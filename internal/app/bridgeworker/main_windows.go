@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
@@ -88,6 +89,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	txDepth := flag.Int("tx-depth", 16, "bounded asynchronous USB OUT depth (1-16)")
 	batchRequested := flag.Int("batch-max", 16, "maximum already-ready frames per NTB (1-32; no timer)")
 	readDepth := flag.Int("read-depth", 16, "pending USB IN requests (4-16)")
+	macMTUCap := flag.String("mac-mtu-cap", "auto", "developer experiment: auto, 9000 or 1500")
 	flag.Parse()
 	launchPhase := "mac_launch_validate"
 	var firstFailure netconfig.FirstMacStartupFailure
@@ -116,6 +118,10 @@ func run(dir string, l *log.Logger) (runErr error) {
 	}
 	if *txDepth < 1 || *txDepth > 16 || *batchRequested < 1 || *batchRequested > 32 || *readDepth < 4 || *readDepth > 16 {
 		return fmt.Errorf("invalid transport limits")
+	}
+	mtuCap, e := ncm.ParseMTUCap(*macMTUCap)
+	if e != nil {
+		return e
 	}
 	addresses, e := usbaddress.Lookup(*profile)
 	if e != nil {
@@ -217,7 +223,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	var topology []usbaddress.InterfaceProof
 	var device *winusb.NCMDevice
 	if *profile == usbaddress.Unified {
-		device, err = winusb.InitializeNCMWithTrial(0, false, 0, l)
+		device, err = winusb.InitializeNCMWithTrial(0, false, 0, l, mtuCap)
 	} else {
 		device, err = winusb.InitializeNCM(0, false, 0, l)
 	}
@@ -784,6 +790,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 		return err
 	}
 	defer server.Close()
+	var ingress bridge.IngressCounters
 	var reads []*winusb.Read
 	defer func() { device.Data.CloseReads(reads); l.Print("pending reads cancelled and drained") }()
 	for j := 0; j < *readDepth; j++ {
@@ -795,6 +802,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 		if e = device.Data.Submit(r, device.In.ID); e != nil {
 			return e
 		}
+		ingress.Submitted.Add(1)
 	}
 	memorydiag.RecordStage("usb_in_buffers_allocated_and_submitted")
 	ctx, cancelIO := context.WithCancel(ctx)
@@ -845,6 +853,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	go func() {
 		defer workers.Done()
 		pprof.SetGoroutineLabels(pprof.WithLabels(ctx, pprof.Labels("worker", "usb-in")))
+		defer exitOnPanic(l)
 		stream := ncm.Stream{}
 		defer stream.Close()
 		for cursor := 0; ctx.Err() == nil; cursor = (cursor + 1) % len(reads) {
@@ -853,12 +862,18 @@ func run(dir string, l *log.Logger) (runErr error) {
 			// request directly. Waiting on its event first doubles hot-path calls.
 			var b []byte
 			var e error
+			immediate := true
 			for ctx.Err() == nil {
 				b, e = device.Data.Result(r, false)
 				if !errors.Is(e, windows.ERROR_IO_INCOMPLETE) {
 					break
 				}
-				if _, e = waitIO.Current(r.Overlapped.HEvent); e != nil {
+				// One clock pair per blocked transfer, never per packet.
+				waitStart := time.Now()
+				immediate = false
+				_, e = waitIO.Current(r.Overlapped.HEvent)
+				ingress.WaitNanos.Add(uint64(time.Since(waitStart)))
+				if e != nil {
 					fail(e)
 					return
 				}
@@ -867,9 +882,10 @@ func run(dir string, l *log.Logger) (runErr error) {
 				return
 			}
 			if e != nil {
-				fail(fmt.Errorf("Bulk IN: %w", e))
+				fail(fmt.Errorf("USB_IN_READ_FAILED: Bulk IN: %w", e))
 				return
 			}
+			ingress.ObserveRead(len(b), len(r.Buffer), immediate)
 			if bench.ReuseBuffers() {
 				stream.Pool = buffers
 			} else {
@@ -881,9 +897,15 @@ func run(dir string, l *log.Logger) (runErr error) {
 			}
 			usbReceivedAt := time.Now()
 			blocks, e := stream.Feed(b)
+			ingress.FeedNanos.Add(uint64(time.Since(usbReceivedAt)))
 			if e != nil {
-				fail(fmt.Errorf("NTB decode: %w", e))
+				ingress.DecodeErrors.Add(1)
+				fail(fmt.Errorf("USB_IN_NTB_DECODE_FAILED: NTB decode: %w", e))
 				return
+			}
+			ingress.Blocks.Add(uint64(len(blocks)))
+			for _, block := range blocks {
+				ingress.Datagrams.Add(uint64(len(block.Frames)))
 			}
 			for _, block := range blocks {
 				latencyprobe.MarkFrames(block.Frames, publishedPeer.Load().(bridge.Peer), true, "usb", usbReceivedAt)
@@ -892,9 +914,10 @@ func run(dir string, l *log.Logger) (runErr error) {
 				for _, block := range blocks {
 					block.Release()
 				}
-				fail(e)
+				fail(fmt.Errorf("USB_IN_RESUBMIT_FAILED: %w", e))
 				return
 			}
+			ingress.Submitted.Add(1)
 			if raw != nil {
 				for i := range blocks {
 					frames := blocks[i].Frames[:0]
@@ -913,11 +936,20 @@ func run(dir string, l *log.Logger) (runErr error) {
 				}
 				select {
 				case fromUSB <- block:
-				case <-ctx.Done():
-					for _, unsent := range blocks[i:] {
-						unsent.Release()
+					ingress.ObserveQueue(len(fromUSB))
+				default:
+					// The Wintun owner is behind: count the stall and its duration.
+					ingress.QueueFullEvents.Add(1)
+					handoff := time.Now()
+					select {
+					case fromUSB <- block:
+						ingress.HandoffNanos.Add(uint64(time.Since(handoff)))
+					case <-ctx.Done():
+						for _, unsent := range blocks[i:] {
+							unsent.Release()
+						}
+						return
 					}
-					return
 				}
 			}
 		}
@@ -925,6 +957,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	go func() {
 		defer workers.Done()
 		pprof.SetGoroutineLabels(pprof.WithLabels(ctx, pprof.Labels("worker", "wintun-receive")))
+		defer exitOnPanic(l)
 		for ctx.Err() == nil {
 			var allocate func(int) []byte
 			if bench.ReuseBuffers() {
@@ -958,6 +991,10 @@ func run(dir string, l *log.Logger) (runErr error) {
 		l.Print("MAC_DHCP_STARTED no_router=true no_dns=true usb_only=true")
 	}
 	var stats statistics
+	var drops bridge.DropCounts // owned by this main loop
+	ingressReport := func() map[string]any {
+		return map[string]any{"usb_in": ingress.Snapshot(), "drop_reasons": drops.Named(), "read_buffer_bytes": device.ReadSize, "read_depth": *readDepth, "ntb_in_max": device.Parameters.InMax, "peer_mtu": peer.MTU}
+	}
 	var sequence uint16
 	var encoded []byte
 	peerReady := make(chan struct{})
@@ -966,10 +1003,11 @@ func run(dir string, l *log.Logger) (runErr error) {
 	if err != nil {
 		return err
 	}
-	batchSizes, err := ncm.NewBatchSizes(device.Parameters, *batchRequested, int(device.MaxSegment))
+	batchSizes, err := ncm.NewBatchSizes(device.Parameters, *batchRequested, mtuCap.DeviceMaxSegment(int(device.MaxSegment)))
 	if err != nil {
 		return err
 	}
+	l.Printf("MTU_CAP setting=%s applied_frame_limit=%d", mtuCap, batchSizes.FrameLimit)
 	writer, err := winusb.NewWriter(device.Data, device.Out.ID, int(min(device.Parameters.OutMax, ncm.MaxNTB)), *txDepth)
 	if err != nil {
 		return err
@@ -1072,6 +1110,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	go func() {
 		defer workers.Done()
 		pprof.SetGoroutineLabels(pprof.WithLabels(ctx, pprof.Labels("worker", "usb-out")))
+		defer exitOnPanic(l)
 		transmitter := bridge.Transmitter{
 			// The writer consumes/copies before returning, so frame/packet reuse
 			// cannot race pinned USB requests. Baseline mode retains old ownership.
@@ -1175,6 +1214,9 @@ func run(dir string, l *log.Logger) (runErr error) {
 			reportInterfaceOperations()
 			out := snapshotTX()
 			l.Printf("STATS %+v peer=%s", combinedStats(), net.HardwareAddr(peer.MAC[:]))
+			if b, e := json.Marshal(ingressReport()); e == nil && len(b) <= 2048 {
+				l.Printf("IN_STATS %s", b)
+			}
 			l.Printf("TX_STATS submitted=%d completed=%d bytes=%d max_pending=%d backpressure_ms=%.3f completion_observed_max_ms=%.3f tun_queue=%d usb_queue=%d control_queue=%d independent_out=true", out.submitted, out.completed, out.bytes, out.maxPending, float64(out.waitNanos)/1e6, float64(out.completionNanos)/1e6, len(fromTun), len(fromUSB), len(controls))
 		case now := <-arpTimer.C:
 			if trial != nil {
@@ -1193,8 +1235,13 @@ func run(dir string, l *log.Logger) (runErr error) {
 				}
 			}
 		case block := <-fromUSB:
+			blockStarted := time.Now()
 			if e := func() error {
 				defer block.Release()
+				defer func() {
+					ingress.ProcessNanos.Add(uint64(time.Since(blockStarted)))
+					ingress.ProcessedBlocks.Add(1)
+				}()
 				stats.USBReads++
 				for _, frame := range block.Frames {
 					if *profile == usbaddress.Unified {
@@ -1218,6 +1265,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 						if dhcp.MAC != [6]byte{} {
 							e, er := ncm.ParseEthernet(frame)
 							if er != nil || e.Source != dhcp.MAC {
+								drops.Add(bridge.DropDHCPSource)
 								stats.Dropped++
 								stats.Filtered++
 								continue
@@ -1236,7 +1284,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 							continue
 						}
 					}
-					arp, ip := peer.FromMac(frame)
+					arp, ip, why := peer.FromMacReason(frame)
 					if arp != nil {
 						if err = send([][]byte{arp}); err != nil {
 							return err
@@ -1262,7 +1310,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 								if time.Since(snapshotAt) < time.Second {
 									continue
 								}
-								snapshot, err = diagnostics(dir, nonce, combinedStats(), topology)
+								snapshot, err = diagnostics(dir, nonce, combinedStats(), topology, ingressReport())
 								if err != nil {
 									return err
 								}
@@ -1283,29 +1331,33 @@ func run(dir string, l *log.Logger) (runErr error) {
 						}
 						if err = tun.Send(ip); err != nil {
 							if errors.Is(err, windows.ERROR_BUFFER_OVERFLOW) {
+								drops.Add(bridge.DropRingFull)
 								stats.Dropped++
 								stats.RingOverflow++
 								continue
 							}
-							return fmt.Errorf("Wintun send: %w", err)
+							return fmt.Errorf("WINTUN_SEND_FAILED: Wintun send: %w", err)
 						}
 						latencyprobe.Mark(ip, true, "inject", time.Now())
 						stats.ToWindows++
 						stats.ToWindowsBytes += uint64(len(ip))
 						stats.ToWindowsProfile.Observe(ip)
 					} else if arp == nil {
+						drops.Add(why)
 						stats.Dropped++
 						stats.Filtered++
 					}
 				}
 				if peer.MAC != [6]byte{} && !peerAnnounced {
 					peerAnnounced = true
-					if *profile == usbaddress.Unified && device.Datagram != nil {
+					if *profile == usbaddress.Unified && !mtuCap.AllowsJumbo() {
+						l.Print("MTU_TRIAL_SKIPPED reason=mac_mtu_cap_1500 effective_mtu=1500")
+					} else if *profile == usbaddress.Unified && device.Datagram != nil {
 						var nonce [16]byte
 						if _, err = rand.Read(nonce[:]); err != nil {
 							return err
 						}
-						trial = mtutrial.New(peer.MAC, nonce, min(int(device.Datagram.Current), batchSizes.FrameLimit))
+						trial = mtutrial.New(peer.MAC, nonce, mtuCap.TrialFrameLimit(int(device.Datagram.Current), batchSizes.FrameLimit))
 						l.Printf("MTU_TRIAL_STARTED baseline=1500 frame_limit=%d peer=%s no_peer_install=true", device.Datagram.Current, net.HardwareAddr(peer.MAC[:]))
 					}
 					l.Printf("PEER_RESOLVED mac=%s IPv4=%s", net.HardwareAddr(peer.MAC[:]), addresses.Peer)
@@ -1349,6 +1401,16 @@ func run(dir string, l *log.Logger) (runErr error) {
 	}
 }
 
+// exitOnPanic records a panic (this goroutine or Main) with its stack on the
+// BRIDGE_STOP line before the process ends; an unrecovered panic would otherwise
+// reach the parent only as a bare exit status 2.
+func exitOnPanic(l *log.Logger) {
+	if r := recover(); r != nil {
+		l.Printf("%s\n%s", StopLine(fmt.Errorf("%s: %v", StopPanic, r), ExitCodePanic), debug.Stack())
+		os.Exit(ExitCodePanic)
+	}
+}
+
 func Main() {
 	exe, e := os.Executable()
 	if e != nil {
@@ -1363,7 +1425,13 @@ func Main() {
 	}
 	l := log.New(io.MultiWriter(os.Stdout, f), "", log.Ldate|log.Ltime|log.Lmicroseconds)
 	l.Printf("version=%s", version)
+	defer exitOnPanic(l)
 	e = run(dir, l)
+	exitCode := 0
+	if e != nil {
+		exitCode = ExitCodeFailure
+	}
+	l.Print(StopLine(e, exitCode))
 	if e != nil {
 		if message, ok := netconfig.NativeStepFailureMessage(e); ok {
 			l.Printf("%s%s", netconfig.NativeFailurePrefix, message)

@@ -31,7 +31,7 @@ class BuildProfileTests(unittest.TestCase):
     def test_local_allows_server_but_public_rejects_it(self):
         for symbol in ('remoteupdate.(*Server).ServeHTTP', 'connectioninstall.LaunchLocalRemoteElevation',
                        'connectioninstall.DispatchLocalRemoteInstall', 'connectioninstall.RunLocalRemoteInstall',
-                       'launcher.handleLocalRemoteCommand', 'ipadncm.(*localWPDTraceNative).start', 'ipadncm.readWPDManifestTemplates', 'ipadncm.openConnectionArchiveStore', 'ipadncm.collectConnectionEnvironment', 'ipadncm.(*localWPDTraceNative).startCriticalConsumer', 'ipadncm.(*localWPDTraceNative).startSummaryConsumer', 'connectioninstall.localArchiveHandler', 'localupdate.collectArchives', 'ipadncm.applyPhotoPolicy', 'ipadncm.(*localDirectRun).prepare', 'ipadncm.(*directNetworkTarget).mapping'):
+                       'launcher.handleLocalRemoteCommand', 'ipadncm.applyPhotoPolicy', 'ipadncm.(*localDirectRun).prepare', 'ipadncm.(*directNetworkTarget).mapping'):
             with self.subTest(symbol=symbol), patch.object(project, 'run'), patch.object(project.subprocess, 'check_output',
                     return_value='suhang/usbnet/internal/app/'+symbol):
                 project.verify_release_surface('synthetic-bridge-hash', 'local')
@@ -62,9 +62,7 @@ class BuildProfileTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_native_metadata_observers_are_local_only(self):
-        symbols = ('ipadncm.(*usbTraceNative).startCapture',
-                   'ipadncm.(*localPnPTraceController).run',
-                   'deviceguard.SubscribeAppleChangeMetadata',
+        symbols = ('deviceguard.SubscribeAppleChangeMetadata',
                    'deviceguard.(*ChangeMetadataStream).offer')
         for symbol in symbols:
             with self.subTest(symbol=symbol), patch.object(project, 'run'), patch.object(

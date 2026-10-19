@@ -5,7 +5,7 @@ package connectioninstall
 import (
 	"fmt"
 	"os"
-	"runtime"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -123,54 +123,43 @@ func TestUpgradeMutexNativeRejectExistingExtraACEWithoutMutation(t *testing.T) {
 	}
 }
 
-// Package-level initialisers run on the process main thread (runtime.main
-// locks it during init). The Go runtime never exits that thread: when a
-// goroutine locked to m0 returns, runtime.mexit wedges m0 instead of calling
-// ExitThread (proc.go, "This is the main thread. Just wedge it."). A mutex
-// owned by m0 therefore is never abandoned and waiters time out.
-var testMainThreadID = windows.GetCurrentThreadId()
+const abandonMutexHelperEnv = "USBLINK_TEST_ABANDON_MUTEX"
 
-// abandonMutexOnExitedThread acquires h on a dedicated OS thread and lets that
-// thread terminate while owning it. It retries whenever the scheduler happened
-// to place the goroutine on the immortal main thread, before taking ownership.
-func abandonMutexOnExitedThread(t *testing.T, h windows.Handle) {
-	t.Helper()
-	for attempt := 0; attempt < 200; attempt++ {
-		ready := make(chan error, 1)
-		onMain := make(chan bool, 1)
-		go func() {
-			// Deliberately return while locked to this OS thread. Go terminates
-			// that thread; Windows marks its owned mutex abandoned, as after crash.
-			runtime.LockOSThread()
-			if windows.GetCurrentThreadId() == testMainThreadID {
-				runtime.UnlockOSThread()
-				onMain <- true
-				return
-			}
-			onMain <- false
-			status, err := windows.WaitForSingleObject(h, 5000)
-			if err == nil && status != windows.WAIT_OBJECT_0 {
-				err = fmt.Errorf("fixture wait status=0x%08x", status)
-			}
-			ready <- err
-		}()
-		if <-onMain {
-			runtime.Gosched()
-			continue
-		}
-		if err := <-ready; err != nil {
-			t.Fatal(err)
-		}
-		return
+// TestUpgradeMutexAbandonHelperProcess is not a test on its own: when re-run
+// as a child with the mutex name in the environment, it takes ownership and
+// exits without releasing, so Windows marks the mutex abandoned. A process
+// exit is deterministic; a goroutine's thread may be the immortal main thread.
+func TestUpgradeMutexAbandonHelperProcess(t *testing.T) {
+	name := os.Getenv(abandonMutexHelperEnv)
+	if name == "" {
+		t.Skip("helper process only")
 	}
-	t.Fatal("could not obtain a non-main OS thread for the abandoned-owner fixture")
+	h, err := windows.OpenMutex(windows.SYNCHRONIZE, false, windows.StringToUTF16Ptr(name))
+	if err != nil {
+		os.Exit(3)
+	}
+	if status, err := windows.WaitForSingleObject(h, 5000); err != nil || status != windows.WAIT_OBJECT_0 {
+		os.Exit(4)
+	}
+	os.Exit(0)
+}
+
+// abandonMutexInChildProcess makes a child process own the named mutex and
+// exit while owning it, as after a crash.
+func abandonMutexInChildProcess(t *testing.T, name string) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestUpgradeMutexAbandonHelperProcess$", "-test.count=1")
+	cmd.Env = append(os.Environ(), abandonMutexHelperEnv+"="+name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("abandon helper: %v %s", err, out)
+	}
 }
 
 func TestUpgradeMutexNativeAbandonedOwnerCanRecover(t *testing.T) {
-	name, h := nativeMutexFixture(t, upgradeJobMutexSDDL)
-	abandonMutexOnExitedThread(t, h)
-	// Do not infer release from goroutine completion: the native wait must
-	// observe ownership transfer after thread termination.
+	// The fixture handle keeps the named object alive across the child's exit.
+	name, _ := nativeMutexFixture(t, upgradeJobMutexSDDL)
+	abandonMutexInChildProcess(t, name)
+	// The native wait must observe the abandoned ownership left by the child.
 	u, err := acquireUpgradeJobMutex(name, 5000)
 	if err != nil {
 		t.Fatal(err)

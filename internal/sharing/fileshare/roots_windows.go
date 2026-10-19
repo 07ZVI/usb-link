@@ -3,6 +3,7 @@
 package fileshare
 
 import (
+	"fmt"
 	"golang.org/x/sys/windows"
 	"os"
 	"path/filepath"
@@ -35,4 +36,19 @@ func openShareRoot(p string) (*os.Root, error) {
 	shared, e := root.OpenRoot(".")
 	root.Close()
 	return shared, e
+}
+
+// Capture volume and file IDs from a handle, before releasing it; pathname
+// FileInfo on Windows may otherwise defer its identity query until comparison.
+func shareRootIdentity(root *os.Root) (string, error) {
+	f, e := root.Open(".")
+	if e != nil {
+		return "", e
+	}
+	defer f.Close()
+	var info windows.ByHandleFileInformation
+	if e = windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &info); e != nil {
+		return "", e
+	}
+	return fmt.Sprintf("win:%08x:%08x%08x", info.VolumeSerialNumber, info.FileIndexHigh, info.FileIndexLow), nil
 }

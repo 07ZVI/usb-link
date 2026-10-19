@@ -14,6 +14,7 @@ import (
 	"suhang/usbnet/internal/app/ipadeasy"
 	"suhang/usbnet/internal/app/ipadncm"
 	"suhang/usbnet/internal/app/macconnection"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 	"suhang/usbnet/internal/security/applelease"
 	"time"
 )
@@ -71,8 +72,8 @@ func save(r Result) (string, error) {
 		if dir, ok := serviceDiagnosticDirectory.Load().(string); ok && dir != "" {
 			parent = filepath.Join(dir, "core-diagnostics", version)
 		}
-	} else if base := os.Getenv("LOCALAPPDATA"); base != "" {
-		parent = filepath.Join(base, "Suhang", "iPadUSBSetup", version)
+	} else if root, _, e := machinepaths.UIDiagnostics(); e == nil {
+		parent = filepath.Join(root, version)
 	}
 	if parent == "" {
 		return "", fmt.Errorf("no verified diagnostic directory")

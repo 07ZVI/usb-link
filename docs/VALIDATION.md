@@ -34,7 +34,7 @@ Software checks do not establish real WinNAT/WFP/Defender behavior, driver insta
 
 | Area | Required device cases | Status |
 | --- | --- | --- |
-| Architecture regression | Mac/iPad attach, native SMB 445 and compatibility SMB 10690 separately, permissions and accounts, revoke/replug | Pending Windows/Mac/iPad |
+| Architecture regression | Mac/iPad attach, native SMB 445, browser speed test on 10690, permissions and accounts, revoke/replug | Pending Windows/Mac/iPad |
 | Upgrade and recovery | Existing 0.8.140 installation → candidate, local upgrade verification/rollback, interrupted transactions, no original-value loss, uninstall | Pending Windows hardware and original signing flow |
 | Dependency bootstrap | No .NET first start, existing newer Apple/.NET, offline, bad hash/signature, official cancellation, UAC, reboot-required and resume, duplicate launches | Pending clean Windows VM/hardware |
 | Gateway connectivity | Mac with other networks off: USB DHCP options, DNS over UDP/TCP, HTTPS, TCP and UDP | Pending Windows/Mac |
@@ -47,7 +47,7 @@ Software checks do not establish real WinNAT/WFP/Defender behavior, driver insta
 
 1. Create a fresh Windows VM plus a real Windows/Mac USB setup. Record OS versions and candidate checksums locally, not as public raw logs.
 2. Run the dependency cases, checking signer/digest/readback and visible official prompts. Capture missing-component and affected-feature status.
-3. Run unchanged local functions first. Treat native/compatibility SMB as independent cases and check access masks/denied directories, not only a successful listing.
+3. Run unchanged local functions first. Check access masks/denied directories, not only a successful listing.
 4. Enable sharing for the authorized Mac. Renew its USB DHCP lease. Check the actual Mac route/DNS, then DNS UDP/TCP, HTTPS and TCP/UDP transfers with other Mac networks disabled.
 5. Test every exclusion and unsolicited return flow. Revoke/unplug/change upstream/kill the core and confirm admission closes; verify owned NAT/DNS/rules and forwarding original values after normal/recovery cleanup.
 6. Install over 0.8.140, exercise the local installation/rollback contract, then uninstall without removing preexisting Apple or shared .NET.
@@ -81,7 +81,9 @@ Mac/iPad labeling, unavailable native routes, browser heartbeat freshness and
 inactive-session URL suppression. The actual browser completed both throughput
 directions on a loopback fixture, then restarted and cancelled a second test.
 Loopback numbers are not USB performance measurements. See
-[browser measurement boundaries](BROWSER-SPEED-TEST.md).
+[browser measurement boundaries](BROWSER-SPEED-TEST.md). Historical USB throughput
+results from earlier versions are collected in
+[SPEED-TEST-HISTORY.zh-CN.md](SPEED-TEST-HISTORY.zh-CN.md).
 
 The 30-second browser WebSocket test also completed with 3000/3000 echoes on the
 loopback fixture. The Avalonia macOS renderer passed the connection smoke test,

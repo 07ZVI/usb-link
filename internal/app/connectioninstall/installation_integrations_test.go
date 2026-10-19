@@ -49,7 +49,7 @@ func TestLegacyIntegrationTargetCannotAdoptCurrentOrForeignSources(t *testing.T)
 	}
 }
 
-func TestNewSetupRecoveryOnlyFinishesFirstInstallRollback(t *testing.T) {
+func TestNewSetupOnlyFinishesInterruptedRollback(t *testing.T) {
 	_, x := installationFixture(t)
 	x.Previous = nil
 	x.PreviousFiles = nil
@@ -73,10 +73,13 @@ func TestNewSetupRecoveryOnlyFinishesFirstInstallRollback(t *testing.T) {
 	if canFinishInstallationRollback(x, "S-1-5-21-8-8-8-8", "0.10.11") {
 		t.Fatal("foreign owner")
 	}
+	// An interrupted upgrade rollback restores only the proven previous
+	// inventory recorded in the transaction, so a newer setup may finish it.
 	_, upgrade := installationFixture(t)
 	upgrade.Phase = InstallRestoring
-	if canFinishInstallationRollback(upgrade, upgrade.OwnerSID, "0.10.11") {
-		t.Fatal("upgrade rollback accepted")
+	upgrade.Next.Version = "0.10.10"
+	if !canFinishInstallationRollback(upgrade, upgrade.OwnerSID, "0.10.11") {
+		t.Fatal("upgrade rollback blocked")
 	}
 	x.NextFiles[BinaryName] = strings.Repeat("f", 64)
 	if canFinishInstallationRollback(x, x.OwnerSID, "0.10.11") {

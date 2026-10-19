@@ -27,7 +27,7 @@ func executeMode(previous *ipadncm.Result) (ipadncm.Result, applelease.Report, i
 	}
 	out := ipadeasy.ModeOutcome{Ready: ready}
 	if !ready {
-		out.Error = probe.Status
+		out.Error = ipadncm.ModeFailureError(probe.Status)
 	}
 	return probe, applelease.Report{}, out
 }
@@ -36,11 +36,9 @@ func inspect(r *Result, system, recoveryDir string) {
 	// Read-only USB information and user consent precede driver/service changes.
 	if !applicationConsent() {
 		r.Stage = "USB_CONNECTION_NOT_ALLOWED"
-		r.Error = "USB_LAYOUT_UNCONFIRMED_DECLINED_OR_CHANGED"
-		return
-	}
-	if err := ipadncm.ValidateIPadCandidateDevice(); err != nil {
-		r.Stage, r.Error = "CANDIDATE_DEVICE_UNCONFIRMED", err.Error()
+		// A readiness race keeps its retryable code; a decline, change or
+		// security failure keeps the original non-retrying one.
+		r.Error = ipadncm.AuthorizationFailureError("USB_LAYOUT_UNCONFIRMED_DECLINED_OR_CHANGED")
 		return
 	}
 	r.Workflow = ipadeasy.Run(func() string {

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"path/filepath"
-	"strings"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 	"unsafe"
 )
 
@@ -55,12 +55,11 @@ func softwareTrustedHandle(h windows.Handle, folder bool) error {
 	return nil
 }
 func openSoftwareReconnectStore(dir string) (s *softwareReconnectStore, err error) {
-	w, e := windows.GetWindowsDirectory()
+	fixed, e := machinepaths.ActiveRecovery()
 	if e != nil {
 		return nil, e
 	}
-	fixed := filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery")
-	if !strings.EqualFold(filepath.Clean(dir), fixed) {
+	if !machinepaths.IsActiveRecovery(dir) {
 		return nil, fmt.Errorf("software reconnect requires fixed protected recovery store")
 	}
 	p, e := windows.UTF16PtrFromString(fixed)

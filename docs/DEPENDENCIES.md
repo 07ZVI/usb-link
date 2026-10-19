@@ -78,7 +78,7 @@ Uninstall first restores owned network changes and stops the verified core. It t
 
 The Apple CAB contains INF/SYS/CAT/DLL files but no explicit redistribution grant. Microsoft Update Catalog states that downloaded updates remain governed by their accompanying terms; Microsoft signing is not a redistribution grant. Therefore Apple packages stay external, including for the interactive wizard. The Apple redistribution exclusion follows [Apple's Windows software license](https://www.apple.com/legal/sla/docs/iTunesWindows.pdf). The GPL linking exception follows [GNU's additional-permission guidance](https://www.gnu.org/licenses/gpl-faq.en.html#GPLIncompatibleLibs). The original [Wintun prebuilt binary terms](https://git.zx2c4.com/wintun/tree/prebuilt-binaries-license.txt) are retained. This exception does not authorize redistribution of Apple packages or other proprietary software.
 
-Library versions, source repositories and license paths are in [libraries.json](../licenses/libraries.json). Imported compatibility SMB has a separate commit/file provenance record and complete MIT notice. These permissions are preserved alongside GPL terms, not replaced by them.
+Library versions, source repositories and license paths are in [libraries.json](../licenses/libraries.json). Original library notices are preserved alongside GPL terms, not replaced by them.
 
 ## 0.9.3 installation layout
 

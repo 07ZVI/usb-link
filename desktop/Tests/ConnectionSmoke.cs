@@ -143,7 +143,7 @@ public sealed partial class Dashboard
                 detailWindow!.UpdateLayout();
                 var experimentSwitches = ((Control)experimentFold.Content!).GetVisualDescendants().OfType<ToggleSwitch>().ToArray();
                 if (experimentSwitches.Length != 1 || experimentSwitches.Any(t => !t.IsEffectivelyVisible)) throw new InvalidOperationException("expanded experiments must contain only the explicit NCM Direct control");
-                if (detailWindow!.GetVisualDescendants().OfType<ToggleSwitch>().Any(t => AutomationProperties.GetName(t) is "快速偵測" or "延遲切換對照（12 秒）" or "WPD 請求跟蹤" or "照片介面隔離" or "照片介面前置阻斷" or "Apple 服務屏蔽對照")) throw new InvalidOperationException("automatic diagnostics and legacy timing must have no separate switch");
+                if (detailWindow!.GetVisualDescendants().OfType<ToggleSwitch>().Any(t => AutomationProperties.GetName(t) is "照片介面隔離" or "照片介面前置阻斷" or "Apple 服務屏蔽對照")) throw new InvalidOperationException("automatic diagnostics and retired experiments must have no separate switch");
                 var textFold = detailWindow!.GetVisualDescendants().OfType<Expander>().Single(e => e.Header?.ToString() == "完整診斷文字");
                 if (textFold.IsExpanded) throw new InvalidOperationException("full diagnostic text must start collapsed");
                 textFold.IsExpanded = true;
@@ -181,14 +181,6 @@ public sealed partial class Dashboard
                 if (localDiagnosticsPendingID != "" || !localToggle.IsEnabled || !localDiagnosticsEnabled) throw new InvalidOperationException("master delivery failure must release pending without changing backend state");
                 using (var healthyAfterFailure = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":true,"busy":false}}""")) UpdateLocalDiagnostics(healthyAfterFailure.RootElement);
                 if (!localDiagnosticsMessage.Contains("未能確認") && localDiagnosticsDeliveryFailureID == "") throw new InvalidOperationException("healthy snapshot must not invent acknowledgement of a failed master request");
-                using (var timing = JsonDocument.Parse("""{"connection_timing":{"available":true,"mode":"fast","phase":"active","persistence":"saved"}}""")) UpdateConnectionTiming(timing.RootElement);
-                localDiagnosticsRefresh?.Invoke();
-                if (!connectionTimingAvailable || !connectionTimingMessage.Contains("持續使用") || connectionTimingMode != "fast") throw new InvalidOperationException("legacy timing status must remain readable without a control");
-                using (var delayedState = JsonDocument.Parse("""{"connection_timing":{"available":true,"mode":"delayed","phase":"active","persistence":"saved"}}""")) UpdateConnectionTiming(delayedState.RootElement);
-                localDiagnosticsRefresh?.Invoke();
-                if (connectionTimingMode != "delayed" || !connectionTimingMessage.Contains("設定已保存")) throw new InvalidOperationException("legacy persisted delay status must remain readable");
-                using (var automaticTiming = JsonDocument.Parse("""{"connection_timing":{"available":true,"mode":"fast","phase":"active","persistence":"automatic"}}""")) UpdateConnectionTiming(automaticTiming.RootElement);
-                if (connectionTimingMode != "fast" || !connectionTimingMessage.Contains("自動執行") || connectionTimingMessage.Contains("保存")) throw new InvalidOperationException("automatic detection must not imply a saved manual choice");
                 var obsoleteButtons = detailWindow!.GetVisualDescendants().OfType<Button>().Where(b => AutomationProperties.GetName(b)?.StartsWith("標記第 ") == true || AutomationProperties.GetName(b) is "開始 Apple 服務臨時對照" or "取消並恢復 Apple 服務").ToArray();
                 if (obsoleteButtons.Length != 0) throw new InvalidOperationException("manual markers and paired Apple service buttons must be absent");
                 foreach (var experiment in trustExperiments.Where(e => e.Key == "ncm_direct"))
@@ -209,30 +201,23 @@ public sealed partial class Dashboard
                     UpdateLocalDiagnostics(ack.RootElement);
                     if (experiment.DeliveryFailureID != "" || control.IsChecked == true) throw new InvalidOperationException("matching authoritative experiment ack must replace delivery warning");
                 }
+                using var capState = JsonDocument.Parse("""{"mac_mtu_cap":{"available":true,"busy":false,"persistence":"saved","saved_cap":"9000","effective_cap":"9000","applies":"next_connection"}}""");
+                UpdateLocalDiagnostics(capState.RootElement);
+                var capControl = detailWindow!.GetVisualDescendants().OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "Mac 連線 MTU 上限（實驗）");
+                if (capControl.SelectedIndex != 1 || !capControl.IsEnabled || macMtuCapSaved != "9000") throw new InvalidOperationException("saved MTU cap must be shown and selectable");
+                macMtuCapPendingID = new string('e', 32); macMtuCapPendingValue = "1500";
+                UpdateLocalDiagnostics(capState.RootElement);
+                if (macMtuCapPendingID == "" || capControl.SelectedIndex != 2) throw new InvalidOperationException("stale MTU cap snapshot finished a current request");
+                using (var capFailure = JsonDocument.Parse("""{"event":"local-control-result","action":"mac-mtu-cap-1500","request_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","code":"CORE_UI_ACTION_FAILED"}""")) Update(capFailure.RootElement);
+                if (macMtuCapPendingID != "" || macMtuCapDeliveryFailureID == "" || capControl.SelectedIndex != 1) throw new InvalidOperationException("failed MTU cap delivery must release the wait and keep the last saved value");
+                using (var capAck = JsonDocument.Parse("""{"mac_mtu_cap":{"available":true,"busy":false,"persistence":"saved","saved_cap":"1500","effective_cap":"1500","request_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}""")) UpdateLocalDiagnostics(capAck.RootElement);
+                if (macMtuCapDeliveryFailureID != "" || capControl.SelectedIndex != 2 || !macMtuCapMessage.Contains("下次 Mac 連線")) throw new InvalidOperationException("matching MTU cap acknowledgement must replace the delivery warning");
                 using (var armed = JsonDocument.Parse("""{"photo_policy":{"available":true,"requested":true,"effective":false,"busy":false,"persistence":"saved","saved_enabled":true,"policy_armed":true,"phase":"policy_armed_waiting_reenumeration"}}""")) UpdateLocalDiagnostics(armed.RootElement);
                 if (!trustExperiments.Single(e => e.Key == "photo_policy").Message.Contains("尚未確認前置阻斷")) throw new InvalidOperationException("armed policy must not imply blocked photo traffic");
                 using (var unsupported = JsonDocument.Parse("""{"photo_policy":{"available":false,"requested":true,"effective":false,"busy":false,"persistence":"saved","saved_enabled":true,"phase":"unsupported","error":"PHOTO_POLICY_WINDOWS_EDITION_OR_BUILD_UNSUPPORTED"}}""")) UpdateLocalDiagnostics(unsupported.RootElement);
                 if (detailWindow!.GetVisualDescendants().OfType<ToggleSwitch>().Any(t => AutomationProperties.GetName(t) == "照片介面前置阻斷")) throw new InvalidOperationException("retired photo policy must have no control");
                 using (var recovered = JsonDocument.Parse("""{"ncm_direct":{"available":true,"requested":false,"effective":false,"busy":false,"persistence":"saved","saved_enabled":false,"recovery_required":false,"phase":"recovery_verified"}}""")) UpdateLocalDiagnostics(recovered.RootElement);
                 if (trustExperiments.Single(e => e.Key == "ncm_direct") is var recoveredDirect && (recoveredDirect.NeedsAttention || recoveredDirect.Message.Contains("尚未確認"))) throw new InvalidOperationException("verified direct recovery must clear recovery warning");
-                foreach (var wpdError in new[] { "OPERATION_FAILED", "WPD_TRACE_OPERATION_FAILED" })
-                {
-                    using var wpdNotCovered = JsonDocument.Parse(JsonSerializer.Serialize(new { wpd_trace = new { available = true, requested = true, effective = false, busy = false, persistence = "automatic", phase = "failed", error = wpdError, cause_code = "WPD_TRACE_SAFE_METADATA_NOT_COVERED" } }));
-                    UpdateLocalDiagnostics(wpdNotCovered.RootElement);
-                    if (automaticWpd.NeedsAttention || !automaticWpd.Message.Contains("未覆蓋：本機格式未通過隱私檢查") || !automaticWpd.Message.Contains("未記錄不代表請求未發生") || automaticWpd.Message.Contains(wpdError)) throw new InvalidOperationException("WPD privacy coverage limit must not imply an actionable operation failure");
-                }
-                foreach (var wpdState in new[] {
-                    new { effective = false, phase = "recovery_pending", error = "WPD_TRACE_OPERATION_FAILED" },
-                    new { effective = false, phase = "stopping", error = "WPD_TRACE_OPERATION_FAILED" },
-                    new { effective = true, phase = "error", error = "OPERATION_FAILED" },
-                    new { effective = false, phase = "error", error = "WPD_TRACE_STOP_FAILED" } })
-                {
-                    using var wpdFailure = JsonDocument.Parse(JsonSerializer.Serialize(new { wpd_trace = new { available = true, requested = false, wpdState.effective, busy = false, persistence = "automatic", wpdState.phase, wpdState.error, cause_code = "WPD_TRACE_SAFE_METADATA_NOT_COVERED" } }));
-                    UpdateLocalDiagnostics(wpdFailure.RootElement);
-                    if (!automaticWpd.NeedsAttention || !automaticWpd.Message.Contains(wpdState.error) || automaticWpd.Message.Contains("該通道未啟用")) throw new InvalidOperationException("WPD live/recovery/stop failure must not be hidden by a coverage cause");
-                }
-                using (var partialTrace = JsonDocument.Parse("""{"wpd_trace":{"available":true,"requested":true,"effective":true,"busy":false,"persistence":"saved","saved_enabled":true,"phase":"active","provider_coverage":"partial","enabled_provider_count":1}}""")) UpdateLocalDiagnostics(partialTrace.RootElement);
-                if (!automaticWpd.Message.Contains("部分跟蹤")) throw new InvalidOperationException("partial WPD coverage must be explicit");
                 using (var directUnverified = JsonDocument.Parse("""{"ncm_direct":{"available":true,"requested":true,"effective":false,"busy":false,"persistence":"saved","saved_enabled":true,"phase":"direct_descriptors_verified_network_pending","ordinary_ipv4_network_ready":false,"mode_requested":5,"observed_configuration":1,"observed_target_matched":true,"recovery_required":true}}""")) UpdateLocalDiagnostics(directUnverified.RootElement);
                 if (trustExperiments.Single(e => e.Key == "ncm_direct") is var incompleteDirect && (incompleteDirect.Message.Contains("已通過") || !incompleteDirect.Message.Contains("模式 5 切換已確認") || incompleteDirect.NeedsAttention)) throw new InvalidOperationException("a direct descriptor candidate must distinguish mode success from incomplete networking without a false recovery failure");
                 foreach (var directPhase in new[] { "intent_saved", "mode_request_submitting" })
@@ -251,36 +236,13 @@ public sealed partial class Dashboard
                 if (!VisibleSummary("本地實驗恢復狀態").Text!.Contains("NCM Direct")) throw new InvalidOperationException("direct stop must remain visible outside collapsed experiments");
                 using (var recoveryBusy = JsonDocument.Parse("""{"photo_isolation":{"available":true,"requested":false,"effective":false,"busy":true,"phase":"recovering","persistence":"saved","saved_enabled":false},"amds_hold":{"available":true,"requested":false,"effective":false,"busy":true,"phase":"recovering","persistence":"saved","saved_enabled":false}}""")) UpdateLocalDiagnostics(recoveryBusy.RootElement);
                 if (!VisibleSummary("照片介面恢復狀態").Text!.Contains("尚未確認完成") || !VisibleSummary("本地實驗恢復狀態").Text!.Contains("Apple 服務")) throw new InvalidOperationException("busy restoration must remain outside collapsed experiments");
-                using (var autoTrace = JsonDocument.Parse("""{"wpd_trace":{"available":true,"requested":true,"effective":true,"busy":false,"persistence":"automatic","saved_enabled":false,"phase":"active","provider_coverage":"partial"}}""")) UpdateLocalDiagnostics(autoTrace.RootElement);
-                if (!VisibleSummary("WPD 自動診斷狀態").Text!.Contains("部分跟蹤")) throw new InvalidOperationException("automatic WPD readback must not depend on its old preference");
-                using (var closedRecovery = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":false,"busy":false},"photo_isolation":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_pending","error":"PHOTO_RESTORE_FAILED","persistence":"saved","saved_enabled":false},"amds_hold":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_failed","error":"AMDS_RESTORE_FAILED","persistence":"saved","saved_enabled":false},"wpd_trace":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_failed","error":"WPD_STOP_FAILED","persistence":"automatic","saved_enabled":false}}""")) UpdateLocalDiagnostics(closedRecovery.RootElement);
-                if (!VisibleSummary("照片介面恢復狀態").Text!.Contains("PHOTO_RESTORE_FAILED") || !VisibleSummary("本地實驗恢復狀態").Text!.Contains("AMDS_RESTORE_FAILED") || !VisibleSummary("WPD 自動診斷狀態").Text!.Contains("WPD_STOP_FAILED")) throw new InvalidOperationException("master off must retain photo, service and automatic trace recovery failures");
-                using (var recoveredControls = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":true,"busy":false},"photo_isolation":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"off","persistence":"saved","saved_enabled":false},"photo_policy":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"off","persistence":"saved","saved_enabled":false},"ncm_direct":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_verified","persistence":"saved","saved_enabled":false},"amds_hold":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"off","persistence":"saved","saved_enabled":false},"wpd_trace":{"available":true,"requested":true,"effective":true,"busy":false,"phase":"active","persistence":"saved","saved_enabled":false}}""")) UpdateLocalDiagnostics(recoveredControls.RootElement);
+                using (var closedRecovery = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":false,"busy":false},"photo_isolation":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_pending","error":"PHOTO_RESTORE_FAILED","persistence":"saved","saved_enabled":false},"amds_hold":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_failed","error":"AMDS_RESTORE_FAILED","persistence":"saved","saved_enabled":false}}""")) UpdateLocalDiagnostics(closedRecovery.RootElement);
+                if (!VisibleSummary("照片介面恢復狀態").Text!.Contains("PHOTO_RESTORE_FAILED") || !VisibleSummary("本地實驗恢復狀態").Text!.Contains("AMDS_RESTORE_FAILED")) throw new InvalidOperationException("master off must retain photo and service recovery failures");
+                using (var recoveredControls = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":true,"busy":false},"photo_isolation":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"off","persistence":"saved","saved_enabled":false},"photo_policy":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"off","persistence":"saved","saved_enabled":false},"ncm_direct":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"recovery_verified","persistence":"saved","saved_enabled":false},"amds_hold":{"available":true,"requested":false,"effective":false,"busy":false,"phase":"off","persistence":"saved","saved_enabled":false}}""")) UpdateLocalDiagnostics(recoveredControls.RootElement);
                 if (detailWindow!.GetVisualDescendants().OfType<TextBlock>().Any(t => (AutomationProperties.GetName(t) is "本地實驗恢復狀態" or "照片介面恢復狀態") && t.IsEffectivelyVisible)) throw new InvalidOperationException("confirmed recovery must clear outside warnings");
-                using (var archiveRecording = JsonDocument.Parse("""{"connection_archive":{"available":true,"phase":"recording","current_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","queue_dropped":0,"size_dropped":0,"write_failures":0}}""")) UpdateLocalDiagnostics(archiveRecording.RootElement);
-                if (!VisibleSummary("連線檔案採集狀態").Text!.Contains("本輪檔案記錄中") || VisibleSummary("連線檔案採集狀態").Text!.Contains("全部採集完成")) throw new InvalidOperationException("active archive must not imply complete collection");
-                using (var archiveFailed = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":false,"busy":false},"connection_archive":{"available":true,"phase":"write_failed","error":"ARCHIVE_WRITE_FAILED","queue_dropped":2,"size_dropped":1,"write_failures":1,"redacted":3}}""")) UpdateLocalDiagnostics(archiveFailed.RootElement);
-                if (!VisibleSummary("連線檔案採集狀態").Text!.Contains("ARCHIVE_WRITE_FAILED") || !VisibleSummary("連線檔案採集狀態").Text!.Contains("佇列漏記 2") || !VisibleSummary("連線檔案採集狀態").Text!.Contains("採集可能不完整")) throw new InvalidOperationException("archive failures must remain visible with debug closed");
-                using (var archiveRecovered = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":true,"busy":false},"connection_archive":{"available":true,"phase":"recording","queue_dropped":0,"size_dropped":0,"write_failures":0}}""")) UpdateLocalDiagnostics(archiveRecovered.RootElement);
-                using (var usbStarting = JsonDocument.Parse("""{"local_usb_trace":{"available":true,"active":true,"phase":"metadata_only","coverage":"metadata_only","accepted":0,"received":0,"target_scope":"unknown"}}""")) UpdateLocalDiagnostics(usbStarting.RootElement);
-                if (!VisibleSummary("USB 事件採集狀態").Text!.Contains("未覆蓋有效事件") || VisibleSummary("USB 事件採集狀態").Text!.Contains("已就緒")) throw new InvalidOperationException("USB session/schema discovery must not imply event coverage");
-                using (var usbMetadata = JsonDocument.Parse("""{"local_usb_trace":{"available":true,"active":true,"phase":"metadata_only","coverage":"metadata_only","accepted":2,"received":2,"target_scope":"unknown","started_utc":"2026-10-17T10:00:00Z","last_event_utc":"2026-10-17T10:01:00Z"}}""")) UpdateLocalDiagnostics(usbMetadata.RootElement);
-                if (!VisibleSummary("USB 事件採集狀態").Text!.Contains("事件元資料可用") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("尚不能歸因") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("觀察時段")) throw new InvalidOperationException("USB metadata scope/window must stay explicit");
-                using (var usbLost = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":false},"local_usb_trace":{"available":true,"active":false,"phase":"recovery_pending","coverage":"incomplete","accepted":2,"received":9,"events_lost":7,"schema_rejected":1,"error":"USB_TRACE_STOP_FAILED"}}""")) UpdateLocalDiagnostics(usbLost.RootElement);
-                if (!VisibleSummary("USB 事件採集狀態").Text!.Contains("證據不完整") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("事件遺失 7") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("USB_TRACE_STOP_FAILED")) throw new InvalidOperationException("USB loss/stop failure must remain visible with master off");
-                using (var usbUncovered = JsonDocument.Parse("""{"local_usb_trace":{"available":true,"phase":"no_safe_event_schema","coverage":"not_covered"}}""")) UpdateLocalDiagnostics(usbUncovered.RootElement);
-                if (!VisibleSummary("USB 事件採集狀態").Text!.Contains("未找到可通過格式及隱私檢查")) throw new InvalidOperationException("USB untrusted schema must show uncovered reason");
-                using (var usbNoSchemaError = JsonDocument.Parse("""{"local_usb_trace":{"available":true,"phase":"error","coverage":"not_covered","accepted":0,"error":"USB_TRACE_NO_SAFE_EVENT_SCHEMA"}}""")) UpdateLocalDiagnostics(usbNoSchemaError.RootElement);
-                if (!VisibleSummary("USB 事件採集狀態").Text!.Contains("未覆蓋：") || VisibleSummary("USB 事件採集狀態").Text!.Contains("證據不完整") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("USB_TRACE_NO_SAFE_EVENT_SCHEMA")) throw new InvalidOperationException("unavailable safe schema must not be described as lost capture evidence");
-                using (var usbArchiveLoss = JsonDocument.Parse("""{"local_usb_trace":{"available":true,"phase":"error","coverage":"not_covered","accepted":0,"archive_rejected":2,"late_events":3,"timestamp_unknown":4,"error":"USB_TRACE_NO_SAFE_EVENT_SCHEMA"}}""")) UpdateLocalDiagnostics(usbArchiveLoss.RootElement);
-                if (!VisibleSummary("USB 事件採集狀態").Text!.Contains("證據不完整") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("未收錄到檔案 2") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("觀察結束後到達 3") || !VisibleSummary("USB 事件採集狀態").Text!.Contains("事件時間無法確認 4")) throw new InvalidOperationException("USB archive/timing evidence loss must override uncovered capability status");
-                using (var legacyUSB = JsonDocument.Parse("""{"developer_debug":{"available":true,"enabled":true}}""")) UpdateLocalDiagnostics(legacyUSB.RootElement);
-                if (localUSBTracePresent || localUSBTraceMessage != "") throw new InvalidOperationException("missing USB summary must clear stale new-backend evidence");
                 experimentFold.IsExpanded = true;
                 detailWindow!.UpdateLayout();
                 var originalOutput = Console.Out;
-                using (var metadataOnly = JsonDocument.Parse("""{"local_usb_trace":{"available":true,"active":true,"coverage":"not_covered","callbacks_received":6,"session_metadata_callbacks":6,"session_header_callbacks":1,"received":0,"accepted":0,"schema_rejected":0}}""")) UpdateLocalDiagnostics(metadataOnly.RootElement);
-                if (!localUSBTraceMessage.Contains("僅收到會話元資料") || localUSBTraceMessage.Contains("格式或隱私檢查未通過") || localUSBTraceNeedsAttention) throw new InvalidOperationException("session metadata is neither USB evidence nor schema loss");
                 using (var markerOutput = new StringWriter())
                 {
                     try
@@ -312,6 +274,21 @@ public sealed partial class Dashboard
                                 if (request.RootElement.EnumerateObject().Count() != 2 || request.RootElement.GetProperty("action").GetString() != experiment.Action + (i == 0 ? "-on" : "-off") || request.RootElement.GetProperty("id").GetString() != new string(i == 0 ? 'a' : 'b', 32)) throw new InvalidOperationException("experiment must emit only fixed action and correlation identity");
                             }
                             markerOutput.GetStringBuilder().Clear();
+                        }
+                        SendMacMtuCap("9000", new string('a', 32));
+                        SendMacMtuCap("auto", new string('b', 32));
+                        var capRequests = markerOutput.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                        if (capRequests.Length != 2) throw new InvalidOperationException("MTU cap request count");
+                        for (var i = 0; i < capRequests.Length; i++)
+                        {
+                            using var request = JsonDocument.Parse(capRequests[i]);
+                            if (request.RootElement.EnumerateObject().Count() != 2 || request.RootElement.GetProperty("action").GetString() != (i == 0 ? "mac-mtu-cap-9000" : "mac-mtu-cap-auto") || request.RootElement.GetProperty("id").GetString() != new string(i == 0 ? 'a' : 'b', 32)) throw new InvalidOperationException("MTU cap must emit only fixed action and correlation identity");
+                        }
+                        markerOutput.GetStringBuilder().Clear();
+                        foreach (var badCap in new[] { ("16000", new string('a', 32)), ("1500", "old") })
+                        {
+                            try { SendMacMtuCap(badCap.Item1, badCap.Item2); throw new InvalidOperationException("invalid MTU cap request accepted"); }
+                            catch (ArgumentException) { }
                         }
                         foreach (var invalid in new[] { ("shell", new string('a', 32)), ("wpd-trace", new string('a', 32)), ("amds-hold", "old") })
                         {
@@ -358,6 +335,9 @@ public sealed partial class Dashboard
             if (!labels.Contains("Mac USB 已連接") || !labels.Contains("等候 USB 接線") || chipText.Text != "已連線 · 1 台裝置")
                 throw new InvalidOperationException("one device detach must preserve the other slot");
             CaptureConnectionPreview(this, "one-device");
+#if USBLINK_DESIGN_TOOLS
+            VerifyWindowFit();
+#endif
             ResizeAndSettle(720, 500); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
             if (compactLayout != true || this.GetVisualDescendants().OfType<LayoutTransformControl>().Any() || addressValue.FontSize != Scale.Hero || bodyScroll.Extent.Height <= bodyScroll.Viewport.Height)
                 throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
@@ -366,9 +346,9 @@ public sealed partial class Dashboard
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");
-            OpenDetails(); OpenTaskManager(); OpenSMBManager();
+            OpenDetails(); OpenSecurity(); OpenSMBManager();
             HideToTray();
-            if (IsVisible || detailWindow != null || taskWindow != null || smbAccountWindow != null || smbPassword.Text != "")
+            if (IsVisible || detailWindow != null || securityWindow != null || taskManager != null || smbAccountWindow != null || smbPassword.Text != "")
                 throw new InvalidOperationException("tray hide must close child windows and clear credentials");
             using (var show = JsonDocument.Parse("""{"event":"show"}""")) Update(show.RootElement);
             if (!IsVisible || WindowState != WindowState.Normal)
@@ -381,7 +361,10 @@ public sealed partial class Dashboard
             if (!networkOnlyStatus.Text!.Contains("PHOTO_RESTORE_FAILED") || !networkOnlyStatus.Text.Contains("尚未確認還原")) throw new InvalidOperationException("network-only restore failure must stay visible");
             using (var networkOn = JsonDocument.Parse("""{"event":"status","network_only":{"enabled":true,"busy":false,"effective":true,"known_nodes":2,"known_applied":2,"phase":"known_applied"}}""")) Update(networkOn.RootElement);
             if (networkOnly.IsChecked != true || !networkOnlyStatus.Text!.Contains("已封鎖")) throw new InvalidOperationException("network-only on must show the read-back state");
-            if (this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "退出介面") || !this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "退出程序")) throw new InvalidOperationException("exit must describe the whole program");
+            var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
+            if (dashboardTexts.Contains("退出介面") || dashboardTexts.Contains("退出程序") || dashboardTexts.Contains("工作管理員") || !dashboardTexts.Any(t => t?.Contains("托盤圖示選單") == true) || footerControl.GetVisualDescendants().OfType<Button>().Any())
+                throw new InvalidOperationException("the dashboard has no exit button or task manager row; the footer points to the tray menu");
+            if (settingsList.RowDefinitions.Count != 4 || settingsList.Children.OfType<Button>().Count() != 2) throw new InvalidOperationException("settings keep two switches and two links without an empty row");
             using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) Update(trayExit.RootElement);
             if (programExitID != "" || programExitAwaiting || !notice.Text!.Contains("介面預覽")) throw new InvalidOperationException("tray exit must share the preview-safe program exit path");
             VerifyExitButtonWire();
@@ -394,7 +377,7 @@ public sealed partial class Dashboard
             if (!programExitAwaiting) throw new InvalidOperationException("foreign confirmation timeout cannot cancel exit");
             exitHidden = true;
             ExpireProgramExitConfirmation(programExitID, requestGeneration);
-            if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled || !programExitStatus.Text!.Contains("不代表恢復已完成") || programExitID != "11111111111111111111111111111111") throw new InvalidOperationException("missing confirmation must allow same-request retry without claiming restoration");
+            if (programExitAwaiting || programExitCommitSent || !programExitStatus.Text!.Contains("不代表恢復已完成") || programExitID != "11111111111111111111111111111111") throw new InvalidOperationException("missing confirmation must allow same-request retry without claiming restoration");
             if (exitHidden || !IsVisible) throw new InvalidOperationException("a lost exit acknowledgement must bring the hidden window back");
             programExitAwaiting = true;
             SendProgramExitRequest("exit-program");
@@ -403,11 +386,11 @@ public sealed partial class Dashboard
             using (var wrongExit = JsonDocument.Parse("""{"event":"program-exit-result","request_id":"22222222222222222222222222222222"}""")) Update(wrongExit.RootElement);
             if (!programExitAwaiting) throw new InvalidOperationException("unrelated exit result cleared current request");
             using (var stoppingExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"stopping_connections","request_id":"11111111111111111111111111111111","busy":true}}""")) Update(stoppingExit.RootElement);
-            if (bodyScroll.IsEnabled || !footerControl.IsEnabled || programExitButton.IsEnabled || !captionClose!.IsEffectivelyEnabled) throw new InvalidOperationException("exit must block mutations but retain window controls");
+            if (bodyScroll.IsEnabled || !footerControl.IsEnabled || !captionClose!.IsEffectivelyEnabled) throw new InvalidOperationException("exit must block mutations but retain window controls");
             if (programExitConfirmationTimer != null) throw new InvalidOperationException("acknowledged native stopping must not have an arbitrary restore deadline");
             exitHidden = true;
             using (var failedExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"failed","request_id":"11111111111111111111111111111111","error":"CORE_EXIT_RECOVERY_PENDING"},"default_network_isolation":{"phase":"recovery_pending","photo_restored":false,"amds_restored":true,"policy_restored":true}}""")) Update(failedExit.RootElement);
-            if (!programExitButton.IsEnabled || programExitAwaiting || bodyScroll.IsEnabled || !programExitStatus.Text!.Contains("重試") || !automaticIsolationStatus.Text!.Contains("待確認")) throw new InvalidOperationException("restore failure must retain retry and disclose unresolved state");
+            if (programExitAwaiting || bodyScroll.IsEnabled || !programExitStatus.Text!.Contains("重試") || !automaticIsolationStatus.Text!.Contains("待確認")) throw new InvalidOperationException("restore failure must retain retry and disclose unresolved state");
             if (exitHidden || !IsVisible) throw new InvalidOperationException("a failed restore must bring the hidden window back");
             programExitAwaiting = true;
             using (var readyExit = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"22222222222222222222222222222222"}}""")) Update(readyExit.RootElement);
@@ -418,10 +401,10 @@ public sealed partial class Dashboard
             using (var readyRepeated = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"11111111111111111111111111111111"}}""")) Update(readyRepeated.RootElement);
             if (programExitConfirmationTimer == null || commitGeneration != programExitConfirmationGeneration) throw new InvalidOperationException("repeated ready snapshots must not extend or erase the missing commit acknowledgement deadline");
             ExpireProgramExitConfirmation(programExitID, commitGeneration);
-            if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled || bodyScroll.IsEnabled) throw new InvalidOperationException("lost commit acknowledgement must permit retry while keeping stopped actions disabled");
+            if (programExitAwaiting || programExitCommitSent || bodyScroll.IsEnabled) throw new InvalidOperationException("lost commit acknowledgement must permit retry while keeping stopped actions disabled");
             programExitAwaiting = programExitCommitSent = true;
             using (var failedCommit = JsonDocument.Parse("""{"event":"program-exit-result","request_id":"11111111111111111111111111111111","code":"CORE_EXIT_REQUEST_FAILED"}""")) Update(failedCommit.RootElement);
-            if (programExitAwaiting || programExitCommitSent || !programExitButton.IsEnabled) throw new InvalidOperationException("failed commit must remain retryable");
+            if (programExitAwaiting || programExitCommitSent ) throw new InvalidOperationException("failed commit must remain retryable");
             using (var readyAgain = JsonDocument.Parse("""{"event":"status","program_exit":{"phase":"ready","request_id":"11111111111111111111111111111111"}}""")) Update(readyAgain.RootElement);
             if (programExitCommitSent || programExitAwaiting || !programExitStatus.Text!.Contains("重試")) throw new InvalidOperationException("normal snapshots must not hide a failed commit or retry silently");
             programExitID = "33333333333333333333333333333333"; programExitAwaiting = true;
@@ -452,41 +435,41 @@ public sealed partial class Dashboard
     static void VerifyExitButtonWire()
     {
         var originalPreview = Program.Preview;
-        var originalStandalone = Program.StandaloneTasks;
+        var originalNoReader = Program.NoBackendReader;
         var originalOutput = Console.Out;
         Dashboard? fixture = null;
         using var wire = new System.IO.StringWriter();
         try
         {
-            // Standalone construction skips the backend reader. Never show this
-            // fixture: its button writes only to the captured synthetic pipe.
-            Program.Preview = false; Program.StandaloneTasks = true;
+            // Construction without the backend reader. Never show this fixture:
+            // the tray's exit event writes only to the captured synthetic pipe.
+            Program.Preview = false; Program.NoBackendReader = true;
             Console.SetOut(wire);
             fixture = new Dashboard();
-            fixture.programExitButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) fixture.Update(trayExit.RootElement);
             var requests = wire.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            if (requests.Length != 1 || fixture.programExitButton.Flyout != null || !fixture.programExitAwaiting || fixture.bodyScroll.IsEnabled || fixture.programExitButton.IsEnabled)
-                throw new InvalidOperationException("first footer click must directly request exit once and disable mutations");
+            if (requests.Length != 1 || !fixture.programExitAwaiting || fixture.bodyScroll.IsEnabled || !fixture.exitHidden)
+                throw new InvalidOperationException("the tray's exit event must request exit once, hide at once and disable mutations");
             using var request = JsonDocument.Parse(requests[0]);
             var id = request.RootElement.GetProperty("id").GetString();
             if (request.RootElement.GetProperty("action").GetString() != "exit-program" || !Guid.TryParseExact(id, "N", out _) || id != fixture.programExitID)
-                throw new InvalidOperationException("footer exit must use the authenticated exit request protocol");
-            fixture.programExitButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                throw new InvalidOperationException("tray exit must use the authenticated exit request protocol");
+            using (var repeated = JsonDocument.Parse("""{"event":"program-exit-request"}""")) fixture.Update(repeated.RootElement);
             if (wire.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length != 1)
-                throw new InvalidOperationException("repeat click while awaiting cannot dispatch another exit");
+                throw new InvalidOperationException("a repeated tray request while awaiting cannot dispatch another exit");
             using var ready = JsonDocument.Parse(JsonSerializer.Serialize(new { @event = "status", program_exit = new { phase = "ready", request_id = id } }));
             fixture.Update(ready.RootElement);
             requests = wire.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
             if (requests.Length != 2) throw new InvalidOperationException("ready must send exactly one separate commit");
             using var commit = JsonDocument.Parse(requests[1]);
             if (commit.RootElement.GetProperty("action").GetString() != "exit-program-commit" || commit.RootElement.GetProperty("id").GetString() != id)
-                throw new InvalidOperationException("direct footer click must preserve the restore-then-commit protocol");
+                throw new InvalidOperationException("the tray request must preserve the restore-then-commit protocol");
         }
         finally
         {
             if (fixture != null) { fixture.backendEnded = true; fixture.CancelProgramExitConfirmation(); fixture.Close(); }
             Console.SetOut(originalOutput);
-            Program.Preview = originalPreview; Program.StandaloneTasks = originalStandalone;
+            Program.Preview = originalPreview; Program.NoBackendReader = originalNoReader;
         }
     }
 

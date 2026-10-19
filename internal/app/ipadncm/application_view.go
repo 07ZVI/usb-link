@@ -191,6 +191,9 @@ func macApplicationView(r ApplicationResult, stopping bool) (title, ip, detail s
 	if r.ServicesError != "" {
 		detail += "\r\nUSB 服務狀態：" + r.ServicesError
 	}
+	if r.MacNCMDescriptors != "" {
+		detail += "\r\nMac NCM 描述符摘要（唯讀，取自初始化時已讀取的描述符）：" + r.MacNCMDescriptors
+	}
 	if r.MacPathMTUWarning != "" {
 		if r.Status == "MAC_RUNNING" {
 			title = "Mac USB 已連接 · 速度可能下降"

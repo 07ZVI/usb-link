@@ -26,7 +26,7 @@ func StartPhotoIsolation(ctx context.Context, dir string) func() {
 		localPhoto.context = run
 		localPhoto.stamp = func() (string, string, int64) {
 			now := time.Now()
-			id, ms := trustDiagnostics.stamp(now)
+			id, ms := "", int64(-1) // the trust timeline observer no longer exists
 			return now.UTC().Format(time.RFC3339Nano), id, ms
 		}
 		done := make(chan struct{})
@@ -52,7 +52,9 @@ func PhotoIsolationDiagnostics() any                                      { retu
 func ApplyPhotoIsolationBeforeModeRequest() {
 	if defaultIsolationAdmission() == nil {
 		localPhoto.applyKnown()
+		return
 	}
+	localPhoto.notePreMode(false, "NETWORK_ISOLATION_NOT_READY")
 }
 
 // Callers must already hold the normal network/identity consent scope. This
@@ -78,4 +80,9 @@ func BindPhotoIsolationTarget(s Snapshot) error {
 		return errors.New("PHOTO_ROOT_UNPROVEN")
 	}
 	return localPhoto.bind(root)
+}
+
+// Exported with the diagnostics text regardless of the local-diagnostics build.
+func TrustPromptDiagnostics() any {
+	return trustPromptDiagnosticFrom(localPhoto.snapshot(), authorizationOutcomeSnapshot(), attemptFailures.snapshot())
 }

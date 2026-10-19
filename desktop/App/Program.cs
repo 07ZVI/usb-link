@@ -24,7 +24,9 @@ internal static class Program
     public static bool SecurityWireSmoke = false;
     public static bool ProcessPreview = false;
     public static bool ProcessSmoke = false;
-    public static bool StandaloneTasks;
+    public static bool NoBackendReader; // Test fixtures only: skip the stdin reader; never set from arguments.
+    public static bool MaximizedPreview = false; // Design tools only: --maximized
+    public static string OpenPreview = ""; // Design tools only: --open=security|tasks|smb|details|dialog
     public static bool DarkPreview = false; // Design tools only; never set in release builds.
     // Same renderer and controls; opt-in isolates IPC/lifetime memory effects.
     public static readonly bool BoundedIpc = Environment.GetEnvironmentVariable("SUHANG_DESKTOP_BOUNDED_IPC") == "1";
@@ -39,6 +41,8 @@ internal static class Program
         DarkPreview = Preview && args.Contains("--theme-dark");
         ProcessPreview = Preview && args.Contains("--process-preview");
         ProcessSmoke = Preview && args.Contains("--process-smoke");
+        MaximizedPreview = Preview && args.Contains("--maximized");
+        OpenPreview = Preview ? args.FirstOrDefault(a => a.StartsWith("--open=", StringComparison.Ordinal))?[7..] ?? "" : "";
         SecurityPreview = Preview && args.Contains("--security-preview");
         SecuritySmoke = Preview && args.Contains("--security-smoke");
         SMBRetryWireSmoke = !Preview && args.Contains("--smb-retry-wire-smoke");
@@ -48,7 +52,6 @@ internal static class Program
 #else
         if (args.Any(arg => arg.Contains("preview", StringComparison.Ordinal) || arg.Contains("smoke", StringComparison.Ordinal))) return;
 #endif
-        StandaloneTasks = args.Contains("--task-manager");
         LaunchTelemetry.Mark("renderer-main");
         AppBuilder.Configure<App>().UsePlatformDetect().StartWithClassicDesktopLifetime(args);
     }

@@ -43,14 +43,14 @@ func legacyIntegrationTarget(target, root, legacy string) bool {
 	return false
 }
 
-// A newer installer may finish deletion-only rollback of a failed FIRST
-// installation. It may not resume publication or execute the old candidate.
-// The native adapter still checks the protected journal, owner, SCM and every
-// file against the OLD inventory. No old hash is replaced with the new hash.
+// A newer installer may finish an interrupted rollback (first install or
+// upgrade), then start its own plan. It may not resume publication or execute
+// the failed candidate. The native adapter still checks the protected journal,
+// owner, SCM and every file against the recorded inventories; an upgrade
+// restores only the proven previous release. No old hash is replaced.
 func canFinishInstallationRollback(t InstallationTransaction, owner, version string) bool {
 	return validateInstallationTransaction(t) == nil && t.OwnerSID == owner &&
-		t.Phase == InstallRestoring && t.Previous == nil && len(t.PreviousFiles) == 0 &&
-		remoteupdate.Newer(version, t.Next.Version)
+		t.Phase == InstallRestoring && remoteupdate.Newer(version, t.Next.Version)
 }
 
 type integrationRecoveryAction struct {

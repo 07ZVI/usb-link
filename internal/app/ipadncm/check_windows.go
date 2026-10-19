@@ -528,12 +528,6 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 	ctx, cancel := context.WithTimeout(connectionContext(), 60*time.Second)
 	defer cancel()
 	r := Result{Protocol: "SUHANG-IPAD-NCM-CHECK/1", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Status: "INCOMPLETE", Access: "NOT_TESTED"}
-	defer func() {
-		RecordConnectionArchiveEvent("mode_result", struct {
-			Attempt uint64 `json:"software_attempt"`
-			Result  Result `json:"result"`
-		}{currentSoftwareAttempt(), r})
-	}()
 	network := len(networkOnly) == 1 && networkOnly[0]
 	r.Before = inventory(ctx)
 	if r.Before.Error != "" {
@@ -560,6 +554,11 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 	} else if network {
 		if !networkOnlyUSBEligible(r.Before) {
 			r.Status = "NETWORK_ONLY_USB_LAYOUT_UNCONFIRMED"
+			// Same predicate as the authorization preflight: an unready or
+			// unreadable device is retried, a conflicting one is not.
+			if preflightFailureTransient(preflightFactsOf(r.Before)) {
+				r.Status = "NETWORK_ONLY_USB_LAYOUT_NOT_READY"
+			}
 			return r
 		}
 		r.USBIdentifiersVerified = true
@@ -580,7 +579,6 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 	}
 	if network && r.USBIdentifiersVerified {
 		allowed := consent()
-		archiveUSBConsent("before_photo_target_bind", allowed, ctx.Err() == nil)
 		if !allowed {
 			r.Status = "MODE_CHANGE_DECLINED"
 			return r
@@ -705,7 +703,6 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 				return r
 			}
 			r.ModeConsent = consent()
-			archiveUSBConsent("before_mode_request", r.ModeConsent, ctx.Err() == nil)
 			if !r.ModeConsent {
 				r.Status = "MODE_CHANGE_DECLINED"
 				w.Close()
@@ -733,7 +730,6 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 				}
 			}
 			allowed := ctx.Err() == nil && consent()
-			archiveUSBConsent("after_arrival_subscription", allowed, ctx.Err() == nil)
 			if !allowed {
 				r.Status = "MODE_CHANGE_DECLINED_OR_CANCELLED"
 				w.Close()
@@ -779,15 +775,8 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 				preflight = func() bool { return modeArrivalCacheReady(ctx, target) }
 			}
 			observeModeArrival(ctx, arrivals, 8*time.Second, 250*time.Millisecond, preflight, func() bool {
-				started := time.Now()
 				after := inventory(ctx)
 				r.After = &after
-				RecordConnectionArchiveEvent("mode_sample", struct {
-					Attempt    uint64   `json:"software_attempt"`
-					StartedUTC string   `json:"read_started_utc"`
-					ElapsedMS  int64    `json:"read_elapsed_ms"`
-					USB        Snapshot `json:"usb"`
-				}{currentSoftwareAttempt(), started.UTC().Format(time.RFC3339Nano), time.Since(started).Milliseconds(), after})
 				if ctx.Err() != nil {
 					return false
 				}
@@ -802,7 +791,6 @@ func runWithSelectedControlLease(version string, consent func() bool, acquire fu
 								}
 								if network {
 									allowed := consent()
-									archiveUSBConsent("after_mode_same_root_and_photo_recovery", allowed, ctx.Err() == nil)
 									if !allowed || BindLocalPhotoPolicyTarget(after) != nil {
 										r.Status = "PHOTO_POLICY_RECOVERY_OR_SCOPE_UNCONFIRMED"
 										observed = true

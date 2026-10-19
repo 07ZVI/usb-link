@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 )
 
 const groupingSDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
@@ -68,11 +69,10 @@ type GroupingResult struct {
 // same single EXE. Refuse existing reparse points or unexpected ACLs; no ACLs
 // are broadened or repaired. The share-zero file excludes concurrent launches.
 func OpenGroupingRecoveryStore() (string, windows.Handle, string) {
-	w, e := windows.GetWindowsDirectory()
+	dir, e := machinepaths.ActiveRecovery()
 	if e != nil {
 		return "", 0, "WINDOWS_DIRECTORY_UNAVAILABLE"
 	}
-	dir := filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery")
 	p, _ := windows.UTF16PtrFromString(dir)
 	sd, e := windows.SecurityDescriptorFromString(groupingSDDL)
 	if e != nil {
@@ -95,6 +95,7 @@ func OpenGroupingRecoveryStore() (string, windows.Handle, string) {
 	if e != nil {
 		return "", 0, "ANOTHER_LAUNCH_OR_RECOVERY_LOCK_UNAVAILABLE"
 	}
+	machinepaths.MarkStoreOpened()
 	return dir, h, ""
 }
 

@@ -108,16 +108,13 @@ func ClearIPadSoftwareReconnectScope() {
 func RequestIPadSoftwareReconnect(ctx context.Context) error {
 	ipadActionAdmission.Lock()
 	defer ipadActionAdmission.Unlock()
-	if UnpairedExperimentBusy() {
-		return fmt.Errorf("unpaired experiment owner active")
-	}
 	if softwareReconnectUpgradeHeld() {
 		return fmt.Errorf("software reconnect unavailable during reserved upgrade")
 	}
 	if ctx == nil || ctx.Err() != nil {
 		return fmt.Errorf("software reconnect canceled before admission")
 	}
-	if AMDSModeDiagnosticActive() || IPadModeDiagnosticHeld() || IPadCandidateBusy() || NetworkOnlySnapshot().Busy || !IPadCandidateCanConnect() || !NetworkOnlyCanConnect() {
+	if NetworkOnlySnapshot().Busy || !NetworkOnlyCanConnect() {
 		return fmt.Errorf("iPad action or restoration unresolved")
 	}
 	if s := connectionMonitor(); s != nil && s.snapshot().Status == "USB_RECOVERY_WAITING" {
@@ -270,16 +267,13 @@ func RunPendingIPadSoftwareReconnect(ctx context.Context, cleanupSafe bool) bool
 func RequestIPadSoftwareReconnectSetting(ctx context.Context, enabled bool) error {
 	ipadActionAdmission.Lock()
 	defer ipadActionAdmission.Unlock()
-	if UnpairedExperimentBusy() {
-		return fmt.Errorf("unpaired experiment owner active")
-	}
 	if softwareReconnectUpgradeHeld() {
 		return fmt.Errorf("software reconnect unavailable during reserved upgrade")
 	}
 	if ctx == nil || ctx.Err() != nil {
 		return fmt.Errorf("software reconnect setting canceled before admission")
 	}
-	if AMDSModeDiagnosticActive() || IPadModeDiagnosticHeld() || IPadCandidateBusy() || NetworkOnlySnapshot().Busy {
+	if NetworkOnlySnapshot().Busy {
 		return fmt.Errorf("another iPad action active")
 	}
 	if s := connectionMonitor(); s != nil && s.snapshot().Status == "USB_RECOVERY_WAITING" {
@@ -368,7 +362,7 @@ func recordSoftwareNative(phase string, native SoftwareReconnectNativeObservatio
 // A missing target or foreign state retains the protected receipt and fails.
 func RecoverIPadSoftwareReconnect(dir string) (err error) {
 	ipadActionAdmission.Lock()
-	if AMDSModeDiagnosticActive() || IPadCandidateBusy() || NetworkOnlySnapshot().Busy {
+	if NetworkOnlySnapshot().Busy {
 		ipadActionAdmission.Unlock()
 		return fmt.Errorf("other iPad action active; wait before software reconnect restoration")
 	}

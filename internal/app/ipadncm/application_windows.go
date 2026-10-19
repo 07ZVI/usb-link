@@ -20,7 +20,6 @@ import (
 	"suhang/usbnet/internal/diagnostics/throughput"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/sharing/usbhttp"
 	"suhang/usbnet/internal/transport/ipadsession"
 	"suhang/usbnet/internal/transport/usbaddress"
@@ -61,16 +60,6 @@ func (s *applicationState) runDHCP(ctx context.Context, c *net.UDPConn, p ipadse
 			cancel()
 			return
 		}
-		switch req.Kind {
-		case 1:
-			recordUnpairedExperimentEvent("dhcp_discover")
-		case 3:
-			recordUnpairedExperimentEvent("dhcp_request")
-		case 4:
-			recordUnpairedExperimentEvent("dhcp_decline")
-		default:
-			recordUnpairedExperimentEvent("dhcp_other")
-		}
 		if req.Kind == 4 && req.HasRequested && req.Requested == v4Array(p.PeerIP()) && (!req.HasServer || req.Server == v4Array(p.LocalAddress())) {
 			s.update(func(r *ApplicationResult) { r.DHCPDeclined = true; r.DHCPError = "IPAD_DECLINED_OFFERED_ADDRESS_STOP" })
 			cancel()
@@ -108,7 +97,6 @@ func (s *applicationState) runDHCP(ctx context.Context, c *net.UDPConn, p ipadse
 			}
 			if kind == 5 {
 				r.DHCPACKs++
-				recordUnpairedExperimentEvent("dhcp_ack_sent")
 				recordConnectionStage("dhcp_ack_sent", "targeted_dhcp_reply_sent_not_address_application_proof")
 			}
 		})
@@ -301,7 +289,10 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 		plan.Version = 5
 		flags, flagError := readUSBHostFlags(plan.LUID)
 		if flagError != nil {
-			s.update(func(r *ApplicationResult) { r.Error = "APPLICATION_HOST_FLAGS_UNAVAILABLE" })
+			// The IPv4 interface row of the exact adapter was not readable; keep the
+			// native error so the next field report names it, and retry (bounded).
+			detail := "APPLICATION_HOST_FLAGS_UNAVAILABLE: " + eno(flagError)
+			s.update(func(r *ApplicationResult) { r.Error = detail })
 			return
 		}
 		plan.HostFlags = flags
@@ -616,17 +607,6 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 	defer speedTest.Close()
 	throughput.SetDeviceCurrent("iPad", speedTest)
 
-	var shareServer *fileshare.Server
-	if catalog, shareErr := connectioninstall.ShareCatalog(); shareErr == nil {
-		shareServer, _ = fileshare.NewMulti(catalog, plan.PeerIP(), &fileshare.USB, func() bool { return ctx.Err() == nil })
-	}
-	s.update(func(r *ApplicationResult) { r.ShareReady = shareServer != nil })
-	defer func() {
-		s.update(func(r *ApplicationResult) { r.ShareReady = false })
-		if shareServer != nil {
-			shareServer.Close()
-		}
-	}()
 	usbHandler := http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 		host, _, e := net.SplitHostPort(q.RemoteAddr)
 		if e != nil || host != plan.PeerIP() {
@@ -665,21 +645,7 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 			http.NotFound(w, q)
 		}
 	})
-	var smbHandler func(context.Context, net.Conn)
-	if shareServer != nil {
-		smbHandler = func(ctx context.Context, conn net.Conn) {
-			fresh, er := guard()
-			if er != "" {
-				return
-			}
-			current, er := targetPeerMAC(fresh, net.ParseIP(plan.PeerIP()))
-			if er != "" || current != mac {
-				return
-			}
-			shareServer.ServeSMB(ctx, conn)
-		}
-	}
-	stopHTTP, e := usbhttp.RegisterWithBinary(ctx, peerAddrString(plan), plan.PeerIP(), usbHandler, smbHandler)
+	stopHTTP, e := usbhttp.Register(ctx, peerAddrString(plan), plan.PeerIP(), usbHandler)
 	if e != nil {
 		s.update(func(r *ApplicationResult) { r.Error = "USB_HTTP_LISTENER_UNAVAILABLE" })
 		return
@@ -820,7 +786,6 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 			b.directTarget.runtimeEvidence(s.snapshot())
 		}
 		if v4Peer {
-			recordUnpairedExperimentEvent("ipv4_neighbor_verified_not_arp_capture")
 			recordConnectionStage("ipv4_neighbor_verified", "same_usb_peer_ipv4_mac_matched")
 		}
 		if loops%2 == 0 && !s.snapshot().SunshineClientTCPObserved {
@@ -837,7 +802,6 @@ func (b *groupingBackend) runApplication(peer PeerProbe) (out ApplicationResult)
 				if postError == "" && me == "" && m == mac && (family == "IPv6" || v4Peer) {
 					s.update(func(r *ApplicationResult) {
 						r.SunshineClientTCPObserved = true
-						recordUnpairedExperimentEvent("sunshine_exact_peer_tcp_observed")
 						r.TCPAddressFamily = family
 						recordConnectionStage("sunshine_peer_tcp_observed", "exact_local_peer_established_sunshine_tcp")
 					})

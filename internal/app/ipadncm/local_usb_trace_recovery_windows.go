@@ -6,12 +6,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"golang.org/x/sys/windows"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 type usbTraceJournal struct {
@@ -97,23 +98,6 @@ func usbTraceLease(dir string) (windows.Handle, error) {
 	}
 	return h, nil
 }
-func usbTraceProperties(j usbTraceJournal) *wpdTracePropertyBuffer {
-	b := new(wpdTracePropertyBuffer)
-	b.Properties.Wnode.Size = uint32(unsafe.Sizeof(*b))
-	b.Properties.Wnode.GUID, _ = windows.GUIDFromString(j.GUID)
-	b.Properties.Wnode.Flags = 0x20000
-	b.Properties.Wnode.ClientContext = 1
-	b.Properties.LoggerNameOffset = uint32(unsafe.Offsetof(b.Name))
-	copy(b.Name[:], windows.StringToUTF16(j.Name))
-	// No log filename. Event-ID filtering still requires the entire template
-	// to be safe because Windows may internally back a real-time session.
-	b.Properties.LogFileMode = usbTraceRealtimeMode | usbTraceStopOnHybridShutdown
-	b.Properties.BufferSize = 64
-	b.Properties.MinimumBuffers = 4
-	b.Properties.MaximumBuffers = 16
-	b.Properties.FlushTimer = 1
-	return b
-}
 
 // QUERY offsets reserve output space; unlike StartTrace, they do not request
 // a log file. Keep this buffer separate from the session creation properties.
@@ -131,7 +115,6 @@ func usbTraceQuery(j usbTraceJournal) (*wpdTracePropertyBuffer, bool, error) {
 	r, _, _ := wpdControlTrace.Call(0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(j.Name))), uintptr(unsafe.Pointer(b)), 0)
 	q := usbTraceQueryEvidence{Observed: true, NativeCode: uint32(r)}
 	if r != 0 {
-		usbTraceRecordQuery(q)
 		if r == 4201 {
 			return b, false, nil
 		}
@@ -146,7 +129,6 @@ func usbTraceQuery(j usbTraceJournal) (*wpdTracePropertyBuffer, bool, error) {
 	q.BufferBytes = b.Properties.Wnode.Size
 	raw := unsafe.Slice((*byte)(unsafe.Pointer(b)), int(unsafe.Sizeof(*b)))
 	q = usbTraceCompareQuery(raw, q, j.Name)
-	usbTraceRecordQuery(q)
 	if q.Mismatch != 0 {
 		return b, false, errors.New("USB_TRACE_SESSION_NOT_OWNED")
 	}

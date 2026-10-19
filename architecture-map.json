@@ -20,10 +20,8 @@
     "internal/securitypolicy": "internal/security/securitypolicy",
     "internal/usbgateway": "internal/security/usbgateway",
     "internal/fileshare": "internal/sharing/fileshare",
-    "internal/smbcore": "internal/sharing/smbcore",
     "internal/usbhttp": "internal/sharing/usbhttp",
     "internal/background": "internal/platform/windows/background",
-    "internal/devicecheck": "internal/platform/windows/devicecheck",
     "internal/installcleanup": "internal/platform/windows/installcleanup",
     "internal/installer": "internal/platform/windows/installer",
     "internal/interfaceconfig": "internal/platform/windows/interfaceconfig",
@@ -32,7 +30,6 @@
     "internal/attemptlog": "internal/diagnostics/attemptlog",
     "internal/bench": "internal/diagnostics/bench",
     "internal/grouptrial": "internal/diagnostics/grouptrial",
-    "internal/ipadprobe": "internal/diagnostics/ipadprobe",
     "internal/latencyprobe": "internal/diagnostics/latencyprobe",
     "internal/logfile": "internal/diagnostics/logfile",
     "internal/macalias": "internal/diagnostics/macalias",
@@ -62,6 +59,14 @@
     "internal/filedrop": "Temporary file upload receiver removed; maintenance discovery lives in internal/sharing/usbservice",
     "cmd/usb-send": "Temporary file sender removed",
     "cmd/webdav-check": "WebDAV file service and diagnostic client removed",
-    "cmd/suhang-update": "Developer remote release publisher removed from source and distribution"
+    "cmd/suhang-update": "Developer remote release publisher removed from source and distribution",
+    "cmd/ipad-probe": "Standalone iPad probe removed together with internal/diagnostics/ipadprobe",
+    "cmd/ncm-probe": "Standalone NCM probe removed",
+    "cmd/usb-latency": "Standalone USB latency tool removed",
+    "cmd/usb-throughput": "Standalone USB throughput tool removed",
+    "cmd/ipad-ncm-check": "Standalone iPad NCM check removed",
+    "cmd/ipad-ncm-status-check": "Standalone iPad NCM status check removed",
+    "cmd/ipad-usb-access-check": "Standalone iPad USB access check removed",
+    "cmd/device-check": "Standalone device check removed together with internal/platform/windows/devicecheck"
   }
 }

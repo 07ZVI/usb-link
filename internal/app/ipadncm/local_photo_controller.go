@@ -14,32 +14,50 @@ type localPhotoNodeSummary struct {
 	Class    string `json:"class"`
 	Disabled bool   `json:"disabled"`
 }
+
+// First sight of an instance by the reactive scan, for the trust-prompt
+// investigation. Hash is the existing bounded digest, never the instance ID.
+type localPhotoSighting struct {
+	Hash                 string `json:"instance_hash"`
+	KnownMatch           bool   `json:"matched_known_instance"`
+	Journaled            bool   `json:"already_owned"`
+	DisabledAtFirstSight bool   `json:"disabled_at_first_sight"`
+	FirstSeenUTC         string `json:"first_seen_utc"`
+	KnownCountAtSight    int    `json:"known_count_at_sight"`
+}
 type localPhotoStatus struct {
-	RejectedID    string                  `json:"rejected_id,omitempty"`
-	RejectedError string                  `json:"rejected_error,omitempty"`
-	CauseCode     string                  `json:"cause_code,omitempty"`
-	NativeKind    string                  `json:"native_kind,omitempty"`
-	NativeCode    uint32                  `json:"native_code,omitempty"`
-	SampledUTC    string                  `json:"sampled_utc,omitempty"`
-	RunID         string                  `json:"run_id,omitempty"`
-	SampledMS     int64                   `json:"sampled_ms"`
-	Available     bool                    `json:"available"`
-	Requested     bool                    `json:"requested"`
-	Effective     bool                    `json:"effective"`
-	Busy          bool                    `json:"busy"`
-	Persistence   string                  `json:"persistence"`
-	SavedEnabled  bool                    `json:"saved_enabled"`
-	RequestID     string                  `json:"request_id"`
-	Phase         string                  `json:"phase"`
-	Error         string                  `json:"error,omitempty"`
-	OwnedNodes    int                     `json:"owned_nodes"`
-	ObservedNodes int                     `json:"observed_nodes"`
-	OmittedNodes  int                     `json:"omitted_nodes"`
-	KnownNodes    int                     `json:"known_nodes"`
-	KnownApplied  int                     `json:"known_applied"`
-	KnownSkipped  int                     `json:"known_skipped"`
-	KnownCode     string                  `json:"known_code,omitempty"`
-	Nodes         []localPhotoNodeSummary `json:"nodes,omitempty"`
+	Sightings     []localPhotoSighting `json:"first_sightings,omitempty"`
+	RejectedID    string               `json:"rejected_id,omitempty"`
+	RejectedError string               `json:"rejected_error,omitempty"`
+	CauseCode     string               `json:"cause_code,omitempty"`
+	NativeKind    string               `json:"native_kind,omitempty"`
+	NativeCode    uint32               `json:"native_code,omitempty"`
+	SampledUTC    string               `json:"sampled_utc,omitempty"`
+	RunID         string               `json:"run_id,omitempty"`
+	SampledMS     int64                `json:"sampled_ms"`
+	Available     bool                 `json:"available"`
+	Requested     bool                 `json:"requested"`
+	Effective     bool                 `json:"effective"`
+	Busy          bool                 `json:"busy"`
+	Persistence   string               `json:"persistence"`
+	SavedEnabled  bool                 `json:"saved_enabled"`
+	RequestID     string               `json:"request_id"`
+	Phase         string               `json:"phase"`
+	Error         string               `json:"error,omitempty"`
+	OwnedNodes    int                  `json:"owned_nodes"`
+	ObservedNodes int                  `json:"observed_nodes"`
+	OmittedNodes  int                  `json:"omitted_nodes"`
+	KnownNodes    int                  `json:"known_nodes"`
+	KnownApplied  int                  `json:"known_applied"`
+	KnownSkipped  int                  `json:"known_skipped"`
+	KnownCode     string               `json:"known_code,omitempty"`
+	// Learning and the pre-SET_MODE pass, for exported diagnostics only.
+	KnownLearned   int                     `json:"known_learned_this_run"`
+	PreModeRan     bool                    `json:"before_mode_request_ran"`
+	PreModeApplied bool                    `json:"applied_before_mode_request"`
+	PreModeKnown   int                     `json:"before_mode_request_known"`
+	PreModeCode    string                  `json:"before_mode_request_code,omitempty"`
+	Nodes          []localPhotoNodeSummary `json:"nodes,omitempty"`
 }
 type localPhotoBackend interface {
 	load() (localPhotoJournal, error)
@@ -94,6 +112,7 @@ func (c *localPhotoController) snapshot() localPhotoStatus {
 	defer c.mu.Unlock()
 	s := c.state
 	s.Nodes = append([]localPhotoNodeSummary(nil), s.Nodes...)
+	s.Sightings = append([]localPhotoSighting(nil), s.Sightings...)
 	return s
 }
 func (c *localPhotoController) configure(save func(bool) error, read func() (bool, error)) {
@@ -299,8 +318,51 @@ func (c *localPhotoController) rememberKnown(p portablePropertyOriginal) error {
 	if err := c.backend.saveKnown(next); err != nil {
 		return photoFailure("PHOTO_KNOWN_SAVE_FAILED", err)
 	}
+	isNew := true
+	for _, v := range c.known.Entries {
+		isNew = isNew && !strings.EqualFold(v.Node.ID, p.Node.ID)
+	}
 	c.known = next
+	if isNew {
+		c.mu.Lock()
+		c.state.KnownLearned++
+		c.mu.Unlock()
+	}
 	return nil
+}
+
+// Records what the pass right before a mode request did. It runs only when a
+// bound, selected target exists; otherwise the reason is the code.
+func (c *localPhotoController) notePreMode(ran bool, code string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.state.PreModeRan = ran
+	c.state.PreModeKnown = len(c.known.Entries)
+	c.state.PreModeCode = code
+	c.state.PreModeApplied = false
+	if ran && code == "" {
+		c.state.PreModeCode = c.state.KnownCode
+		c.state.PreModeApplied = c.state.KnownCode == "" && c.state.KnownApplied > 0
+	}
+}
+func (c *localPhotoController) noteSighting(n portableNodeReceipt, owned, disabled bool) {
+	hash := portableNodeDigest(n)[:16]
+	known := false
+	for _, k := range c.known.Entries {
+		known = known || strings.EqualFold(k.Node.ID, n.ID)
+	}
+	utc, _, _ := c.sample()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, v := range c.state.Sightings {
+		if v.Hash == hash {
+			return
+		}
+	}
+	if len(c.state.Sightings) == 4 {
+		c.state.Sightings = c.state.Sightings[1:]
+	}
+	c.state.Sightings = append(c.state.Sightings, localPhotoSighting{Hash: hash, KnownMatch: known, Journaled: owned, DisabledAtFirstSight: disabled, FirstSeenUTC: utc, KnownCountAtSight: len(c.known.Entries)})
 }
 func (c *localPhotoController) setKnownCode(code string) {
 	c.mu.Lock()
@@ -405,6 +467,7 @@ func (c *localPhotoController) applyKnown() {
 	c.operation.Lock()
 	defer c.operation.Unlock()
 	if c.backend == nil || !c.initialized || c.awaitingSessionCleanup() {
+		c.notePreMode(false, "PHOTO_NOT_READY")
 		return
 	}
 	c.mu.Lock()
@@ -413,8 +476,11 @@ func (c *localPhotoController) applyKnown() {
 	c.mu.Unlock()
 	if on {
 		c.reconcileKnown(rev, root)
+		c.notePreMode(true, "")
 		c.publish(c.knownPhase(root), nil)
+		return
 	}
+	c.notePreMode(false, "PHOTO_ISOLATION_OFF")
 }
 func (c *localPhotoController) knownPhase(root string) string {
 	c.mu.Lock()
@@ -519,6 +585,7 @@ func (c *localPhotoController) step() {
 			c.publish("recovery_pending", photoFailure("PHOTO_STATE_UNPROVEN", e))
 			return
 		}
+		c.noteSighting(n, owned, disabled)
 		if !disabled {
 			if !owned {
 				if len(c.journal.Entries) >= 16 {

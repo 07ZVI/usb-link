@@ -5,9 +5,11 @@ package launcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/setupwizard"
 	"suhang/usbnet/internal/dependencies"
@@ -135,6 +137,12 @@ func runSetupWizard(ctx context.Context) {
 						}
 					}()
 					installed, err := installBundledRelease(work)
+					repairStatus := connectioninstall.ProtectedStoreRepairStatus()
+					if strings.HasPrefix(repairStatus, "failed") {
+						record("protectedStoreRepair", "failed", errors.New(repairStatus))
+					} else {
+						record("protectedStoreRepair", repairStatus, nil)
+					}
 					stopPhases()
 					<-phasesDone
 					return installed, err

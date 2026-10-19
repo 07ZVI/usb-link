@@ -29,14 +29,20 @@ func readDatagram(t ControlTransfer, index uint16, maximum uint16) (uint16, erro
 // proves a frame setting, never an IP MTU. Any ambiguous write is rolled back
 // and read back before the original transport can resume.
 func TryDatagram(t ControlTransfer, index uint16, capability byte, maximum uint16) (*DatagramTrial, error) {
-	if capability&8 == 0 || maximum < 9014 {
+	return TryDatagramCapped(t, index, capability, maximum, MTUCapAuto)
+}
+
+// TryDatagramCapped never raises the maximum datagram above the cap's frame
+// ceiling. A 1500 cap performs no control request at all.
+func TryDatagramCapped(t ControlTransfer, index uint16, capability byte, maximum uint16, limit MTUCap) (*DatagramTrial, error) {
+	if capability&8 == 0 || maximum < 9014 || !limit.AllowsJumbo() {
 		return nil, nil
 	}
 	old, err := readDatagram(t, index, maximum)
 	if err != nil {
 		return nil, err
 	} // No mutation occurred.
-	target := uint16(min(int(maximum), 16014))
+	target := uint16(min(int(maximum), limit.FrameCeiling()))
 	d := &DatagramTrial{Original: old, Current: old}
 	if old >= target {
 		return d, nil

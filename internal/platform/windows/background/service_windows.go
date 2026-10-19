@@ -149,6 +149,7 @@ func (s *service) bridge(ctx context.Context, l *log.Logger) (bool, error) {
 	if _, err := rand.Read(token[:]); err != nil {
 		return false, err
 	}
+	// Legacy event name, kept for compatibility with installed versions.
 	name := `Global\SuhangUSBBridgeStop-` + hex.EncodeToString(token[:])
 	p, _ := windows.UTF16PtrFromString(name)
 	event, err := windows.CreateEvent(nil, 1, 0, p)

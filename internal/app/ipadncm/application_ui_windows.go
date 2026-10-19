@@ -46,6 +46,8 @@ type appWindow struct {
 	trayTip                                                                                                     string
 	taskbarCreated                                                                                              uint32
 	stopping                                                                                                    bool
+	trayAck                                                                                                     *trayRemovalAck
+	trayRemoved                                                                                                 bool
 }
 
 var appWindows = struct {
@@ -147,10 +149,22 @@ var appWindowProc = windows.NewCallback(func(hwnd uintptr, message uint32, wpara
 				w.setTrayTip(trayTip)
 			}
 			return 0
+		case 0x8005: // Installer-requested close: end now, no exit-program protocol.
+			// The verified installer stops the core, which restores on its own.
+			// Cancelling here also keeps the core recovery from restarting it.
+			w.stopping = true
+			w.cancel()
+			w.removeTray()
+			return 0
+		case 0x8004: // Exit path: delete the icon on this thread, then acknowledge.
+			w.removeTray()
+			return 0
 		case 0x8001:
+			w.removeTray()
 			appUser.NewProc("DestroyWindow").Call(hwnd)
 			return 0
 		case 0x2: // WM_DESTROY
+			w.removeTray()
 			appUser.NewProc("KillTimer").Call(hwnd, 1)
 			appUser.NewProc("PostQuitMessage").Call(0)
 			return 0
@@ -331,9 +345,10 @@ func startApplicationUI(ctx context.Context, s *applicationState, cancel context
 		swFit, _, _ := appUser.NewProc("GetSystemMetrics").Call(0)
 		shFit, _, _ := appUser.NewProc("GetSystemMetrics").Call(1)
 		dpi = min(dpi, max(uintptr(48), (swFit-48)*96/860), max(uintptr(48), (shFit-80)*96/680))
-		w := &appWindow{ctx: ctx, cancel: cancel, state: s, scale: int(dpi)}
+		w := &appWindow{ctx: ctx, cancel: cancel, state: s, scale: int(dpi), trayAck: newTrayRemovalAck()}
 		instance, _, _ := appKernel.NewProc("GetModuleHandleW").Call(0)
 		cursor, _, _ := appUser.NewProc("LoadCursorW").Call(0, 32512)
+		// Legacy window class name, kept for compatibility with installed versions.
 		class, _ := windows.UTF16PtrFromString("SuhangUSBStatus061")
 		wc := appWindowClass{Size: 80, Procedure: appWindowProc, Instance: instance, Cursor: cursor, Background: 6, Class: class}
 		atom, _, _ := appUser.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(&wc)))
@@ -358,6 +373,10 @@ func startApplicationUI(ctx context.Context, s *applicationState, cancel context
 		appWindows.Lock()
 		appWindows.byHandle[hwnd] = w
 		appWindows.Unlock()
+		// At program end the icon goes first, not after the renderer join below.
+		if currentServiceUIProxy() != nil { // standalone keeps the restoring tooltip until closeUI
+			removeTrayOnCancel(ctx, func() { appUser.NewProc("PostMessageW").Call(hwnd, 0x8004, 0, 0) })
+		}
 		defer func() {
 			w.removeTray()
 			appUser.NewProc("DestroyWindow").Call(hwnd)
@@ -430,7 +449,7 @@ func startApplicationUI(ctx context.Context, s *applicationState, cancel context
 			appWindows.Lock()
 			w.modern = &modernUI{ctx: ctx, lifetime: uiCtx, endUI: endUI, state: s, cancel: cancel, refresh: make(chan struct{}, 1)}
 			appWindows.Unlock()
-			defer w.modern.close()
+			defer func() { w.removeTray(); w.modern.close() }()
 			go w.modern.run()
 			if s.Minimized || w.modern.show("connection-window-start") || ctx.Err() != nil {
 				show = 0
@@ -504,6 +523,9 @@ func ShowExistingConnectionUI() {
 }
 
 func (w *appWindow) addTray() {
+	if w.trayRemoved {
+		return
+	}
 	n := appTrayData{Window: w.hwnd, ID: 1, Flags: 7, Callback: 0x8002}
 	if unsafe.Sizeof(n) != 976 {
 		return
@@ -551,6 +573,8 @@ func (w *appWindow) setTrayTip(tip string) {
 	}
 }
 func (w *appWindow) removeTray() {
+	w.trayRemoved = true
+	defer w.trayAck.release()
 	if !w.tray {
 		return
 	}
@@ -587,3 +611,20 @@ func (w *appWindow) trayMenu() {
 
 var _ [976 - int(unsafe.Sizeof(appTrayData{}))]byte
 var _ [int(unsafe.Sizeof(appTrayData{})) - 976]byte
+
+// RemoveTrayAndWait deletes every status-window tray icon on its own thread and
+// waits briefly for the acknowledgement. Call it before the process ends.
+func RemoveTrayAndWait() bool {
+	appWindows.Lock()
+	var hwnds []uintptr
+	var acks []*trayRemovalAck
+	for h, w := range appWindows.byHandle {
+		hwnds = append(hwnds, h)
+		acks = append(acks, w.trayAck)
+	}
+	appWindows.Unlock()
+	return removeTraysAndWait(acks, func(i int) { appUser.NewProc("PostMessageW").Call(hwnds[i], 0x8004, 0, 0) }, trayRemovalTimeout)
+}
+
+// ExitAfterTrayRemoval deletes the icons, then runs terminate.
+func ExitAfterTrayRemoval(terminate func()) { terminateAfterTrayRemoval(RemoveTrayAndWait, terminate) }

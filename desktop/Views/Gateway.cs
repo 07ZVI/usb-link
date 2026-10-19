@@ -38,7 +38,7 @@ public sealed partial class Dashboard
    gatewayPendingID=Guid.NewGuid().ToString("N");gatewayPendingAction=action;body["request_id"]=gatewayPendingID;
    gatewayState.Text="正在讀取或更新 USB 授權…";var id=gatewayPendingID;
    gatewayTimer?.Stop();var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(60)};gatewayTimer=timer;
-   timer.Tick+=(_,_)=>{timer.Stop();if(gatewayPendingID==id){gatewayPendingID=gatewayPendingAction="";gatewayState.Text="等待 Windows USB 授權回覆逾時，請重新整理核對。";if(securityTabs?.SelectedIndex==0)securityCount.Text="USB 授權尚未確認";}};timer.Start();
+   timer.Tick+=(_,_)=>{timer.Stop();if(gatewayPendingID==id){gatewayPendingID=gatewayPendingAction="";gatewayState.Text="等待 Windows USB 授權回覆逾時，請重新整理核對。";if(securityTabs?.SelectedIndex==GatewayTab)securityCount.Text="USB 授權尚未確認";}};timer.Start();
   }
   DesktopClient.SendRaw(JsonSerializer.Serialize(body));
  }
@@ -83,7 +83,7 @@ public sealed partial class Dashboard
   if(id!=""&&(id!=gatewayPendingID||Text(d,"action")!=gatewayPendingAction)||id==""&&!preview&&gatewayPendingID!="")return;
   if(id!=""){gatewayTimer?.Stop();gatewayPendingID=gatewayPendingAction="";ShareRequest(new{action="ui-result-ack",id,decision="gateway"});}
   var problem=Text(d,"problem");var active=d.TryGetProperty("active_links",out var n)?n.GetInt32():0;
-  if(!d.TryGetProperty("grants",out _)&&problem!=""){gatewayState.Text=Friendly.Explain("未完成："+problem).Message;if(securityTabs?.SelectedIndex==0)securityCount.Text="USB 授權尚未確認 · 可重新整理";return;}
+  if(!d.TryGetProperty("grants",out _)&&problem!=""){gatewayState.Text=Friendly.Explain("未完成："+problem).Message;if(securityTabs?.SelectedIndex==GatewayTab)securityCount.Text="USB 授權尚未確認 · 可重新整理";return;}
   gatewayState.Text=problem.Length>0?Friendly.Explain("未完成："+problem).Message:active>0?"USB 網關已啟用 · 未授權程式預設阻止":"未連接 USB 裝置 · 授權已保留";
   gatewayState.TextWrapping=TextWrapping.Wrap;CancelGatewaySignatures();gatewayRows.Children.Clear();
   gatewaySignatureCancellation=new CancellationTokenSource();var token=gatewaySignatureCancellation.Token;var generation=gatewaySignatureGeneration;
@@ -94,6 +94,6 @@ public sealed partial class Dashboard
    if(!preview&&securityWindow!=null)_=CheckGrantSignature(signature,path,Text(grant,"sha256"),generation,token);
   }
   if(gatewayRows.Children.Count==0)gatewayRows.Children.Add(EmptyState.Make(Icons.Shield,"尚無程式授權","程式第一次要求使用 USB 網路時，會在這裡詢問你。"));
-  if(securityTabs?.SelectedIndex==0)securityCount.Text=$"{Entries(d,"grants").Count()} 項 USB 授權 · {DateTime.Now:HH:mm:ss}";
+  if(securityTabs?.SelectedIndex==GatewayTab)securityCount.Text=$"{Entries(d,"grants").Count()} 項 USB 授權 · {DateTime.Now:HH:mm:ss}";
  }
 }

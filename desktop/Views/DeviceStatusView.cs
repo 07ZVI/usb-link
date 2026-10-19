@@ -32,6 +32,11 @@ internal sealed class DeviceStatusView
     bool busy, connected;
     string url = "";
     public Control View { get; }
+    readonly Border card;
+    readonly Grid layout;
+    readonly Grid plot, notes;
+    readonly StackPanel extras;
+    int density;
 
     public DeviceStatusView(string kind, Action<string> send, Action<string, string> copy)
     {
@@ -71,12 +76,36 @@ internal sealed class DeviceStatusView
         var status = Columns("*,12,Auto", pill, Gap(), traffic);
         // Peak sits over the chart's corner; the empty-state hint takes the chart's place offline.
         peak.HorizontalAlignment = HorizontalAlignment.Right; peak.VerticalAlignment = VerticalAlignment.Top; peak.IsHitTestVisible = false;
-        var plot = new Grid { MinHeight = 48 };
+        plot = new Grid { MinHeight = 48 };
         plot.Children.Add(chart); plot.Children.Add(idleHint); plot.Children.Add(peak);
-        var notes = Columns("*,Auto", speed, latency);
-        View = Card(Rows("Auto,12,Auto,8,*,8,Auto,6,Auto", head, Gap(), status, Gap(), plot, Gap(), notes, Gap(), Column(3, progress, summary, benchmarkAddress)), new Thickness(Scale.Inset + 2, Scale.Inset - 2));
+        notes = Columns("*,Auto", speed, latency);
+        extras = Column(3, progress, summary, benchmarkAddress);
+        layout = Rows("Auto,12,Auto,8,*,8,Auto,0,Auto", head, Gap(), status, Gap(), plot, Gap(), notes, Gap(), extras);
+        View = card = Card(layout, new Thickness(Scale.Inset + 2, Scale.Inset - 2));
         benchmarkAddress.Res(TextBlock.ForegroundProperty,"Muted");
         Update(DeviceStatus.Missing);
+        SetDensity(0);
+    }
+
+    /// 0 roomy, 1 compact, 2 dense. Compact shrinks the chart and moves the benchmark address into the benchmark
+    /// button's tooltip; dense also hides the chart and the speed/latency line (they move into the traffic tooltip)
+    /// so a device card needs only its identity row and its status row.
+    public void SetDensity(int level)
+    {
+        density = level;
+        card.Padding = level switch { 0 => new Thickness(Scale.Inset + 2, Scale.Inset - 2), 1 => new Thickness(Scale.Inset, 10), _ => new Thickness(Scale.Inset - 2, 8) };
+        layout.RowDefinitions = new RowDefinitions(level switch { 0 => "Auto,12,Auto,8,*,8,Auto,0,Auto", 1 => "Auto,8,Auto,6,*,6,Auto,0,Auto", _ => "Auto,6,Auto,0,Auto,0,Auto,0,Auto" });
+        plot.MinHeight = chart.MinHeight = level == 0 ? 48 : 36;
+        plot.IsVisible = notes.IsVisible = level < 2;
+        deviceTile.Width = deviceTile.Height = level == 2 ? 34 : 40;
+        RefreshExtras();
+    }
+
+    void RefreshExtras()
+    {
+        benchmarkAddress.IsVisible = url != "" && density == 0;
+        extras.IsVisible = progress.IsVisible || summary.IsVisible || benchmarkAddress.IsVisible;
+        extras.Margin = new Thickness(0, density == 2 ? 6 : 8, 0, 0);
     }
 
     public void Update(DeviceStatus data)
@@ -103,7 +132,7 @@ internal sealed class DeviceStatusView
         ToolTip.SetTip(title, data.Subtitle); ToolTip.SetTip(health, data.Health);
         var tx = data.Tx / 8; var rx = data.Rx / 8;
         traffic.Text = active ? $"↑ {tx:0.0}    ↓ {rx:0.0}  MB/s" : "↑ —    ↓ —  MB/s";
-        ToolTip.SetTip(traffic, "↑ 傳送至裝置 · ↓ 從裝置接收；即時介面流量，近 60 秒");
+        ToolTip.SetTip(traffic, "↑ 傳送至裝置 · ↓ 從裝置接收；即時介面流量，近 60 秒" + (active ? "\n" + (data.Speed is { Length: > 0 } ? data.Speed : "USB 協商速率尚未取得") + "\n" + (data.Latency is { Length: > 0 } ? data.Latency : "延遲 · 未測得") : ""));
         if (data.IsPresent) chart.Push(tx, rx);
         peak.Text = chart.Peak > 0 ? $"峰值 {chart.Peak:0.#} MB/s" : "";
         speed.Text = data.Speed is { Length: > 0 } sp ? sp : "USB 協商速率尚未取得";
@@ -120,9 +149,10 @@ internal sealed class DeviceStatusView
         // The standing "open this URL" instruction lives in the tooltip; live progress and results stay visible.
         summary.Text = data.BenchmarkSummary;
         summary.IsVisible = summary.Text != "" && (busy || !summary.Text.Contains("無需安裝程式"));
-        benchmarkAddress.Text = url; benchmarkAddress.IsVisible = url != "";
+        benchmarkAddress.Text = url;
         Avalonia.Automation.AutomationProperties.SetName(benchmarkAddress,kind+" 瀏覽器測速網址");
         ToolTip.SetTip(summary, summary.Text);
+        RefreshExtras();
     }
 
     public void SeedTraffic(double tx, double rx)

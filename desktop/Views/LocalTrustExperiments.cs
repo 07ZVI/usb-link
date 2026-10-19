@@ -26,7 +26,6 @@ public sealed partial class Dashboard
         new("amds_hold", "amds-hold", "Apple 服務屏蔽對照",
             "開啟時持續暫停 Apple Mobile Device Service，沒有自動到期；會中斷這台電腦上 iTunes／Apple Devices 的同步與備份，不改啟動類型。關閉此開關、開發者調試或退出背景程式時恢復原狀態；恢復完成以背景讀回為準。請先結束同步與備份。"),
     ];
-    readonly TrustExperiment automaticWpd = new("wpd_trace", "", "WPD 自動診斷", "");
     System.Action? localTrustExperimentRefresh;
 
     Control TrustExperimentControls()
@@ -63,9 +62,11 @@ public sealed partial class Dashboard
             controls.Add(Hint(experiment.Help));
             controls.Add(status);
         }
+        controls.Add(MacMtuCapControls());
         controls.Add(Hint("此進階選擇會保存；只在開發者調試開啟時使用。關閉後可能需重新接入恢復普通模式。", "Subtle"));
         localTrustExperimentRefresh = () =>
         {
+            macMtuCapRefresh?.Invoke();
             foreach (var (state, toggle, status) in bindings)
             {
                 var selected = state.PendingID != "" ? state.PendingEnabled : state.Saved;
@@ -93,7 +94,7 @@ public sealed partial class Dashboard
 
     void UpdateLocalTrustExperiments(JsonElement d)
     {
-        foreach (var experiment in trustExperiments.Append(automaticWpd))
+        foreach (var experiment in trustExperiments)
         {
             if (!d.TryGetProperty(experiment.Key, out var state) || state.ValueKind != JsonValueKind.Object) continue;
             bool Flag(string key) => state.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.True;
@@ -118,12 +119,8 @@ public sealed partial class Dashboard
             var directActive = experiment.Key == "ncm_direct" && experiment.Requested && (phase is "preparing" or "intent_saved" or "mode_request_submitting" or "direct_descriptors_verified_network_pending" or "direct_native_nic_verifying" or "direct_network_session_starting" or "direct_network_waiting_for_ipv4_peer" or "direct_ipv4_peer_verified");
             var recoveryPending = (phase is "recovering" or "recovery_pending" or "recovery_required" or "recovery_failed" or "restore_waiting_reenumeration" or "stopping" or "direct_network_stopping") || Flag("restore_requires_reenumeration") || (Flag("recovery_required") && !directActive);
             var cause = Text("cause_code");
-            var wpdNotCovered = experiment.Key == "wpd_trace" && cause == "WPD_TRACE_SAFE_METADATA_NOT_COVERED"
-                && !experiment.Effective && !recoveryPending && persistence != "failed"
-                && error is "" or "OPERATION_FAILED" or "WPD_TRACE_OPERATION_FAILED" or "WPD_TRACE_SAFE_METADATA_NOT_COVERED";
-            experiment.NeedsAttention = !wpdNotCovered && (error != "" || persistence == "failed" || recoveryPending);
-            experiment.Message = wpdNotCovered ? "未覆蓋：本機格式未通過隱私檢查，該通道未啟用；未記錄不代表請求未發生。"
-                : error != "" ? (directSwitched ? "模式 5 切換已確認，後續連線尚未完成：" : "尚未完成：") + error + (cause != "" ? " / " + cause : "") + (experiment.Key == "ncm_direct" && Flag("recovery_required") ? "。恢復普通連線時，請關閉此開關後拔下再插入 iPad。" : "")
+            experiment.NeedsAttention = error != "" || persistence == "failed" || recoveryPending;
+            experiment.Message = error != "" ? (directSwitched ? "模式 5 切換已確認，後續連線尚未完成：" : "尚未完成：") + error + (cause != "" ? " / " + cause : "") + (experiment.Key == "ncm_direct" && Flag("recovery_required") ? "。恢復普通連線時，請關閉此開關後拔下再插入 iPad。" : "")
                 : Text("rejected_error") != "" ? "設定未變更：" + Text("rejected_error")
                 : !experiment.Available ? "此環境尚未提供這項實驗。"
                 : persistence is "loading" or "saving" || experiment.PendingID != "" ? "正在讀取或儲存設定…"
@@ -134,12 +131,9 @@ public sealed partial class Dashboard
                 : directSwitched && experiment.Saved ? "模式 5 切換已確認，正在核對網卡、地址分配及 IPv4 通信，尚未確認連通。"
                 : directActive ? "正在核對本輪設備並切換模式 5，尚未確認網路連通。"
                 : experiment.Key == "ncm_direct" && experiment.Saved ? "NCM Direct 已選擇，下一輪接入將使用獨立網路驗證；尚未確認連通。"
-                : experiment.Key == "wpd_trace" && phase == "waiting_provider_registration" ? "等待 Windows 提供者註冊；接入 iPad 後會自動重新核對。"
-                : experiment.Key == "wpd_trace" && experiment.Effective ? (Text("provider_coverage") == "partial" ? "WPD 已開始部分跟蹤；未覆蓋的提供者及原因見診斷。" : "WPD 採集已啟動，事件覆蓋仍待確認。") + "僅保存通過隱私檢查的摘要；尚未歸因到這台 iPad，未覆蓋原因見診斷。"
                 : experiment.Key == "amds_hold" && experiment.Effective ? "Apple 服務已確認由連線策略暫停；退出程序時恢復原狀態。"
                 : experiment.Busy ? "正在核對實驗狀態…"
-                : experiment.Key == "wpd_trace" && experiment.Requested ? "自動診斷正在準備，尚未確認開始記錄。"
-                : experiment.Key != "wpd_trace" && experiment.Saved ? "選擇已保存，目前未確認生效；等待開發者調試或可核對的設備。"
+                : experiment.Saved ? "選擇已保存，目前未確認生效；等待開發者調試或可核對的設備。"
                 : "已關閉。";
         }
     }
@@ -156,6 +150,7 @@ public sealed partial class Dashboard
     void ResetTrustExperimentWaits()
     {
         foreach (var experiment in trustExperiments) experiment.PendingID = "";
+        macMtuCapPendingID = "";
     }
 
     static void SendTrustExperiment(string action, bool enabled, string id)

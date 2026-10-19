@@ -35,48 +35,23 @@ func desktopExperimentControl(value any) any {
 	return result
 }
 
-// Keep event samples and provider details in diagnostics, not the UI envelope.
-func desktopUSBTraceSummary(value any) any {
-	b, err := json.Marshal(value)
-	if err != nil {
-		return nil
-	}
-	var source map[string]json.RawMessage
-	if json.Unmarshal(b, &source) != nil || source == nil {
-		return nil
-	}
-	if string(source["available"]) == "false" && string(source["phase"]) == `"local_build_required"` {
-		return nil
-	}
-	result := map[string]json.RawMessage{}
-	for _, key := range []string{"available", "requested", "active", "phase", "error", "coverage", "target_scope", "started_utc", "last_event_utc", "stopped_utc", "received", "accepted", "queue_overflow", "schema_rejected", "events_lost", "realtime_buffers_lost", "queue_dropped", "unregister_failed", "archive_rejected", "late_events", "timestamp_unknown", "cancelled_events", "cancelled_starts", "cancelled_before_ready", "cancelled_start_queue_dropped", "subscriptions_ready_utc", "rejected", "rejected_size", "rejected_instance_metadata", "rejected_interface_metadata", "query_ownership", "first_query_failure"} {
-		if v, ok := source[key]; ok {
-			result[key] = v
-		}
-	}
-	for _, key := range []string{"received_semantics", "callbacks_received", "session_metadata_callbacks", "session_header_callbacks", "unknown_provider_callbacks", "invalid_header_callbacks", "known_provider_shape_rejected", "known_provider_template_rejected", "known_provider_scalar_rejected", "rejected_header_count", "rejected_header_signatures_omitted"} {
-		if v, ok := source[key]; ok {
-			result[key] = v
-		}
-	}
-	return result
-}
-
 var desktopSnapshotObservation struct {
 	sync.Mutex
-	Status string `json:"status"`
-	Bytes  int    `json:"bytes"`
-	Reads  uint64 `json:"reads"`
+	Status  string `json:"status"`
+	Bytes   int    `json:"bytes"`
+	Reads   uint64 `json:"reads"`
+	Trimmed uint64 `json:"trimmed_for_pipe_limit"`
 }
 
 func DesktopSnapshotDiagnostics() any {
 	desktopSnapshotObservation.Lock()
 	defer desktopSnapshotObservation.Unlock()
 	return struct {
-		Status string `json:"status"`
-		Bytes  int    `json:"bytes"`
-		Reads  uint64 `json:"reads"`
-	}{desktopSnapshotObservation.Status, desktopSnapshotObservation.Bytes, desktopSnapshotObservation.Reads}
+		Status  string `json:"status"`
+		Bytes   int    `json:"bytes"`
+		Reads   uint64 `json:"reads"`
+		Trimmed uint64 `json:"trimmed_for_pipe_limit"`
+	}{desktopSnapshotObservation.Status, desktopSnapshotObservation.Bytes, desktopSnapshotObservation.Reads, desktopSnapshotObservation.Trimmed}
 }
 
 // The desktop uses current values and aggregates, never the per-second history.
@@ -111,14 +86,60 @@ func encodeServiceDisplaySnapshot(s ServiceDisplaySnapshot) ([]byte, error) {
 	return b, nil
 }
 
+// The pipe and the core report specific codes; only text that is not a stable
+// code stays opaque so a native message or path cannot reach the window.
 func desktopReadErrorCode(err error) string {
 	if err == nil {
 		return "CORE_DESKTOP_RESPONSE_INVALID"
 	}
-	switch err.Error() {
-	case "CORE_VERSION_CHANGED", "CORE_DESKTOP_STATUS_TOO_LARGE", "CORE_SNAPSHOT_LIMIT", "CORE_MONITOR_INITIALIZING", "CORE_INITIALIZING", "CORE_IPC_PEER_REJECTED", "CORE_IPC_RESPONSE_INVALID":
-		return err.Error()
-	default:
-		return "CORE_UI_READ_FAILED"
+	code, _, _ := CoreLinkErrorCode(err)
+	return code
+}
+
+// The display envelope is measured before the service adds dependency,
+// internet and exit state, and before the other snapshot sections join it.
+// Over the pipe limit, long text is cut first so the window keeps reading
+// instead of failing on one oversized diagnostic string.
+func TrimDisplayForTransport(display json.RawMessage, excess int) (json.RawMessage, bool) {
+	var tree any
+	if json.Unmarshal(display, &tree) != nil {
+		return display, false
 	}
+	goal := len(display) - excess
+	if envelope, ok := tree.(map[string]any); ok {
+		delete(envelope, "events")
+	}
+	for _, limit := range []int{4096, 1024, 256, 64} {
+		tree = truncateJSONStrings(tree, limit)
+		b, err := json.Marshal(tree)
+		if err == nil && len(b) <= goal {
+			desktopSnapshotObservation.Lock()
+			desktopSnapshotObservation.Trimmed++
+			desktopSnapshotObservation.Unlock()
+			return b, true
+		}
+	}
+	return display, false
+}
+
+func truncateJSONStrings(v any, limit int) any {
+	switch t := v.(type) {
+	case string:
+		if len(t) > limit {
+			cut := limit
+			for cut > 0 && t[cut]&0xC0 == 0x80 {
+				cut--
+			}
+			return t[:cut] + "…"
+		}
+	case []any:
+		for i := range t {
+			t[i] = truncateJSONStrings(t[i], limit)
+		}
+	case map[string]any:
+		for k, e := range t {
+			t[k] = truncateJSONStrings(e, limit)
+		}
+	}
+	return v
 }

@@ -78,5 +78,6 @@ internal static class ViewControls
     }
     /// A caption above a form field.
     internal static Control Field(string caption, Control input) => Column(5, Label(caption, Scale.Secondary, key: "Muted"), input);
+    internal static T WithAlign<T>(T c, HorizontalAlignment a) where T : Control { c.HorizontalAlignment = a; return c; }
     internal static T WithMargin<T>(T c, Thickness m) where T : Control { c.Margin = m; return c; }
 }

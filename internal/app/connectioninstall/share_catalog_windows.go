@@ -155,7 +155,7 @@ func loadShareCatalog() (*fileshare.Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := fileshare.NewMetadataCatalog(user)
+	c := fileshare.NewCatalog(user)
 	retained := false
 	defer func() {
 		if !retained {

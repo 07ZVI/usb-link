@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/windows"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 )
 
 var installerVersion string
@@ -67,13 +68,14 @@ func pinnedInstaller(path string) (*os.File, error) {
 // Extract only bounded stage/error fields, never the full hardware/credential
 // diagnostic archive. Both installer and service can explain startup failure.
 func startupDiagnostics(start time.Time) []map[string]string {
-	system, e := windows.GetSystemWindowsDirectory()
-	if e != nil {
-		return nil
+	var patterns []string
+	if recovery, e := machinepaths.RecoveryFolder(); e == nil {
+		for _, dir := range recovery.Both() {
+			patterns = append(patterns, filepath.Join(dir, "core-diagnostics", installerVersion, "*", "*.zip"))
+		}
 	}
-	patterns := []string{filepath.Join(system, "Temp", "Suhang-iPad-Grouping-Recovery", "core-diagnostics", installerVersion, "*", "*.zip")}
-	if base := os.Getenv("LOCALAPPDATA"); base != "" {
-		patterns = append(patterns, filepath.Join(base, "Suhang", "iPadUSBSetup", installerVersion, "*", "*.zip"))
+	if current, legacy, e := machinepaths.UIDiagnostics(); e == nil {
+		patterns = append(patterns, filepath.Join(current, installerVersion, "*", "*.zip"), filepath.Join(legacy, installerVersion, "*", "*.zip"))
 	}
 	var results []map[string]string
 	for _, pattern := range patterns {

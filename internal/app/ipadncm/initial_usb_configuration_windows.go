@@ -35,28 +35,9 @@ func waitInitialUSBConfiguration(ctx context.Context, initial Snapshot, inspect 
 		defer unsubscribe()
 	}
 	result := initial
-	started := time.Now()
-	reads := 0
-	lastState := ""
-	log := func(state string, cfg byte) {
-		if state == lastState {
-			return
-		}
-		lastState = state
-		RecordConnectionArchiveEvent("usb_authorization", struct {
-			Attempt       uint64 `json:"software_attempt"`
-			Phase         string `json:"phase"`
-			State         string `json:"state"`
-			Configuration byte   `json:"current_configuration"`
-			CacheReads    int    `json:"cached_reads"`
-			ElapsedMS     int64  `json:"elapsed_ms"`
-		}{currentSoftwareAttempt(), "initial_configuration_wait", state, cfg, reads, time.Since(started).Milliseconds()})
-	}
 	state := awaitInitialUSBConfiguration(ctx, notices, 2*time.Second, 250*time.Millisecond, func(cacheCtx context.Context) string {
-		reads++
 		cfg := byte(0)
 		state := "INITIAL_CONFIGURATION_TARGET_CHANGED_OR_UNREADABLE"
-		defer func() { log(state, cfg) }()
 		if ready, _ := idleExactRootReadiness(cacheCtx, target.root); ready != "root_started_not_authorization" {
 			return state
 		}
@@ -87,10 +68,5 @@ func waitInitialUSBConfiguration(ctx context.Context, initial Snapshot, inspect 
 		fresh, ok := initialUSBConfigurationIdentity(result)
 		return ctx.Err() == nil && ok && target.same(fresh) && networkOnlyUSBEligible(result)
 	})
-	var finalConfiguration byte
-	if len(result.Devices) == 1 {
-		finalConfiguration = result.Devices[0].CurrentConfiguration
-	}
-	log(state, finalConfiguration)
 	return result, true, state
 }

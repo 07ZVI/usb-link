@@ -52,8 +52,8 @@ def verify_release_surface(bridge, profile="release"):
  # The distributed launcher is then built with symbol stripping enabled.
  env={**ENV,'GOOS':'windows','GOARCH':'amd64','CGO_ENABLED':'0'}
  forbidden=['connectioninstall.RunUpdateWorker','usbrecovery.Run','filedrop.','webdav.(*Handler).ServeHTTP']
- if profile=='release':forbidden+=['remoteupdate.(*Server).ServeHTTP','connectioninstall.LaunchLocalRemoteElevation','connectioninstall.DispatchLocalRemoteInstall','connectioninstall.RunLocalRemoteInstall','launcher.handleLocalRemoteCommand', 'ipadncm.(*localWPDTraceNative).start', 'ipadncm.readWPDManifestTemplates', 'ipadncm.openConnectionArchiveStore', 'ipadncm.collectConnectionEnvironment', 'ipadncm.(*localWPDTraceNative).startCriticalConsumer', 'ipadncm.(*localWPDTraceNative).startSummaryConsumer', 'connectioninstall.localArchiveHandler', 'localupdate.collectArchives', 'ipadncm.applyPhotoPolicy', 'ipadncm.(*localDirectRun).prepare', 'ipadncm.(*directNetworkTarget).mapping']
- if profile=='release':forbidden+=['ipadncm.(*usbTraceNative).startCapture','ipadncm.(*localPnPTraceController).run','deviceguard.SubscribeAppleChangeMetadata','deviceguard.(*ChangeMetadataStream).offer']
+ if profile=='release':forbidden+=['remoteupdate.(*Server).ServeHTTP','connectioninstall.LaunchLocalRemoteElevation','connectioninstall.DispatchLocalRemoteInstall','connectioninstall.RunLocalRemoteInstall','launcher.handleLocalRemoteCommand', 'ipadncm.applyPhotoPolicy', 'ipadncm.(*localDirectRun).prepare', 'ipadncm.(*directNetworkTarget).mapping']
+ if profile=='release':forbidden+=['deviceguard.SubscribeAppleChangeMetadata','deviceguard.(*ChangeMetadataStream).offer']
  if profile=='release':forbidden+=['connectioninstall.RunLocalRemoteRestart','connectioninstall.(*RemoteManager).AuthorizeLocalRestart','connectioninstall.(*RemoteManager).requestLocalRestart','connectioninstall.restartTask','connectioninstall.localRestartHandler']
  with tempfile.TemporaryDirectory(prefix='usb-link-release-check-') as directory:
   candidate=pathlib.Path(directory)/'launcher.exe'
@@ -70,8 +70,6 @@ def notices():
  wizard_terms=[(ROOT/'LICENSE').read_text(encoding='utf-8'),(ROOT/'LICENSE-WINTUN-EXCEPTION').read_text(encoding='utf-8'),(ROOT/'licenses/Wintun-Binary-LICENSE.txt').read_text(encoding='utf-8'),(ROOT/'licenses/libwdi-LGPL-LICENSE.txt').read_text(encoding='utf-8'),'Zadig 2.9 / libwdi 1.5.1: GPL-3.0-or-later / LGPL-3.0-or-later. Unmodified official binary. Source: https://github.com/pbatard/libwdi/archive/refs/tags/v1.5.1.zip\nComplete third-party notices can be exported with --licenses.\n']
  (ASSETS/'setup-license.txt').write_text('\n\n'.join(wizard_terms), encoding='utf-8')
  (ASSETS/'sources.json').write_text(json.dumps({'version':VERSION,'external_dependencies':json.loads((ROOT/'internal/dependencies/catalog.json').read_text(encoding='utf-8')),'go_module':'go.mod','go_lock':'go.sum','desktop_lock':'desktop/packages.lock.json'},indent=2)+'\n', encoding='utf-8')
- shutil.copyfile(ROOT/'licenses/provenance/SMB-LICENSES-0.8.36.txt',ASSETS/'smb-licenses.txt')
- shutil.copyfile(ROOT/'licenses/provenance/SMB-SOURCES-0.8.36.json',ASSETS/'smb-sources.json')
 def prepare_bundled_dependencies():
  # Official redistributable driver/tool bytes; no proprietary Apple package.
  for asset in json.loads((ROOT/'internal/dependencies/catalog.json').read_text(encoding='utf-8'))['assets']:

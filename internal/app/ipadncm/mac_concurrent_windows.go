@@ -34,7 +34,6 @@ func setMacStatus(status, problem string) {
 			r.Error = problem
 			if status == "MONITOR_WAITING" {
 				r.ServicesReady = false
-				r.ShareReady = false
 				r.ObservedReceiveMbps = 0
 				r.ObservedTransmitMbps = 0
 			}
@@ -65,6 +64,7 @@ func RunConcurrentMacArchive(ctx context.Context, parent string, payload macconn
 	attempts := 0
 	denied := false
 	recoveryAttempted := false
+	lastError := ""
 	for ctx.Err() == nil {
 		if macForcedRetry.Swap(false) {
 			attempts, denied = 0, false
@@ -97,7 +97,12 @@ func RunConcurrentMacArchive(ctx context.Context, parent string, payload macconn
 					return
 				}
 			}
-			setMacStatus("MONITOR_PAUSED", "Mac 連線未完成；等待設備重新接入或手動重試。")
+			// Keep the last attempt's own reason; a generic pause hides it.
+			reason := "Mac 連線未完成；等待設備重新接入或手動重試。"
+			if lastError != "" {
+				reason = "Mac 連線未完成：" + boundedMacReason(lastError) + "；等待設備重新接入或手動重試。"
+			}
+			setMacStatus("MONITOR_PAUSED", reason)
 			timer := time.NewTimer(time.Second)
 			select {
 			case <-ctx.Done():
@@ -203,14 +208,24 @@ func RunConcurrentMacArchive(ctx context.Context, parent string, payload macconn
 		}
 		denied = strings.Contains(result.Error, "DECLINED") || auth.SecurityFailure() != ""
 		if result.Ready && result.CleanupConfirmed {
-			attempts = 0
+			attempts, lastError = 0, ""
 		} else {
 			attempts++
+			if result.Error != "" {
+				lastError = result.Error
+			}
 		}
 		if !waitMac(ctx, time.Duration(max(1, attempts))*5*time.Second) {
 			return
 		}
 	}
+}
+
+func boundedMacReason(s string) string {
+	if r := []rune(s); len(r) > 200 {
+		return string(r[:200]) + "…"
+	}
+	return s
 }
 
 func MacRecoveryRetryRequested() bool { return macForcedRetry.Load() }

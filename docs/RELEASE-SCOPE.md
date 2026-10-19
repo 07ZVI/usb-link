@@ -2,7 +2,7 @@
 
 USB Link provides USB networking and SMB management. The temporary upload receiver,
 WebDAV file service, received-files UI and developer file sender have been removed.
-The confined folder catalog and filesystem protections remain for compatibility SMB.
+The folder catalog remains for Windows native SMB; the built-in compatibility SMB server was removed in 0.10.56.
 HTTP on the USB service port is limited to network diagnostics; the old upload,
 WebDAV and upgrade-discovery routes do not serve files or credentials.
 

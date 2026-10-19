@@ -95,7 +95,7 @@ func (w *Writer) collect(ctx context.Context, block bool) (bool, error) {
 			return false, err
 		}
 		if time.Since(s.started) >= 2*time.Second {
-			return false, fmt.Errorf("USB OUT completion exceeded 2s deadline")
+			return false, fmt.Errorf("USB_OUT_COMPLETION_TIMEOUT: USB OUT completion exceeded 2s deadline")
 		}
 		if !block {
 			return false, nil

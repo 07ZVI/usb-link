@@ -3,14 +3,11 @@
 package ipadncm
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 )
 
 const networkOnlyDriverUnproven = "NETWORK_ONLY_DRIVER_ADMISSION_UNPROVEN"
@@ -31,93 +28,21 @@ func NetworkOnlyPreparationAdmission(before Snapshot) (bool, string) {
 }
 
 func networkOnlyDriverAdmission(before Snapshot, allowInitial bool) (bool, string) {
-	if unpairedExperimentOwnsNetworkOnly() {
-		return unpairedExperimentDriverAdmission(before)
-	}
 	networkOnly.Lock()
-	dir, available, enabled := networkOnly.dir, networkOnly.available, networkOnly.enabled
-	unresolved := networkOnly.busy || networkOnly.pending || networkOnly.blocked
+	available := networkOnly.available
 	networkOnly.Unlock()
 	if !available {
 		return false, ""
 	}
-	if !enabled || unresolved || dir == "" {
-		return false, networkOnlyDriverUnproven
-	}
-	ctx := connectionContext()
-	if ctx == nil || ctx.Err() != nil || !networkOnlyUSBEligible(before) {
-		return false, networkOnlyDriverUnproven
-	}
-	root := exactIPadRoot(before)
-	p := networkOnlyDriverProof{descriptorBound: true}
-	ipadCandidateControl.Lock()
-	stage, scope := ipadCandidateControl.stage, ipadCandidateControl.scope
-	ownerReady := !ipadCandidateControl.busy && !ipadCandidateControl.pending && !ipadCandidateControl.blocked
-	ipadCandidateControl.Unlock()
-	proofRoot, proved := observedIPadModeProofs.scope()
-	p.ownerScope = networkOnlyDriverOwnerMatches(stage, scope, ownerReady, proofRoot, proved, root)
-	p.storeProtected = networkOnlyDriverStoreProtected(dir)
-	if !p.ownerScope || !p.storeProtected {
-		return false, networkOnlyDriverUnproven
-	}
-	// Preserve InitNetworkOnly's missing-choice default ON, but only under the
-	// current stage-5 owner plus same-root dual mode and protected receipt proof.
-	b, err := readProtectedNetworkOnlyFile(filepath.Join(dir, "network-only-choice.json"), 65536)
-	p.choiceOn = os.IsNotExist(err)
-	if err == nil {
-		p.choiceOn = networkOnlyDriverChoice(b)
-	}
-	r, err := readNetworkOnlyReceipt(dir)
-	receiptMissing := os.IsNotExist(err)
-	p.receiptValid = err == nil
-	if err != nil && !(allowInitial && receiptMissing) || !p.choiceOn {
-		return false, networkOnlyDriverUnproven
-	}
-	p.receiptOwnsRoot = networkOnlyDriverReceiptOwnsRoot(r.Nodes, root)
-	current := Inspect()
-	if !descriptorAttachment(before).same(descriptorAttachment(current)) {
-		return false, networkOnlyDriverUnproven
-	}
-	p.officialHealthy, p.rootNativeHealthy = networkOnlyDriverRootHealthy(current, root)
-	p.policyStart = networkOnlyServiceStartType(r.StartType)
-	m, err := mgr.Connect()
-	if err != nil {
-		return false, networkOnlyDriverUnproven
-	}
-	defer m.Disconnect()
-	service, err := m.OpenService("Apple Mobile Device Service")
-	if err != nil {
-		return false, networkOnlyDriverUnproven
-	}
-	defer service.Close()
-	state, stateError := service.Query()
-	cfg, configError := service.Config()
-	p.serviceReadable = stateError == nil && configError == nil
-	p.serviceState, p.serviceStart = uint32(state.State), cfg.StartType
-	admitted := p.admitsExpectedStop() && state.State == svc.Stopped
-	if allowInitial && receiptMissing {
-		admitted = p.admitsInitialApply(true)
-	}
-	if !admitted || ctx.Err() != nil {
-		return false, networkOnlyDriverUnproven
-	}
-	// A concurrent transition or owner-scope change invalidates the readback.
-	networkOnly.Lock()
-	unchanged := networkOnly.dir == dir && networkOnly.available && networkOnly.enabled && !networkOnly.busy && !networkOnly.pending && !networkOnly.blocked
-	networkOnly.Unlock()
-	ipadCandidateControl.Lock()
-	unchanged = unchanged && ipadCandidateControl.stage == stage && strings.EqualFold(ipadCandidateControl.scope, root) && !ipadCandidateControl.busy && !ipadCandidateControl.pending && !ipadCandidateControl.blocked
-	ipadCandidateControl.Unlock()
-	latestRoot, latestProof := observedIPadModeProofs.scope()
-	if !unchanged || !latestProof || !strings.EqualFold(latestRoot, root) {
-		return false, networkOnlyDriverUnproven
-	}
-	return true, ""
+	// Admission needs a stage-5 candidate owner plus two observed mode-switch
+	// proofs on this exact iPad. The candidate controller and the AMDS mode
+	// diagnostic that established them no longer exist, so no owner scope can
+	// match and every other check ends in the same unproven answer.
+	return false, networkOnlyDriverUnproven
 }
 
 func networkOnlyDriverStoreProtected(dir string) bool {
-	w, err := windows.GetWindowsDirectory()
-	if err != nil || !strings.EqualFold(filepath.Clean(dir), filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery")) {
+	if !machinepaths.IsActiveRecovery(dir) {
 		return false
 	}
 	p, err := windows.UTF16PtrFromString(dir)

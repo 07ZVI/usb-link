@@ -8,6 +8,7 @@ import (
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/transport/ipadsession"
+	"suhang/usbnet/internal/transport/ncm"
 )
 
 type Result struct {
@@ -20,13 +21,14 @@ type Result struct {
 	NativeDiagnosticSource     string                                `json:"native_diagnostic_source,omitempty"`
 	NativeStartupFailure       netconfig.NativeStepDiagnostic        `json:"native_startup_failure,omitempty"`
 	InterfaceConfig            []interfaceconfig.OperationTiming     `json:"mac_interface_configuration_operations,omitempty"`
+	NCMDescriptors             string                                `json:"mac_ncm_descriptor_summary,omitempty"`
 	EffectiveMTU               int                                   `json:"effective_mtu,omitempty"`
+	MTUCap                     string                                `json:"mac_mtu_cap,omitempty"`
+	MTUCapFrameLimit           int                                   `json:"mac_mtu_cap_frame_limit,omitempty"`
 	PathMTUWarning             string                                `json:"path_mtu_warning,omitempty"`
 	PreparationError           string                                `json:"runtime_preparation_error,omitempty"`
 	BenchmarkURL               string                                `json:"benchmark_url,omitempty"`
 	Benchmark                  throughput.Report                     `json:"throughput_test"`
-	ShareReady                 bool                                  `json:"share_ready"`
-	ShareError                 string                                `json:"share_error,omitempty"`
 	DHCPStarted                bool                                  `json:"mac_usb_dhcp_started"`
 	DHCPDiscoveries            uint64                                `json:"mac_dhcp_discoveries"`
 	DHCPOffers                 uint64                                `json:"mac_dhcp_offers"`
@@ -34,6 +36,9 @@ type Result struct {
 	SunshineTCPObserved        bool                                  `json:"mac_to_sunshine_established_usb_ipv4_tcp_observed"`
 	TCPQueryError              string                                `json:"tcp_query_error,omitempty"`
 	BridgeFailureClass         string                                `json:"bridge_failure_class,omitempty"`
+	BridgeStopReason           string                                `json:"bridge_stop_reason,omitempty"`
+	BridgeStopDetail           string                                `json:"bridge_stop_detail,omitempty"`
+	BridgeExitCode             *int                                  `json:"bridge_exit_code,omitempty"`
 	Stage                      string                                `json:"stage"`
 	BridgeStarted              bool                                  `json:"bridge_started"`
 	Ready                      bool                                  `json:"bridge_initialized_not_peer_proof"`
@@ -72,6 +77,51 @@ func parsePathState(line string) (mtu int, healthy, ok bool) {
 	return n, v == "true", true
 }
 
+// parseMTUCap reads the bridge's fixed "MTU_CAP setting=<v> applied_frame_limit=<n>" line.
+func parseMTUCap(line string) (setting string, frameLimit int, ok bool) {
+	const marker = "MTU_CAP "
+	if len(line) > 4096 {
+		return
+	}
+	i := strings.Index(line, marker)
+	if i < 0 {
+		return
+	}
+	fields := strings.Fields(line[i+len(marker):])
+	if len(fields) != 2 || !strings.HasPrefix(fields[0], "setting=") || !strings.HasPrefix(fields[1], "applied_frame_limit=") {
+		return
+	}
+	cap, err := ncm.ParseMTUCap(strings.TrimPrefix(fields[0], "setting="))
+	if err != nil {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(fields[1], "applied_frame_limit="))
+	if err != nil || n < 1514 || n > 16014 {
+		return
+	}
+	return cap.String(), n, true
+}
+
+var descriptorSummaryPattern = regexp.MustCompile(`^[A-Za-z0-9 _{}()\[\],:=./-]+$`)
+
+// parseDescriptorSummary accepts only the bridge's fixed numeric one-line
+// summary. It is display text for the exported diagnostics, never an input to
+// any connection decision.
+func parseDescriptorSummary(line string) (string, bool) {
+	if len(line) > 4096 {
+		return "", false
+	}
+	i := strings.Index(line, ncm.DescriptorSummaryPrefix)
+	if i < 0 {
+		return "", false
+	}
+	summary := strings.TrimSpace(line[i+len(ncm.DescriptorSummaryPrefix):])
+	if summary == "" || len(summary) > 2048 || !descriptorSummaryPattern.MatchString(summary) {
+		return "", false
+	}
+	return summary, true
+}
+
 var counterPattern = regexp.MustCompile(`\b(ToMacBytes|ToWindowsBytes|Dropped):([0-9]+)\b`)
 
 func parseCounters(line string) (in, out, drops uint64, ok bool) {
@@ -95,8 +145,24 @@ func parseCounters(line string) (in, out, drops uint64, ok bool) {
 	return v["ToWindowsBytes"], v["ToMacBytes"], v["Dropped"], true
 }
 
+// parseBridgeStop reads the worker's final BRIDGE_STOP line (stop.go in bridgeworker).
+func parseBridgeStop(line string) (code, detail string, exit int, ok bool) {
+	const marker = "BRIDGE_STOP code="
+	i := strings.Index(line, marker)
+	if i < 0 || len(line) > 1024 {
+		return
+	}
+	code, rest, _ := strings.Cut(line[i+len(marker):], " exit_code=")
+	exitText, detail, _ := strings.Cut(rest, " detail=")
+	n, err := strconv.Atoi(exitText)
+	if err != nil || code == "" || strings.Contains(code, " ") {
+		return "", "", 0, false
+	}
+	return code, detail, n, true
+}
+
 func bridgeFailureClass(line string) string {
-	for _, p := range []struct{ needle, code string }{{"existing subnet", "SUBNET_CONFLICT"}, {"subnet already used", "SUBNET_CONFLICT"}, {"peer not resolved", "PEER_UNRESOLVED"}, {"Duplicate", "DUPLICATE_ADDRESS"}, {"Wintun", "WINTUN_FAILURE"}, {"WinUSB", "WINUSB_FAILURE"}, {"PowerShell", "NETWORK_CONFIGURATION_FAILURE"}, {"powershell", "NETWORK_CONFIGURATION_FAILURE"}, {"control", "USB_CONTROL_FAILURE"}, {"read", "USB_READ_FAILURE"}, {"write", "USB_WRITE_FAILURE"}} {
+	for _, p := range []struct{ needle, code string }{{"USB_IN_READ_FAILED", "USB_IN_READ_FAILED"}, {"USB_IN_NTB_DECODE_FAILED", "USB_IN_NTB_DECODE_FAILED"}, {"USB_IN_RESUBMIT_FAILED", "USB_IN_RESUBMIT_FAILED"}, {"USB_OUT_COMPLETION_TIMEOUT", "USB_OUT_COMPLETION_TIMEOUT"}, {"existing subnet", "SUBNET_CONFLICT"}, {"subnet already used", "SUBNET_CONFLICT"}, {"peer not resolved", "PEER_UNRESOLVED"}, {"Duplicate", "DUPLICATE_ADDRESS"}, {"Wintun", "WINTUN_FAILURE"}, {"WinUSB", "WINUSB_FAILURE"}, {"PowerShell", "NETWORK_CONFIGURATION_FAILURE"}, {"powershell", "NETWORK_CONFIGURATION_FAILURE"}, {"control", "USB_CONTROL_FAILURE"}, {"read", "USB_READ_FAILURE"}, {"write", "USB_WRITE_FAILURE"}} {
 		if strings.Contains(line, p.needle) {
 			return p.code
 		}

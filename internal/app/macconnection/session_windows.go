@@ -14,7 +14,6 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"io"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,10 +32,10 @@ import (
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/usbgateway"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"suhang/usbnet/internal/sharing/usbhttp"
 	"suhang/usbnet/internal/sharing/usbservice"
 	"suhang/usbnet/internal/transport/bridge"
+	"suhang/usbnet/internal/transport/ncm"
 	"suhang/usbnet/internal/transport/parentlifetime"
 	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/transport/wintun"
@@ -52,17 +51,18 @@ var DeveloperStatus func() any
 
 // Assigned once before sessions start; provides bounded, memory-only evidence.
 var ConnectionEvidence func() any
-var RuntimeNetworkEvidence func() any
-var TrustEvidence func() any
-var TimingEvidence func() any
+
+// CoreHealthEvidence returns small independent rows (core lifecycle, pipe
+// failures) so a large unrelated row can never displace them.
+var CoreHealthEvidence func() []any
 var PhotoEvidence func() any
-var WPDTraceEvidence func() any
 var PhotoPolicyEvidence func() any
 var NCMDirectEvidence func() any
 var AMDSHoldEvidence func() any
-var ConnectionArchiveEvidence func() any
-var NativeUSBEvidence func() any
-var NativePnPEvidence func() any
+
+// MacMTUCapSetting returns the developer MTU cap for the next Mac session:
+// "auto", "9000" or "1500". Nil or an unknown value means auto.
+var MacMTUCapSetting func() string
 
 func safeExisting(path string) bool {
 	v, e := os.Lstat(path)
@@ -483,6 +483,14 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		}
 	}
 	cmd.Args = append(cmd.Args, "--internet-root", root)
+	mtuCap := ncm.MTUCapAuto
+	if MacMTUCapSetting != nil {
+		if c, err := ncm.ParseMTUCap(MacMTUCapSetting()); err == nil {
+			mtuCap = c
+		}
+	}
+	out.MTUCap = mtuCap.String()
+	cmd.Args = append(cmd.Args, "--mac-mtu-cap="+mtuCap.String())
 	cmd.Args = append(cmd.Args, "--wintun-module-hold="+strconv.FormatBool(wintun.ModuleLifetimeHoldEnabled()))
 	cmd.Args = append(cmd.Args, "--owned-dad-zero="+strconv.FormatBool(interfaceconfig.OwnedDADZeroEnabled()))
 	cmd.Args = append(cmd.Args, "--combined-legacy-network="+strconv.FormatBool(netconfig.CombinedLegacyNetworkEnabled()))
@@ -507,12 +515,6 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		if speedTest != nil {
 			throughput.SetDeviceCurrent("Mac", nil)
 			speedTest.Close()
-		}
-	}()
-	var shareServer *fileshare.Server
-	defer func() {
-		if shareServer != nil {
-			shareServer.Close()
 		}
 	}()
 	start := time.Now()
@@ -589,6 +591,12 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					}
 				}
 			}
+			if summary, ok := parseDescriptorSummary(line); ok {
+				update(func(r *Result) { r.NCMDescriptors = summary })
+			}
+			if setting, limit, ok := parseMTUCap(line); ok {
+				update(func(r *Result) { r.MTUCap, r.MTUCapFrameLimit = setting, limit })
+			}
 			if mtu, healthy, ok := parsePathState(line); ok {
 				update(func(r *Result) {
 					r.EffectiveMTU = mtu
@@ -664,6 +672,9 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					})
 				}
 			}
+			if code, detail, exit, ok := parseBridgeStop(line); ok {
+				update(func(r *Result) { r.BridgeStopReason, r.BridgeStopDetail, r.BridgeExitCode = code, detail, &exit })
+			}
 			if strings.Contains(line, "RESULT=STOP error=") {
 				update(func(r *Result) { r.BridgeFailureClass = bridgeFailureClass(line) })
 			}
@@ -717,17 +728,11 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	servicesRetry := serviceRetry{}
 	lastEvidence := ""
 	lastConnectionEvidence := connectionEvidenceLogState{}
-	lastRuntimeNetworkEvidence := connectionEvidenceLogState{}
-	lastTrustEvidence := connectionEvidenceLogState{}
-	lastTimingEvidence := connectionEvidenceLogState{}
+	var lastCoreHealthEvidence [2]connectionEvidenceLogState
 	lastPhotoEvidence := connectionEvidenceLogState{}
-	lastWPDTraceEvidence := connectionEvidenceLogState{}
 	lastPhotoPolicyEvidence := connectionEvidenceLogState{}
 	lastNCMDirectEvidence := connectionEvidenceLogState{}
 	lastAMDSHoldEvidence := connectionEvidenceLogState{}
-	lastConnectionArchiveEvidence := connectionEvidenceLogState{}
-	lastNativeUSBEvidence := connectionEvidenceLogState{}
-	lastNativePnPEvidence := connectionEvidenceLogState{}
 	loops := 0
 	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
@@ -758,17 +763,15 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				update(func(r *Result) { r.SunshineTCPObserved = r.SunshineTCPObserved || ok; r.TCPQueryError = queryError })
 			}
 			if loops%5 == 0 {
+				if CoreHealthEvidence != nil {
+					for i, row := range CoreHealthEvidence() {
+						if i < len(lastCoreHealthEvidence) {
+							_ = appendChangedConnectionEvidence(dir, row, &lastCoreHealthEvidence[i], time.Now())
+						}
+					}
+				}
 				if ConnectionEvidence != nil {
 					_ = appendChangedConnectionEvidence(dir, ConnectionEvidence(), &lastConnectionEvidence, time.Now())
-				}
-				if RuntimeNetworkEvidence != nil {
-					_ = appendChangedConnectionEvidence(dir, RuntimeNetworkEvidence(), &lastRuntimeNetworkEvidence, time.Now())
-				}
-				if TrustEvidence != nil {
-					_ = appendChangedConnectionEvidence(dir, TrustEvidence(), &lastTrustEvidence, time.Now())
-				}
-				if TimingEvidence != nil {
-					_ = appendChangedConnectionEvidence(dir, TimingEvidence(), &lastTimingEvidence, time.Now())
 				}
 				if PhotoEvidence != nil {
 					_ = appendChangedConnectionEvidence(dir, PhotoEvidence(), &lastPhotoEvidence, time.Now())
@@ -777,8 +780,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					evidence func() any
 					state    *connectionEvidenceLogState
 				}{
-					{WPDTraceEvidence, &lastWPDTraceEvidence}, {PhotoPolicyEvidence, &lastPhotoPolicyEvidence}, {NCMDirectEvidence, &lastNCMDirectEvidence}, {AMDSHoldEvidence, &lastAMDSHoldEvidence}, {ConnectionArchiveEvidence, &lastConnectionArchiveEvidence},
-					{NativeUSBEvidence, &lastNativeUSBEvidence}, {NativePnPEvidence, &lastNativePnPEvidence},
+					{PhotoPolicyEvidence, &lastPhotoPolicyEvidence}, {NCMDirectEvidence, &lastNCMDirectEvidence}, {AMDSHoldEvidence, &lastAMDSHoldEvidence},
 				} {
 					if item.evidence != nil {
 						_ = appendChangedConnectionEvidence(dir, item.evidence(), item.state, time.Now())
@@ -787,7 +789,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				mu.Lock()
 				state := out
 				mu.Unlock()
-				evidence := map[string]any{"stage": state.Stage, "parent_executable": boundedServiceText(parentExe), "bridge_executable": boundedServiceText(bridgeExe), "services_ready": state.ServicesReady, "services_error": state.ServicesError, "share_ready": state.ShareReady, "share_error": state.ShareError, "service_retry_failures": servicesRetry.Failures, "gateway": boundedGatewayEvidence(usbgateway.Evidence()), "shared_host": usbhost.Details()}
+				evidence := map[string]any{"stage": state.Stage, "parent_executable": boundedServiceText(parentExe), "bridge_executable": boundedServiceText(bridgeExe), "services_ready": state.ServicesReady, "services_error": state.ServicesError, "service_retry_failures": servicesRetry.Failures, "gateway": boundedGatewayEvidence(usbgateway.Evidence()), "shared_host": usbhost.Details()}
 				proofs, proofError := gate.OwnedInterfaces()
 				if h, ok := usbhost.Proof(); ok {
 					proofs = append(proofs, h)
@@ -937,36 +939,17 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 						return fmt.Errorf("FILE_SPEED_PREPARATION_FAILED: %w", er)
 					}
 					service.Benchmark = test
-					catalog, shareErr := connectioninstall.ShareCatalog()
-					var share *fileshare.Server
-					if shareErr == nil {
-						share, shareErr = fileshare.NewMulti(catalog, "10.6.9.2", &fileshare.USB, serviceGuard)
-					}
-					if shareErr != nil {
-						update(func(r *Result) { r.ShareError = "SHARE_DIRECTORY_UNAVAILABLE: " + boundedServiceText(shareErr.Error()) })
-					}
-					var smbHandler func(context.Context, net.Conn)
-					if share != nil {
-						smbHandler = share.ServeSMB
-					}
-					stop, er := usbhttp.RegisterWithBinary(ctx, "10.6.9.1:10690", "10.6.9.2", localMaintenanceHandler(service, serviceGuard), smbHandler)
+					stop, er := usbhttp.Register(ctx, "10.6.9.1:10690", "10.6.9.2", localMaintenanceHandler(service, serviceGuard))
 					if er != nil {
 						test.Close()
-						if share != nil {
-							share.Close()
-						}
 						return fmt.Errorf("FILE_LISTENER_UNAVAILABLE: %w", er)
 					}
-					stopServices, speedTest, shareServer = stop, test, share
+					stopServices, speedTest = stop, test
 					throughput.SetDeviceCurrent("Mac", test)
 					update(func(r *Result) {
 						r.ServicesReady = true
 						r.BenchmarkURL = "http://10.6.9.1:10690/speed/"
-						r.ShareReady = share != nil
 						r.ServicesError = ""
-						if share != nil {
-							r.ShareError = ""
-						}
 					})
 					l.Print("MAC_USB_SERVICES_READY port=10690")
 					firewallShadowOnce.tryStart(ctx, netconfig.FirewallShadowEnabled(), !netconfig.ResidentFirewallEnabled() && !netconfig.NativeNetworkEnabled(), nativeBindingValid, func() {
@@ -994,6 +977,15 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	if e != nil && out.Error == "" {
 		out.Error = "MAC_BRIDGE_ENDED_WITH_ERROR"
 	}
+	// A crash, kill or panic before BRIDGE_STOP is written still leaves the OS status.
+	var exitErr *exec.ExitError
+	if errors.As(e, &exitErr) && out.BridgeExitCode == nil {
+		code := exitErr.ExitCode()
+		out.BridgeExitCode = &code
+		if out.BridgeStopReason == "" {
+			out.BridgeStopReason = "BRIDGE_EXITED_WITHOUT_STOP_LINE"
+		}
+	}
 	cleanup := runMacCleanup(func() error {
 		defer shutdowntrace.Begin(shutdowntrace.PhaseMacSessionRecovery)()
 		return Recover(parent)
@@ -1016,7 +1008,6 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	out.CleanupConfirmed = cleanup.confirmed()
 	out.Stage = "MAC_SESSION_ENDED"
 	out.ServicesReady = false
-	out.ShareReady = false
 	return
 }
 
@@ -1043,6 +1034,16 @@ func RecordUpgradeEvidence(parent, version, stage, problem string) error {
 // when ordinary log prefixes are dropped by the bounded USB transport.
 func RecordProgramExitEvidence(parent, version, stage string) error {
 	return recordProgramExitForRuntime(parent, runtimeName, version, stage, exitrecord.Write, appendUpgradeEvidence)
+}
+
+// RecordCoreEvidence writes one bounded diagnostic row to the runtime logs
+// that exist now; later rows come from CoreHealthEvidence while a session runs.
+func RecordCoreEvidence(parent string, row any) error {
+	b, e := json.Marshal(row)
+	if e != nil || len(b) > 8192 {
+		return fmt.Errorf("upgrade evidence exceeds bound")
+	}
+	return recordRuntimeEvidence(parent, b)
 }
 
 func recordRuntimeEvidence(parent string, b []byte) error {

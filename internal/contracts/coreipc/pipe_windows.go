@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sys/windows"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +83,7 @@ func Start(parent context.Context, ownerSID, executable string, verify func(stri
 	go func() {
 		defer close(s.done)
 		defer windows.CloseHandle(h)
+		consecutive := 0
 		for ctx.Err() == nil {
 			e := overlapped(ctx, h, nil, func(o *windows.Overlapped, n *uint32) error { return windows.ConnectNamedPipe(h, o) })
 			if e == windows.ERROR_PIPE_CONNECTED {
@@ -91,11 +93,29 @@ func Start(parent context.Context, ownerSID, executable string, verify func(stri
 				if ctx.Err() != nil {
 					return
 				}
-				s.mu.Lock()
-				s.err = fmt.Errorf("CORE_IPC_LISTENER_FAILED: %w", e)
-				s.mu.Unlock()
-				return
+				// A client that connects and leaves before the listener runs
+				// (ERROR_NO_DATA) must not retire the whole core: with no SCM
+				// recovery action configured, a stopped core never comes back.
+				consecutive++
+				recordServerFailure(ServerFailure{Stage: "listen", Code: "CORE_IPC_LISTENER_RETRY", Win32: errno(e)})
+				if consecutive > 20 {
+					s.mu.Lock()
+					s.err = fmt.Errorf("CORE_IPC_LISTENER_FAILED: %w", e)
+					s.mu.Unlock()
+					return
+				}
+				recordListenerRetry()
+				windows.DisconnectNamedPipe(h)
+				pause := time.NewTimer(min(time.Duration(consecutive)*50*time.Millisecond, 500*time.Millisecond))
+				select {
+				case <-ctx.Done():
+					pause.Stop()
+					return
+				case <-pause.C:
+				}
+				continue
 			}
+			consecutive = 0
 			requestCtx, stop := context.WithTimeout(ctx, 15*time.Second)
 			serveOne(requestCtx, h, ownerSID, executable, verify, handler)
 			stop()
@@ -249,31 +269,120 @@ func verifiedPeer(h windows.Handle, ownerSID, exe string, verify func(string) er
 	return p, nil
 }
 func serveOne(ctx context.Context, h windows.Handle, ownerSID, exe string, verify func(string) error, handler func(context.Context, Peer, Request) (Response, error)) {
+	started := time.Now()
+	var method string
+	var pid uint32
+	fail := func(stage string, e error, code string) {
+		if code == "" {
+			code = codeOf(e)
+		}
+		if code == "" {
+			code = "CORE_IPC_SERVER_" + strings.ToUpper(stage) + "_FAILED"
+		}
+		recordServerFailure(ServerFailure{Stage: stage, Code: code, Win32: errno(e), Method: method, PeerPID: pid, ElapsedMS: time.Since(started).Milliseconds(), Detail: errDetail(e)})
+	}
 	b, e := readFrame(ctx, h)
 	if e != nil {
+		// Typically the client gave up (its own deadline) before sending.
+		fail("read_request", e, "")
 		return
 	}
 	r, e := ParseRequest(b)
 	if e != nil {
+		fail("parse_request", e, "")
 		return
 	}
+	method = r.Method
 	p, e := verifiedPeer(h, ownerSID, exe, verify)
-	if e != nil || AuthorizePeer(ownerSID, p, r.Method) != nil {
+	pid = p.PID
+	if e == nil {
+		e = AuthorizePeer(ownerSID, p, r.Method)
+	}
+	if e != nil {
+		fail("peer_verify", e, "")
 		return
 	}
-	reply, e := handler(ctx, p, r)
-	if e != nil {
-		reply = Response{Problem: "CORE_REQUEST_REJECTED"}
+	type outcome struct {
+		reply    Response
+		err      error
+		panicked string
+	}
+	done := make(chan outcome, 1)
+	handlerStarted := time.Now()
+	go func() {
+		defer func() {
+			if v := recover(); v != nil {
+				done <- outcome{panicked: fmt.Sprintf("%v\n%s", v, debug.Stack())}
+			}
+		}()
+		reply, err := handler(ctx, p, r)
+		done <- outcome{reply: reply, err: err}
+	}()
+	var reply Response
+	// The reply may be written after the request deadline when the handler is
+	// abandoned, so it gets its own short budget.
+	writeCtx := ctx
+	select {
+	case o := <-done:
+		recordServed(time.Since(handlerStarted))
+		reply = o.reply
+		switch {
+		case o.panicked != "":
+			fail("handler_panic", fmt.Errorf("%s", o.panicked), "CORE_HANDLER_PANIC")
+			reply = Response{Problem: "CORE_HANDLER_PANIC"}
+		case o.err != nil:
+			code := codeOf(o.err)
+			fail("handler_error", o.err, code)
+			if code == "" {
+				code = "CORE_REQUEST_REJECTED"
+			}
+			reply = Response{Problem: code}
+		}
+	case <-ctx.Done():
+		// A handler that never returns would otherwise stop every later
+		// request and block service shutdown behind this single instance.
+		fail("handler_timeout", ctx.Err(), "CORE_HANDLER_TIMEOUT")
+		reply = Response{Problem: "CORE_HANDLER_TIMEOUT"}
+		var stop context.CancelFunc
+		writeCtx, stop = context.WithTimeout(context.Background(), 2*time.Second)
+		defer stop()
 	}
 	reply.Version = 1
 	reply.ID = r.ID
 	b, e = json.Marshal(reply)
-	if e != nil || writeFrame(ctx, h, b) != nil {
+	if e != nil {
+		fail("encode_reply", e, "")
+		return
+	}
+	if e = writeFrame(writeCtx, h, b); e != nil {
+		fail("write_reply", e, "")
 		return
 	}
 	var ack [1]byte
-	ackErr := transfer(ctx, h, ack[:], false)
-	completeReply(reply, nil, ackErr, ack[0])
+	ackErr := transfer(writeCtx, h, ack[:], false)
+	if ackErr != nil {
+		fail("read_ack", ackErr, "")
+	}
+	func() {
+		defer func() {
+			if v := recover(); v != nil {
+				fail("handler_panic", fmt.Errorf("after-ack: %v\n%s", v, debug.Stack()), "CORE_HANDLER_PANIC")
+			}
+		}()
+		completeReply(reply, nil, ackErr, ack[0])
+	}()
+}
+
+// errDetail keeps only a bounded cause; native text can embed paths.
+func errDetail(e error) string {
+	if e == nil {
+		return ""
+	}
+	text := e.Error()
+	if len(text) > 600 {
+		text = boundedText(text, 600)
+	}
+	return text
 }
 
 // Call authenticates the exact SCM service PID before sending any request.
@@ -299,34 +408,40 @@ func Call(ctx context.Context, r Request, verifyServer func(uint32) error) (Resp
 			break
 		}
 		if e != windows.ERROR_PIPE_BUSY {
-			return out, e
+			return out, wrapCall("connect", e)
 		}
 		timer := time.NewTimer(50 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return out, ctx.Err()
+			return out, wrapCall("busy", ctx.Err())
 		case <-timer.C:
 		}
 	}
 	defer windows.CloseHandle(h)
 	var pid uint32
-	if windows.GetNamedPipeServerProcessId(h, &pid) != nil || pid == 0 || verifyServer(pid) != nil {
-		return out, fmt.Errorf("CORE_IPC_SERVER_REJECTED")
+	if e = windows.GetNamedPipeServerProcessId(h, &pid); e != nil || pid == 0 {
+		if e == nil {
+			e = fmt.Errorf("CORE_IPC_SERVER_PID_UNAVAILABLE")
+		}
+		return out, wrapCall("verify", e)
+	}
+	if e = verifyServer(pid); e != nil {
+		return out, wrapCall("verify", e)
 	}
 	if e = writeFrame(ctx, h, b); e != nil {
-		return out, e
+		return out, wrapCall("write", e)
 	}
 	b, e = readFrame(ctx, h)
 	if e != nil {
-		return out, e
+		return out, wrapCall("read", e)
 	}
 	out, e = ParseResponse(b, r.ID)
 	if e != nil {
 		return Response{}, e
 	}
 	if err := transfer(ctx, h, []byte{1}, true); err != nil {
-		return Response{}, err
+		return Response{}, wrapCall("ack", err)
 	}
 	return out, nil
 }

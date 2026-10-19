@@ -30,14 +30,15 @@ type ApplicationResult struct {
 	BenchmarkURL                                   string                                `json:"benchmark_url,omitempty"`
 	Benchmark                                      throughput.Report                     `json:"throughput_test"`
 	DesktopError                                   string                                `json:"desktop_error,omitempty"`
-	ShareReady                                     bool                                  `json:"share_ready"`
-	ShareError                                     string                                `json:"share_error,omitempty"`
 	MacDHCPStarted                                 bool                                  `json:"mac_dhcp_started"`
 	MacDHCPDiscoveries, MacDHCPOffers, MacDHCPACKs uint64
 	MacSunshineTCPObserved                         bool                    `json:"mac_sunshine_usb_tcp_observed"`
 	DeviceKind                                     string                  `json:"device_kind,omitempty"`
 	MacPeerResolved                                bool                    `json:"mac_arp_peer_resolved"`
 	MacEffectiveMTU                                int                     `json:"mac_effective_mtu,omitempty"`
+	MacMTUCap                                      string                  `json:"mac_mtu_cap,omitempty"`
+	MacMTUCapFrameLimit                            int                     `json:"mac_mtu_cap_frame_limit,omitempty"`
+	MacNCMDescriptors                              string                  `json:"mac_ncm_descriptor_summary,omitempty"`
 	MacPathMTUWarning                              string                  `json:"mac_path_mtu_warning,omitempty"`
 	ServicesReady                                  bool                    `json:"services_ready"`
 	ServicesError                                  string                  `json:"services_error,omitempty"`

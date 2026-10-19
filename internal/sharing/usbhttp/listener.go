@@ -16,7 +16,6 @@ type owner struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	active  sync.WaitGroup
-	binary  func(context.Context, net.Conn)
 }
 type listener struct {
 	server *http.Server
@@ -29,13 +28,9 @@ var registry = struct {
 	listeners map[string]*listener
 }{listeners: map[string]*listener{}}
 
+// Register serves handler on address for one authorized peer. The owner has its
+// own cancellation boundary, so detaching one device never closes another.
 func Register(ctx context.Context, address, peer string, handler http.Handler) (func(), error) {
-	return RegisterWithBinary(ctx, address, peer, handler, nil)
-}
-
-// RegisterWithBinary keeps SMB and HTTP on the existing USB-only port. The
-// binary handler has the same per-device owner and cancellation boundary.
-func RegisterWithBinary(ctx context.Context, address, peer string, handler http.Handler, binary func(context.Context, net.Conn)) (func(), error) {
 	if net.ParseIP(peer).To4() == nil || handler == nil || ctx.Err() != nil {
 		return nil, fmt.Errorf("invalid USB HTTP owner")
 	}
@@ -80,31 +75,14 @@ func RegisterWithBinary(ctx context.Context, address, peer string, handler http.
 			o.handler.ServeHTTP(w, r.WithContext(requestCtx))
 		})
 		registry.listeners[address] = l
-		mux := newProtocolListener(ln, func(conn net.Conn) {
-			host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
-			registry.Lock()
-			o := l.peers[host]
-			if err != nil || o == nil || o.binary == nil || o.ctx.Err() != nil {
-				registry.Unlock()
-				conn.Close()
-				return
-			}
-			o.active.Add(1)
-			registry.Unlock()
-			defer o.active.Done()
-			stop := context.AfterFunc(o.ctx, func() { conn.Close() })
-			defer stop()
-			defer conn.Close()
-			o.binary(o.ctx, conn)
-		})
-		go func() { defer close(l.done); l.server.Serve(mux) }()
+		go func() { defer close(l.done); l.server.Serve(ln) }()
 	}
 	if l.peers[peer] != nil {
 		registry.Unlock()
 		return nil, fmt.Errorf("USB peer already registered")
 	}
 	ownerCtx, cancel := context.WithCancel(ctx)
-	o := &owner{handler: handler, ctx: ownerCtx, cancel: cancel, binary: binary}
+	o := &owner{handler: handler, ctx: ownerCtx, cancel: cancel}
 	l.peers[peer] = o
 	registry.Unlock()
 	var once sync.Once

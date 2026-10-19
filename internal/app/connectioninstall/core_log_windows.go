@@ -14,9 +14,10 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"suhang/usbnet/internal/diagnostics/coreterm"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 )
 
-const coreLogDirectory = "USBLink-Core-7c494949-9688-4bd4-90c6-257e315f9550"
 const coreLogMarker = "core-log-product.txt"
 const coreLogCurrent = "core.log"
 const coreLogPrevious = "core.previous.log"
@@ -93,7 +94,14 @@ func OpenCoreLog() (io.WriteCloser, string, error) {
 			break
 		}
 	}
-	path := filepath.Join(base, coreLogDirectory)
+	logs, e := machinepaths.LogsFolder()
+	if e != nil {
+		return nil, "", e
+	}
+	path := logs.Active()
+	if noReparse(filepath.Dir(path)) != nil {
+		return nil, "", fmt.Errorf("CORE_LOG_PROGRAM_DATA_UNPROVEN")
+	}
 	sd, e := windows.SecurityDescriptorFromString("O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
 	if e != nil {
 		return nil, "", e
@@ -275,4 +283,24 @@ func (w *coreLogWriter) Close() error {
 	}
 	w.err = errors.Join(w.err, w.dir.Close())
 	return w.err
+}
+
+// CoreLogEvidence is read before OpenCoreLog holds the log, so the tail shows
+// how the previous core ended. Bounded printable ASCII; evidence only.
+func CoreLogEvidence() map[string]any {
+	row := map[string]any{}
+	logs, e := machinepaths.LogsFolder()
+	dir := logs.Active()
+	if e != nil || noReparse(dir) != nil {
+		row["error"] = "CORE_LOG_DIRECTORY_UNAVAILABLE"
+		return row
+	}
+	for key, leaf := range map[string]string{"current": coreLogCurrent, "previous": coreLogPrevious} {
+		if size, text, ok := coreterm.Tail(filepath.Join(dir, leaf), 2048); ok {
+			row[key+"_size"], row[key+"_tail"] = size, text
+		} else {
+			row[key+"_size"] = -1
+		}
+	}
+	return row
 }

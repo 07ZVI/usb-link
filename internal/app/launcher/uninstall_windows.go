@@ -16,6 +16,7 @@ import (
 	"suhang/usbnet/internal/app/macconnection"
 	"suhang/usbnet/internal/app/usbhost"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 	"suhang/usbnet/internal/platform/windows/netconfig"
 	"suhang/usbnet/internal/security/internet"
 	"time"
@@ -24,8 +25,7 @@ import (
 // The handle originates only from OpenGroupingRecoveryStore's share-zero file.
 // Recheck its fixed machine location/type/identity; no RPC carries this handle.
 func verifyUninstallRecoveryLease(dir string, lock windows.Handle) error {
-	w, err := windows.GetWindowsDirectory()
-	if err != nil || !strings.EqualFold(filepath.Clean(dir), filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery")) || lock == 0 {
+	if !machinepaths.IsActiveRecovery(dir) || lock == 0 {
 		return errors.New("UNINSTALL_RECOVERY_LEASE_UNPROVEN")
 	}
 	var info windows.ByHandleFileInformation

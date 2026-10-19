@@ -8,7 +8,6 @@ import (
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/usbhost"
-	"suhang/usbnet/internal/sharing/fileshare"
 	"time"
 )
 
@@ -28,7 +27,7 @@ func ConnectionRuntimeDetails() any {
 			r := state.snapshot()
 			title, _, _ := applicationView(r, false)
 			details := map[string]any{"status": r.Status, "error": r.Error, "usb_speed": r.USBSpeed, "usb_speed_error": r.USBSpeedError, "windows_ipv4": r.WindowsIPv4, "throughput": r.Benchmark, "dhcp_started": r.DHCPStarted || r.MacDHCPStarted, "shared_host": usbhost.Details(),
-				"peer_ipv4": r.ProposedIPadIPv4, "peer_neighbor_verified": r.PeerIPv4NeighborVerified, "dhcp_acks": r.DHCPACKs, "services_ready": r.ServicesReady, "share_ready": r.ShareReady, "native_smb": connectioninstall.NativeSMBDiagnostics(), "smb": fileshare.SMBDiagnostics(map[string]string{"Mac": "10.6.9.2", "iPad": "10.6.9.3"}[kind]), "dhcp_error": r.DHCPError, "http_verified": r.HTTPVerified, "sunshine_usb_local_http": r.SunshineUSBLocalHTTP,
+				"peer_ipv4": r.ProposedIPadIPv4, "peer_neighbor_verified": r.PeerIPv4NeighborVerified, "dhcp_acks": r.DHCPACKs, "services_ready": r.ServicesReady, "native_smb": connectioninstall.NativeSMBDiagnostics(), "dhcp_error": r.DHCPError, "http_verified": r.HTTPVerified, "sunshine_usb_local_http": r.SunshineUSBLocalHTTP,
 				"connection_title": title, "connection_subtitle": connectionSubtitle(r), "sunshine_client_tcp_observed": r.SunshineClientTCPObserved, "sunshine_tcp_family": r.TCPAddressFamily}
 			if kind == "Mac" {
 				details["bridge_network_script_timings"] = r.MacBridgeNetworkScriptTimings
@@ -38,6 +37,8 @@ func ConnectionRuntimeDetails() any {
 				details["bridge_process_pid"] = r.MacBridgeProcessPID
 				details["bridge_process_creation_filetime"] = strconv.FormatUint(r.MacBridgeProcessCreation, 10)
 				details["effective_mtu"] = r.MacEffectiveMTU
+				details["mac_mtu_cap"] = r.MacMTUCap
+				details["mac_mtu_cap_frame_limit"] = r.MacMTUCapFrameLimit
 				details["path_mtu_warning"] = r.MacPathMTUWarning
 				details["peer_ipv4"] = "10.6.9.2"
 				details["peer_neighbor_verified"] = r.MacPeerResolved

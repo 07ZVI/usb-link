@@ -20,19 +20,14 @@ func init() {
 func reserveIPadUpgrade() (func(), error) {
 	ipadActionAdmission.Lock()
 	defer ipadActionAdmission.Unlock()
-	if UnpairedExperimentBusy() {
-		return nil, fmt.Errorf("unpaired experiment or recovery owns iPad; finish before upgrade")
-	}
-	amdsDiagnosticJob.Lock()
-	defer amdsDiagnosticJob.Unlock()
-	ipadCandidateControl.Lock()
-	defer ipadCandidateControl.Unlock()
 	networkOnly.Lock()
 	defer networkOnly.Unlock()
 	if IPadSoftwareReconnectExecuting() {
 		return nil, fmt.Errorf("iPad software reconnect is executing; wait for verified restoration")
 	}
-	c, n, ok := remoteupdate.ReserveIdleActions(ipadCandidateControl.pending, ipadCandidateControl.busy, networkOnly.pending, networkOnly.busy, amdsDiagnosticJob.Running, ipadUpgradeReserved.Load())
+	// The candidate stage and AMDS diagnostic owners no longer exist, so they
+	// are never pending, busy or running.
+	_, n, ok := remoteupdate.ReserveIdleActions(false, false, networkOnly.pending, networkOnly.busy, false, ipadUpgradeReserved.Load())
 	if !ok {
 		return nil, fmt.Errorf("active iPad action or upgrade reservation; finish before upgrade")
 	}
@@ -41,10 +36,6 @@ func reserveIPadUpgrade() (func(), error) {
 	}
 	// Only requests not yet consumed are cancelled. Applied stage, choices,
 	// blocked recovery state and all durable recovery receipts are untouched.
-	if c {
-		ipadCandidateControl.pending = false
-		ipadCandidateControl.problem = "Queued candidate request cancelled for signed maintenance upgrade"
-	}
 	if n {
 		networkOnly.pending = false
 		networkOnly.status = "QUEUED_REQUEST_CANCELLED_FOR_UPGRADE"

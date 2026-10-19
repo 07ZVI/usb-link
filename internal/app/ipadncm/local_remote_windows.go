@@ -19,11 +19,8 @@ func SetLocalRemoteControl(f func(bool) (string, error), save func(bool) error, 
 }
 
 func setLocalExperimentMaster(on bool) {
-	SetConnectionArchiveMaster(on)
-	SetLocalWPDTraceMaster(on)
-	SetLocalUSBTraceMaster(on)
-	SetLocalPnPTraceMaster(on)
 	SetLocalNCMDirectMaster(on)
+	SetLocalMacMTUCapMaster(on)
 }
 
 func localDeveloperDebugStatus() any {
@@ -33,14 +30,14 @@ func localDeveloperDebugStatus() any {
 	return localDeveloperDebug.snapshot()
 }
 
+var macMTUCapActions = map[string]string{"mac-mtu-cap-auto": "auto", "mac-mtu-cap-9000": "9000", "mac-mtu-cap-1500": "1500"}
+
 func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 	action := request.Action
 	var set func(bool, string) error
 	switch action {
 	case "photo-isolation-on", "photo-isolation-off":
 		set = SetPhotoIsolation
-	case "wpd-trace-on", "wpd-trace-off":
-		set = SetLocalWPDTrace
 	case "photo-policy-on", "photo-policy-off":
 		set = SetLocalPhotoPolicy
 	case "ncm-direct-on", "ncm-direct-off":
@@ -48,13 +45,26 @@ func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 	case "amds-hold-on", "amds-hold-off":
 		set = SetLocalAMDSHold
 	}
+	if setting, ok := macMTUCapActions[action]; ok {
+		if !validStartupDisplayRequestID(request.ID) {
+			u.setNotice("本地實驗設定請求無效。")
+			return true
+		}
+		go func() {
+			if err := SetLocalMacMTUCap(setting, request.ID); err != nil {
+				u.setNotice("本地實驗設定未完成：" + err.Error())
+			}
+			u.requestRefresh()
+		}()
+		return true
+	}
 	if set != nil {
 		if !validStartupDisplayRequestID(request.ID) {
 			u.setNotice("本地實驗設定請求無效。")
 			return true
 		}
 		go func() {
-			on := action == "photo-isolation-on" || action == "wpd-trace-on" || action == "photo-policy-on" || action == "ncm-direct-on" || action == "amds-hold-on"
+			on := action == "photo-isolation-on" || action == "photo-policy-on" || action == "ncm-direct-on" || action == "amds-hold-on"
 			if err := set(on, request.ID); err != nil {
 				u.setNotice("本地實驗設定未完成：" + err.Error())
 			}
@@ -74,9 +84,6 @@ func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 		return true
 	}
 	localDeveloperDebug.request(action == "local-usb-update-on", request.ID)
-	if action == "local-usb-update-off" {
-		ResetConnectionTimingTrial()
-	}
 	u.requestRefresh()
 	return true
 }

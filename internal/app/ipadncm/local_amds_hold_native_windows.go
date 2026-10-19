@@ -17,7 +17,6 @@ type localAMDSHoldNative struct {
 	identity *localAMDSHoldIdentity
 }
 
-func LocalAMDSHoldBusy() bool { return localAMDSHoldReserved.Load() }
 func (b *localAMDSHoldNative) recover() error {
 	if b.lease != 0 {
 		return b.stop()
@@ -29,10 +28,7 @@ func (b *localAMDSHoldNative) start(allowed func() bool) error {
 		return amdsHoldError("AMDS_HOLD_REQUEST_CANCELLED", 0)
 	}
 	ipadActionAdmission.Lock()
-	amdsDiagnosticJob.Lock()
-	busy := amdsDiagnosticJob.Running || amdsDiagnosticJob.Pending
-	amdsDiagnosticJob.Unlock()
-	if busy || NetworkOnlyAvailable() || NetworkOnlySnapshot().Busy || IPadCandidateBusy() || IPadCandidateSnapshot().Stage != 0 || UnpairedExperimentBusy() {
+	if NetworkOnlyAvailable() || NetworkOnlySnapshot().Busy {
 		ipadActionAdmission.Unlock()
 		return amdsHoldError("AMDS_HOLD_OTHER_TRIAL_ACTIVE", 0)
 	}

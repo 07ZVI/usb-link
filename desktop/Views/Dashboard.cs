@@ -43,13 +43,12 @@ public sealed partial class Dashboard : Window
     readonly bool preview = Program.Preview;
     bool backendEnded;
     readonly TextBlock automaticIsolationStatus = Label("", Scale.Secondary, key: "Muted"), programExitStatus = Label("", Scale.Secondary, key: "Warn");
-    Button programExitButton = null!;
     string programExitID = "", programExitPhase = "idle";
     bool programExitAwaiting, programExitCommitSent;
     DispatcherTimer? programExitConfirmationTimer;
     long programExitConfirmationGeneration;
 
-    bool KeepInTray => !preview && !Program.StandaloneTasks && OperatingSystem.IsWindows();
+    bool KeepInTray => !preview && !Program.NoBackendReader && OperatingSystem.IsWindows();
 
     // ---------- building blocks ----------
 
@@ -75,6 +74,8 @@ public sealed partial class Dashboard : Window
     public Dashboard()
     {
         Title = "USB Link"; Width = 1040; Height = 780; MinWidth = 520; MinHeight = 420;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        WindowFit.Attach(this, 520, 420, customChrome: UsesCustomTitleBar, placeOnOpen: false);
         ConfigureWindowChrome();
         FontFamily = new FontFamily(Palette.FontStack);
         // Windows 11 draws Mica behind the client area; older systems get the solid token.
@@ -107,8 +108,8 @@ public sealed partial class Dashboard : Window
         backendFailureBanner.IsVisible = false;
         bodyScroll.Content = bodyHost = Column(Scale.Gutter, backendFailureBanner, body);
         // A wide window shows both columns at full height instead of leaving a gap above the footer.
-        bodyScroll.PropertyChanged += (_, e) => { if (e.Property == ScrollViewer.ViewportProperty) FitBodyToViewport(); };
-        backendFailureBanner.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) Dispatcher.UIThread.Post(FitBodyToViewport, DispatcherPriority.Loaded); };
+        bodyScroll.PropertyChanged += (_, e) => { if (e.Property == ScrollViewer.ViewportProperty) ScheduleFit(); };
+        backendFailureBanner.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) ScheduleFit(); };
         AddAt(root, bodyScroll, 2);
         footerControl = Footer();
         AddAt(root, footerControl, 4);
@@ -143,37 +144,136 @@ public sealed partial class Dashboard : Window
                 action = networkOnlyRequested ? "network-only-on" : "network-only-off", id = networkOnlyPendingID
             }));
         };
-        Opened += (_, _) => { UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBManager, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(OpenTaskManager, DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
-        if (Program.StandaloneTasks) Opened += (_, _) => Dispatcher.UIThread.Post(() => {
-            OpenTaskManager(); taskWindow!.Closed += (_, _) => Close(); Hide();
-        }, DispatcherPriority.Normal);
-        Closed += (_, _) => { CancelProgramExitConfirmation(); taskWindow?.Close(); };
+        Opened += (_, _) => { PreviewWindowArgs(); UpdateResponsiveLayout(); if (!preview) { DesktopClient.SendRaw("{\"action\":\"ready\"}");  } if (Program.SecurityPreview) SeedSecurityPreview(); if (Program.SecuritySmoke) Dispatcher.UIThread.Post(RunSecuritySmoke, DispatcherPriority.Background); if (Program.SMBWireSmoke) Dispatcher.UIThread.Post(OpenSMBManager, DispatcherPriority.Background); if (Program.ConnectionSmoke) Dispatcher.UIThread.Post(RunConnectionSmoke, DispatcherPriority.Background); if (Program.SecurityWireSmoke) Dispatcher.UIThread.Post(StartSecurityWireSmoke, DispatcherPriority.Background); if (Program.ProcessPreview) Dispatcher.UIThread.Post(() => OpenSecurity(TasksTab), DispatcherPriority.Background); if (Program.ProcessSmoke) Dispatcher.UIThread.Post(RunProcessSmoke, DispatcherPriority.Background); };
+        Closed += (_, _) => CancelProgramExitConfirmation();
 
         ApplyConnectionSummary(0);
         if (preview) SeedPreview();
-        else if (!Program.StandaloneTasks) _ = Task.Run(ReadBackend);
+        else if (!Program.NoBackendReader) _ = Task.Run(ReadBackend);
     }
 
     static void AddAt(Grid grid, Control child, int row) { Grid.SetRow(child, row); grid.Children.Add(child); }
 
     StackPanel bodyHost = null!;
-    void FitBodyToViewport()
+    Border hostCard = null!, shareBorder = null!, settingsBorder = null!, shareField = null!;
+    Grid connectionColumn = null!, settingsList = null!;
+    StackPanel shareStack = null!;
+    TextBlock shareHelp = null!;
+    string shareHelpTip = "";
+    // Density levels: 0 roomy, 1 compact, 2 dense. Each column picks the roomiest level whose natural height fits
+    // the window, so the dashboard needs no scrolling; the ScrollViewer is only the fallback below the densest level.
+    int leftDensity = -1, rightDensity = -1, chromeDensity = -1;
+    bool fitting, fitScheduled;
+
+    // Density changes re-measure the body, which must not happen inside the layout pass that reports the viewport.
+    void ScheduleFit()
     {
+        if (fitScheduled) return;
+        fitScheduled = true;
+        Dispatcher.UIThread.Post(() => { fitScheduled = false; FitBodyToViewport(); }, DispatcherPriority.Loaded);
+    }
+
+    double RightColumnHeight => shareCard.DesiredSize.Height + Scale.Pad(rightDensity, 16) + settingsCard.DesiredSize.Height;
+
+    /// Settles the layout for the current viewport: synchronous, so smoke tests can call it after resizing.
+    internal void FitBodyToViewport()
+    {
+        if (fitting) return;
+        fitting = true;
+        try
+        {
+            ApplyChrome();
+            var banner = backendFailureBanner.IsVisible ? backendFailureBanner.Bounds.Height + Scale.Gutter : 0;
+            var available = Math.Max(0, bodyScroll.Viewport.Height - banner);
+            body.MinHeight = 0;
+            if (compactLayout == false && available > 0 && bodyScroll.Viewport.Width > 0)
+            {
+                for (var level = 0; level <= 2; level++)
+                {
+                    ApplyLeft(level); UpdateLayout();
+                    if (connectionCard.DesiredSize.Height <= available + .5) break;
+                }
+                // Equal rows fill the card; automatic rows are the tighter fallback within a level.
+                foreach (var (level, equal) in new[] { (0, true), (1, true), (1, false), (2, true), (2, false) })
+                {
+                    ApplyRight(level, equal); UpdateLayout();
+                    if (RightColumnHeight <= available + .5) break;
+                }
+            }
+            else { ApplyLeft(0); ApplyRight(0, true); }
+            // A wide window shows both columns at full height instead of leaving a gap above the footer.
+            body.MinHeight = compactLayout == true ? 0 : available;
+        }
+        finally { fitting = false; }
+    }
+
+    /// New content (a benchmark result, a notice) can make the columns taller; tighten again only then.
+    void RefitIfOverflow()
+    {
+        if (compactLayout != false || (leftDensity >= 2 && rightDensity >= 2)) return;
         var banner = backendFailureBanner.IsVisible ? backendFailureBanner.Bounds.Height + Scale.Gutter : 0;
-        body.MinHeight = compactLayout == true ? 0 : Math.Max(0, bodyScroll.Viewport.Height - banner);
+        if (body.DesiredSize.Height > bodyScroll.Viewport.Height - banner + .5) FitBodyToViewport();
+    }
+
+    /// Outer margins and row gaps follow the window height alone, so they cannot feed back into the measuring.
+    void ApplyChrome()
+    {
+        var level = compactLayout != false ? 0 : ClientSize.Height < 600 ? 2 : ClientSize.Height < 720 ? 1 : 0;
+        if (level == chromeDensity) return;
+        chromeDensity = level;
+        var custom = UsesCustomTitleBar;
+        root.Margin = new Thickness(24, (custom ? 8 : 18) - (level == 2 && !custom ? 8 : 0), 24, level == 2 ? 10 : 16);
+        root.RowDefinitions = new RowDefinitions(level switch { 0 => "Auto,16,*,12,Auto", 1 => "Auto,12,*,10,Auto", _ => "Auto,8,*,8,Auto" });
+    }
+
+    void ApplyLeft(int level)
+    {
+        if (leftDensity == level) return;
+        leftDensity = level;
+        var gap = Scale.Pad(level, 16);
+        connectionColumn.RowDefinitions = new RowDefinitions($"Auto,{gap},*,{gap},*");
+        hostCard.Padding = new Thickness(Scale.Inset + 4, Scale.Pad(level, 14), Scale.Inset, Scale.Pad(level, 14));
+        macStatus.SetDensity(level); ipadStatus.SetDensity(level);
+    }
+
+    void ApplyRight(int level, bool equal)
+    {
+        SettingRow.Distribute(settingsList, equal);
+        if (rightDensity == level) return;
+        rightDensity = level;
+        RebuildBodyGrid();
+        shareBorder.Padding = new Thickness(Scale.Inset + 4, Scale.Pad(level, Scale.Inset + 4), Scale.Inset + 4, Scale.Pad(level, Scale.Inset + 4));
+        shareStack.Spacing = Scale.Pad(level, 12);
+        shareHelp.IsVisible = level < 2;
+        ToolTip.SetTip(shareField, level == 2 ? shareHelpTip : null);
+        settingsBorder.Padding = new Thickness(Scale.Inset - 4, Scale.Pad(level, Scale.Inset), Scale.Inset - 4, Scale.Pad(level, Scale.Inset - 8));
+        SettingRow.SetDensity(settingsList, level);
     }
 
     void UpdateResponsiveLayout()
     {
         var compact = ClientSize.Width < 880;
-        if (compactLayout == compact) return;
+        if (compactLayout == compact) { if (ClientSize.Height > 0) ApplyChromeIfChanged(); return; }
         compactLayout = compact;
-        body.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "1.2*,16,*");
-        body.RowDefinitions = new RowDefinitions(compact ? "Auto,16,Auto,16,Auto" : "Auto,16,*");
-        FitBodyToViewport();
         Grid.SetRowSpan(connectionCard, compact ? 1 : 3);
         Grid.SetColumn(shareCard, compact ? 0 : 2); Grid.SetRow(shareCard, compact ? 2 : 0);
         Grid.SetColumn(settingsCard, compact ? 0 : 2); Grid.SetRow(settingsCard, compact ? 4 : 2);
+        RebuildBodyGrid();
+        ScheduleFit();
+    }
+
+    void ApplyChromeIfChanged()
+    {
+        var level = compactLayout != false ? 0 : ClientSize.Height < 600 ? 2 : ClientSize.Height < 720 ? 1 : 0;
+        if (level != chromeDensity) ScheduleFit();
+    }
+
+    void RebuildBodyGrid()
+    {
+        if (compactLayout is not { } compact) return;
+        var gap = Scale.Pad(Math.Max(rightDensity, 0), 16);
+        body.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "1.2*,16,*");
+        body.RowDefinitions = new RowDefinitions(compact ? "Auto,16,Auto,16,Auto" : $"Auto,{gap},*");
     }
 
     async Task ReadBackend()
@@ -234,10 +334,9 @@ public sealed partial class Dashboard : Window
         macStatus = new DeviceStatusView("Mac", Send, Copy);
         ipadStatus = new DeviceStatusView("iPad", Send, Copy);
         var copyAddress = IconButton(Icons.Copy, "複製主機地址", () => Copy(WindowsHostIp, "主機地址"));
-        var host = Card(Columns("*,Auto", Column(0, Label("Windows 主機地址", Scale.Secondary, key: "Muted"), addressValue), copyAddress), new Thickness(Scale.Inset + 4, 14, Scale.Inset, 14));
+        hostCard = Card(Columns("*,Auto", Column(0, Label("Windows 主機地址", Scale.Secondary, key: "Muted"), addressValue), copyAddress), new Thickness(Scale.Inset + 4, 14, Scale.Inset, 14));
         copyAddress.VerticalAlignment = VerticalAlignment.Center;
-        var column = Rows("Auto,16,*,16,*", host, Gap(), macStatus.View, Gap(), ipadStatus.View);
-        return column;
+        return connectionColumn = Rows("Auto,16,*,16,*", hostCard, Gap(), macStatus.View, Gap(), ipadStatus.View);
     }
 
     // The switch is the one primary action; opening the folder manager is a quiet link.
@@ -259,8 +358,10 @@ public sealed partial class Dashboard : Window
             Child = Columns("Auto,*,Auto", Icons.Make(Icons.Link, 14, "Subtle"), WithMargin(url, new Thickness(8, 0, 0, 0)), IconButton(Icons.Copy, "複製地址", () => Copy(ShareUrl, "地址"))),
         }.Res(Border.BackgroundProperty, "Field").Res(Border.BorderBrushProperty, "Stroke");
 
-        var help = Label("Mac：Finder ⌘K　·　iPad：文件 → 連接伺服器", Scale.Secondary, key: "Muted");
+        var help = shareHelp = Label("Mac：Finder ⌘K　·　iPad：文件 → 連接伺服器", Scale.Secondary, key: "Muted");
+        shareHelpTip = "Mac：Finder ⌘K　·　iPad：文件 → 連接伺服器\n選「註冊使用者」並登入專用帳戶，可選擇共享資料夾。\n訪客請從「管理共享」複製完整地址。";
         ToolTip.SetTip(help, "選「註冊使用者」並登入專用帳戶，可選擇共享資料夾。\n訪客請從「管理共享」複製完整地址。");
+        shareField = field;
         var manage = new Button
         {
             Content = Row(6, Label("管理共享資料夾與帳戶", Scale.Secondary, key: "Accent"), Icons.Make(Icons.Chevron, 12, "Accent")),
@@ -270,7 +371,8 @@ public sealed partial class Dashboard : Window
         Avalonia.Automation.AutomationProperties.SetName(manage, "管理共享");
         manage.Click += (_, _) => OpenSMBManager();
 
-        return Card(Column(12, head, field, help, manage), new Thickness(Scale.Inset + 4));
+        shareStack = Column(12, head, field, help, manage);
+        return shareBorder = Card(shareStack, new Thickness(Scale.Inset + 4));
     }
 
     Control SettingsCard()
@@ -280,24 +382,22 @@ public sealed partial class Dashboard : Window
         Add(SettingRow.Toggle(Icons.Play, "開機自動啟動", "登入 Windows 後在背景待命", startup));
         Add(SettingRow.Toggle(Icons.Globe, "僅保留網路連線", "避免 iPad 出現「信任這部電腦」提示", networkOnly,
             "封鎖 Windows 對此 iPad 的照片匯入與儲存空間瀏覽，避免出現「信任這部電腦」提示。\n關閉此開關、結束程式或解除安裝時會還原。", networkOnlyStatus));
-        Add(SettingRow.Link(Icons.Shield, "安全管理", "防火牆、連線與 USB 裝置", OpenSecurity));
-        Add(SettingRow.Link(Icons.Apps, "工作管理員", "執行中的程式與資源用量", OpenTaskManager));
+        Add(SettingRow.Link(Icons.Shield, "安全管理", "工作管理員、防火牆與 USB 裝置", () => OpenSecurity()));
         Add(SettingRow.Link(Icons.Pulse, "連線診斷", "連線細節與元件狀態", OpenDetails));
         var title = WithMargin(Label("設定", Scale.Section, FontWeight.SemiBold), new Thickness(8, 0, 0, 6));
-        return Card(Rows("Auto,*", title, SettingRow.List(rows.ToArray())), new Thickness(Scale.Inset - 4, Scale.Inset, Scale.Inset - 4, Scale.Inset - 8));
+        settingsList = SettingRow.List(rows.ToArray());
+        return settingsBorder = Card(Rows("Auto,*", title, settingsList), new Thickness(Scale.Inset - 4, Scale.Inset, Scale.Inset - 4, Scale.Inset - 8));
     }
 
     Control Footer()
     {
-        var background = Label("關閉視窗後縮至托盤，連線繼續運作", Scale.Secondary, key: "Subtle");
-        background.VerticalAlignment = VerticalAlignment.Center;
+        // Exiting is deliberate and restores settings first; it lives in the tray icon's menu, not on the dashboard.
+        var background = Label("關閉視窗後縮至托盤，連線繼續運作 · 要退出請用托盤圖示選單的「退出程序」", Scale.Secondary, key: "Subtle");
+        background.VerticalAlignment = VerticalAlignment.Center; background.TextWrapping = TextWrapping.Wrap; background.TextTrimming = TextTrimming.None;
+        background.HorizontalAlignment = HorizontalAlignment.Right; background.TextAlignment = TextAlignment.Right;
 
-        // Neutral, not red: exiting is deliberate and safe (settings are restored first).
-        var stop = programExitButton = Action("退出程序", RequestProgramExit, Icons.Power);
-        stop.MinHeight = 30; stop.Padding = new Thickness(12, 4);
-
-        var right = Row(16, background, stop);
-        var grid = Columns("*,Auto", noticeBar, right);
+        background.MaxWidth = 440;
+        var grid = Columns("*,Auto", noticeBar, background);
         noticeBar.HorizontalAlignment = HorizontalAlignment.Left;
         noticeBar.Margin = new Thickness(0, 0, 16, 0);
         automaticIsolationStatus.TextWrapping = programExitStatus.TextWrapping = TextWrapping.Wrap;
@@ -315,7 +415,7 @@ public sealed partial class Dashboard : Window
         programExitAwaiting = true; programExitCommitSent = false;
         bodyScroll.IsEnabled = false;
         programExitStatus.Text = "正在要求停止連線，核對恢復完成後才會退出…";
-        programExitStatus.IsVisible = true; programExitButton.IsEnabled = false;
+        programExitStatus.IsVisible = true;
         // Restoration is core work and continues unchanged; the user only needs the window gone.
         // Send first so the request never waits on the window teardown.
         SendProgramExitRequest("exit-program");
@@ -333,7 +433,7 @@ public sealed partial class Dashboard : Window
     {
         if (!exitHidden) return;
         exitHidden = false;
-        Show(); WindowState = WindowState.Normal; Activate();
+        Show(); WindowState = WindowState.Normal; WindowFit.Refit(this); Activate();
     }
 
     void CancelProgramExitConfirmation()
@@ -360,8 +460,8 @@ public sealed partial class Dashboard : Window
         if (id != programExitID || generation != programExitConfirmationGeneration || !programExitAwaiting) return;
         CancelProgramExitConfirmation();
         programExitAwaiting = programExitCommitSent = false;
-        programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試；這不代表恢復已完成。";
-        programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+        programExitStatus.Text = "未能確認退出要求，程序仍保留。請從托盤圖示選單再次選擇「退出程序」重試；這不代表恢復已完成。";
+        programExitStatus.IsVisible = true;
         ShowAfterProgramExitProblem();
     }
 
@@ -414,12 +514,11 @@ public sealed partial class Dashboard : Window
         if (!programExitCommitSent) CancelProgramExitConfirmation();
         programExitPhase = phaseExit;
         programExitStatus.IsVisible = true;
-        programExitStatus.Text = phaseExit == "failed" ? "恢復尚未完成，程序仍保留，USB 連線已停止。可再按「退出程序」重試恢復。"
-            : phaseExit == "ready" ? programExitAwaiting ? "已停止連線並確認恢復，正在完成退出。" : "恢復已確認，退出尚未完成；可按「退出程序」重試確認。"
+        programExitStatus.Text = phaseExit == "failed" ? "恢復尚未完成，程序仍保留，USB 連線已停止。可從托盤圖示選單再次選擇「退出程序」重試恢復。"
+            : phaseExit == "ready" ? programExitAwaiting ? "已停止連線並確認恢復，正在完成退出。" : "恢復已確認，退出尚未完成；可從托盤圖示選單再次選擇「退出程序」重試確認。"
             : phaseExit == "restoring" ? "USB 連線已停止，正在恢復 Apple 服務、照片介面與網路設定…"
             : "正在停止 USB 連線，完成後會恢復設定…";
         if (phaseExit == "failed") { CancelProgramExitConfirmation(); programExitAwaiting = programExitCommitSent = false; }
-        programExitButton.IsEnabled = !programExitAwaiting;
         if (phaseExit == "failed") ShowAfterProgramExitProblem();
         if (phaseExit == "ready" && programExitAwaiting && !programExitCommitSent && E("request_id") == programExitID)
         {
@@ -429,7 +528,6 @@ public sealed partial class Dashboard : Window
     }
 
     static TextBlock WithWrap(TextBlock t, double width) { t.TextWrapping = TextWrapping.Wrap; t.MaxWidth = width; return t; }
-    static T WithAlign<T>(T c, HorizontalAlignment a) where T : Control { c.HorizontalAlignment = a; return c; }
 
     // ---------- diagnostics window ----------
 
@@ -539,8 +637,8 @@ public sealed partial class Dashboard : Window
             if (S("request_id") != programExitID || programExitID == "") return;
             CancelProgramExitConfirmation();
             programExitAwaiting = programExitCommitSent = false;
-            programExitStatus.Text = "未能確認退出要求，程序仍保留。請再按「退出程序」重試。";
-            programExitStatus.IsVisible = true; programExitButton.IsEnabled = true;
+            programExitStatus.Text = "未能確認退出要求，程序仍保留。請從托盤圖示選單再次選擇「退出程序」重試。";
+            programExitStatus.IsVisible = true;
             ShowAfterProgramExitProblem();
             return;
         }
@@ -552,7 +650,7 @@ public sealed partial class Dashboard : Window
         }
         if (S("event") == "backend-unavailable") { if (!programExitCommitSent) ShowAfterProgramExitProblem(); MarkBackendUnavailable(S("code")); return; }
         if (S("event") == "shutdown") { (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(); return; }
-        if (S("event") == "show") { Show(); WindowState = WindowState.Normal; Activate(); return; }
+        if (S("event") == "show") { Show(); WindowState = WindowState.Normal; WindowFit.Refit(this); Activate(); return; }
 #if USBLINK_LOCAL_DIAGNOSTICS
         if (S("event") == "local-control-result") { UpdateLocalControlResult(d); return; }
 #endif
@@ -589,6 +687,7 @@ public sealed partial class Dashboard : Window
         var devices = DeviceStatusSnapshot.Parse(d);
         macStatus.Update(devices.Mac); ipadStatus.Update(devices.IPad);
         ApplyConnectionSummary(devices.ConnectedCount, devices.ConnectingCount, devices.HasError);
+        Dispatcher.UIThread.Post(RefitIfOverflow, DispatcherPriority.Loaded);
 
         SetNotice(S("notice"));
         var detail = S("detail");

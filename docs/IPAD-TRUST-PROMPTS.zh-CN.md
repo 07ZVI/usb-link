@@ -1,5 +1,39 @@
 # iPad 重复“信任此电脑”提示调查
 
+## 0.10.55 候选：首次连线暂停的自动重试与首次连线诊断（2026-10-18，设备验收待做）
+
+### 现象与代码依据
+
+实机（0.10.54，仅保留网络连接开）：插线后第一次尝试停在“连线暂停”，点“重新连线”或重插才成功。代码中 `launcher/inspect_windows.go` 的第一次 `applicationConsent()`（即 `ConnectionAuthorization.Allow`）失败时，无论原因，`r.Error` 一律写成 `USB_LAYOUT_UNCONFIRMED_DECLINED_OR_CHANGED`；该码不在 `autoRetryBudget.delay` 的可重试集合内，所以描述符读取超时（WIN32_31/1460）、`USB_PREFLIGHT_UNCONFIRMED`、初始配置等待超时等“刚到达尚未就绪”的失败与用户拒绝完全等同，直接暂停且不排 5/15/30 秒重试。真实的 `ConsentStatus` 只写入档案。同样，第一次授权之后的再核验（SET_MODE 前两次、照片绑定之后）若短暂失败，会被 `MODE_CHANGE_DECLINED` 掩盖。
+
+没有证据表明默认 AMDS 屏蔽会造成 USB 重新枚举（它只操作服务）；照片隔离只对 MI_00 子节点调用 `CM_Disable_DevNode`/SetupDi，不重置父设备。但隔离与首次授权并行：被动扫描每秒运行，授权会做整机 PnP 清点并多次读描述符，不能排除节点变动期间读取偶发失败。0.10.43 文档中“失败发生在根设备 started 回调之前 40–52 ms”的记录亦属同类就绪竞态。具体首次失败码在 0.10.54 导出中没有，故根因是“失败被归为不可重试”（代码事实）加“就绪竞态”（高概率推断，未用硬件证明）。
+
+### 修改
+
+- 授权失败不再塌缩：`Allow` 记录是否为就绪类失败。仅当 (1) 设备读取错误、枚举超时、设备数不为 1、根暂不唯一、配置 0，(2) 初始配置等待超时/目标暂不可读/完整复核读取失败，(3) 二次读取不可读导致 `USB_DESCRIPTOR_OR_ATTACHMENT_CHANGED` 时，`r.Error` 为 `USB_AUTHORIZATION_TRANSIENT: <原状态>`，并进入既有有限重试（5/15/30 秒，需同一根稳定 2 秒，`sameAttachmentGate`，预算不变）。SET_MODE 前的 `INVENTORY_INCOMPLETE`、`NEED_ONE_APPLE_MOBILE_DEVICE`、`NETWORK_ONLY_USB_LAYOUT_NOT_READY`（原 `NETWORK_ONLY_USB_LAYOUT_UNCONFIRMED` 中就绪类部分）、`USB_TARGET_CHANGED_NO_CONTROL_REQUEST`、`CONTROL_ACCESS_BLOCKED_NOT_A_SUPPORT_VERDICT`（WinUSB 控制节点尚未绑定）也重试；应用阶段 `APPLICATION_HOST_FLAGS_UNAVAILABLE` 现带 Win32 错误码并可重试。
+- 仍保持暂停：用户拒绝或已弹出同意框之后的任何失败、序列号/根不符、根不唯一、原生枚举绑定失败、描述符格式错误、已稳定的不支持配置或布局、全部 `USB_SECURITY_*`、`USB_UNEXPECTED_HID_INTERFACE`、`MODE_NOT_INITIAL_NO_CHANGE`、`MODE_REQUEST_SENT_NCM_NOT_OBSERVED`、`PHOTO_*`。重试只是重新执行完整授权，不授予任何权限。
+- 未做：`USB_SECURITY_INVENTORY_UNAVAILABLE` 仍属安全失败，不自动重试。若下次导出的首次失败码正是它（整机 PnP 清点在节点变动时不完整），需另行决定是否放宽。
+
+### 诊断（“连线诊断 → 导出诊断文字”，无需本地诊断构建）
+
+新增一行 `iPad 首次连线与信任提示诊断`：`known_photo_instances`（已记住的 MI_00 实例数）、`known_learned_this_run`、`applied_before_mode_request` / `before_mode_request_ran` / `before_mode_request_known` / `before_mode_request_code`、`photo_first_sightings`（被动扫描首次看到的实例：摘要哈希、是否匹配已记住实例、首次看到时是否已禁用、时间）、`last_authorization`（含状态与读取错误码）、`recent_attempt_failures`（每次失败的码、同意状态、是否该次插拔的首次失败、是否有资格自动重试）。相同内容也在环境档案的 `trust_prompt`。
+
+### 实机第二份反馈的结论（0.10.54）
+
+- 重启程序且 iPad 不拔：`NCM_PRESENT_NATIVE_DRIVER_START_FAILED` 只因第二个 NCM 功能（problem 10）启动失败，不是停住原因。`RunExistingGrouping` 的“已存在布局”路径明确不要求回执或注册表所有权（`EXISTING_OPERATIONAL_TOPOLOGY_PROVEN_NO_GROUPING_OWNERSHIP`），导出的 `EXISTING_LAYOUT_SESSION_RETURNED` 说明它已被接受；真正的失败在其后 `runApplication` 读取 `GetIpInterfaceEntry(AF_INET, LUID)`，即 `APPLICATION_HOST_FLAGS_UNAVAILABLE`。`configured` 回执按根哈希精确路径读取，不扫描目录；`entries_examined=128,truncated=true` 只是诊断清点，原先按文件名排序截断，无关文件会挤掉回执，现回执文件优先清点（不影响查找本身）。回执缺席是正常的：该路径不创建回执。IPv4 接口行为何不可读（程序退出清理后适配器的 IPv4 接口缺失，或尚未建立）未证明；现在错误带 Win32 码并重试。
+- 重插后“信任”提示在状态变绿后出现：配置 5 的 MI_00 在 SET_MODE 约 16 秒后才出现在采样中且已是 problem 22（已禁用），`known_nodes=1`，配置 3 采样里没有 MI_00 节点。因此无法确定提示来自 WPD。其他候选：被忽略的“省略节点”、失败的第二 NCM 功能（RemoteXPC）、本程序对 MI_01 的 WinUSB 使用，或 iPadOS 对 USB 网络本身的提示。新增 `photo_first_sightings` 记录首次看到时间及是否已禁用，下次实测据此判断：若实例首次看到即已禁用且提示仍在，WPD 不是触发源。MI_00 在配置 3 与配置 5 的实例 ID 无法由代码推出（子实例 ID 由 usbccgp 的 ParentIdPrefix 生成，在配置变化后是否重新生成未证明）；导出的 `known_photo_instances` 若每次连接都增加，即说明实例每次都变。
+
+### 备选方案（仅评估，未实现）
+
+Windows 设备安装限制（`DenyDeviceIDs`，`USB\VID_05AC&PID_12AB&MI_00`，不追溯）可覆盖从未见过的实例，但只阻止新安装、已安装的实例不受影响，且此前的 `local_photo_policy_*` 前置策略因“只读回策略并不证明运行期接口已被阻断”、与运行期隔离互相冲突且恢复负担重而在 0.10.46 退役，因此不重新引入。
+
+### 验收
+
+1. 新装后首次插线：若第一次尝试暂停，应显示“正在自动恢复连线 · 5 秒后重试（1/3）”并自行成功，无需点按钮；记录 `recent_attempt_failures` 的首次失败码。
+2. 拒绝同意框、拔线换设备：仍暂停，不自动重试。
+3. 第二次及之后插线：`before_mode_request_ran=true`、`applied_before_mode_request=true`，`known_photo_instances` 为 2（配置 3 与配置 5）；记录“信任”提示次数及 `photo_first_sightings`。
+4. 重启程序不拔线：成功，或失败时 `APPLICATION_HOST_FLAGS_UNAVAILABLE` 带 Win32 码并自动重试。
+
 ## 0.10.54 候选：仅保留网络连接，提前封锁已记住的照片接口（2026-10-18，设备验收待做）
 
 用户目标：iPad 不信任这台 Windows 电脑，“信任此电脑？”不再出现，同时 USB 网络照常工作；可以放弃 Windows 照片导入和浏览 iPad 存储，但必须能还原。
