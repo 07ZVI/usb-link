@@ -52,6 +52,10 @@ var DeveloperStatus func() any
 
 // Assigned once before sessions start; provides bounded, memory-only evidence.
 var ConnectionEvidence func() any
+
+// CoreHealthEvidence returns small independent rows (core lifecycle, pipe
+// failures) so a large unrelated row can never displace them.
+var CoreHealthEvidence func() []any
 var RuntimeNetworkEvidence func() any
 var TrustEvidence func() any
 var TimingEvidence func() any
@@ -720,6 +724,7 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 	servicesRetry := serviceRetry{}
 	lastEvidence := ""
 	lastConnectionEvidence := connectionEvidenceLogState{}
+	var lastCoreHealthEvidence [2]connectionEvidenceLogState
 	lastRuntimeNetworkEvidence := connectionEvidenceLogState{}
 	lastTrustEvidence := connectionEvidenceLogState{}
 	lastTimingEvidence := connectionEvidenceLogState{}
@@ -761,6 +766,13 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 				update(func(r *Result) { r.SunshineTCPObserved = r.SunshineTCPObserved || ok; r.TCPQueryError = queryError })
 			}
 			if loops%5 == 0 {
+				if CoreHealthEvidence != nil {
+					for i, row := range CoreHealthEvidence() {
+						if i < len(lastCoreHealthEvidence) {
+							_ = appendChangedConnectionEvidence(dir, row, &lastCoreHealthEvidence[i], time.Now())
+						}
+					}
+				}
 				if ConnectionEvidence != nil {
 					_ = appendChangedConnectionEvidence(dir, ConnectionEvidence(), &lastConnectionEvidence, time.Now())
 				}
@@ -1046,6 +1058,16 @@ func RecordUpgradeEvidence(parent, version, stage, problem string) error {
 // when ordinary log prefixes are dropped by the bounded USB transport.
 func RecordProgramExitEvidence(parent, version, stage string) error {
 	return recordProgramExitForRuntime(parent, runtimeName, version, stage, exitrecord.Write, appendUpgradeEvidence)
+}
+
+// RecordCoreEvidence writes one bounded diagnostic row to the runtime logs
+// that exist now; later rows come from CoreHealthEvidence while a session runs.
+func RecordCoreEvidence(parent string, row any) error {
+	b, e := json.Marshal(row)
+	if e != nil || len(b) > 8192 {
+		return fmt.Errorf("upgrade evidence exceeds bound")
+	}
+	return recordRuntimeEvidence(parent, b)
 }
 
 func recordRuntimeEvidence(parent string, b []byte) error {

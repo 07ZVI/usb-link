@@ -35,6 +35,8 @@ type CoreOptions struct {
 	Log    *log.Logger
 	Run    func(context.Context, CoreContext) error
 	Handle func(context.Context, coreipc.Peer, coreipc.Request) (coreipc.Response, error)
+	// Terminated reports why the service is returning, for diagnostics only.
+	Terminated func(reason string, exitCode uint32)
 }
 
 // RunCoreService reuses the SCM host rather than the obsolete Mac-only WTS
@@ -65,8 +67,14 @@ type coreService struct{ options CoreOptions }
 func (s *coreService) Execute(_ []string, requests <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	changes <- svc.Status{State: svc.StartPending, WaitHint: 30000, CheckPoint: 1}
 	o := s.options
+	terminated := func(reason string, code uint32) {
+		if o.Terminated != nil {
+			o.Terminated(reason, code)
+		}
+	}
 	if e := o.Verify(o.Executable); e != nil {
 		o.Log.Print("CORE_SERVICE_IDENTITY_REJECTED")
+		terminated("CORE_SERVICE_IDENTITY_REJECTED", 1)
 		return true, 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,6 +83,7 @@ func (s *coreService) Execute(_ []string, requests <-chan svc.ChangeRequest, cha
 	pipe, err := coreipc.Start(ctx, o.OwnerSID, o.Executable, o.Verify, o.Handle)
 	if err != nil {
 		o.Log.Printf("CORE_SERVICE_LOCAL_IPC_REJECTED error=%v", err)
+		terminated(fmt.Sprintf("CORE_SERVICE_LOCAL_IPC_REJECTED: %v", err), 2)
 		return true, 2
 	}
 	defer pipe.Close()
@@ -89,18 +98,22 @@ func (s *coreService) Execute(_ []string, requests <-chan svc.ChangeRequest, cha
 			cancel()
 			<-done
 			o.Log.Printf("CORE_SERVICE_LOCAL_IPC_STOPPED error=%v", pipe.Err())
+			terminated(fmt.Sprintf("CORE_SERVICE_LOCAL_IPC_STOPPED: %v", pipe.Err()), 5)
 			return true, 5
 		case err := <-done:
 			if err != nil {
 				o.Log.Printf("CORE_SERVICE_CALLBACK_STOPPED error=%v", err)
+				terminated(fmt.Sprintf("CORE_SERVICE_CALLBACK_STOPPED: %v", err), 3)
 				return true, 3
 			}
+			terminated("CORE_APPLICATION_RETURNED", 0)
 			return false, 0
 		case r, ok := <-requests:
 			if !ok {
 				cancel()
 				_ = pipe.Close()
 				<-done
+				terminated("SCM_REQUEST_CHANNEL_CLOSED", 0)
 				return false, 0
 			}
 			switch r.Cmd {
@@ -132,8 +145,10 @@ func (s *coreService) Execute(_ []string, requests <-chan svc.ChangeRequest, cha
 					case err := <-done:
 						if err != nil {
 							o.Log.Printf("CORE_SERVICE_CLEANUP_FAILED error=%v", err)
+							terminated(fmt.Sprintf("CORE_SERVICE_CLEANUP_FAILED: %v", err), 4)
 							return true, 4
 						}
+						terminated("SCM_STOP_OR_SHUTDOWN", 0)
 						return false, 0
 					case <-ticker.C:
 					}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"suhang/usbnet/internal/app/connectioninstall"
 	"suhang/usbnet/internal/app/uistartup"
+	"suhang/usbnet/internal/contracts/coreipc"
 	"sync"
 	"time"
 )
@@ -205,7 +206,18 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 				u.noteExitRequested()
 			}
 			go func() {
-				reply, err := p.Action(u.lifetime, b)
+				var reply json.RawMessage
+				var err error
+				if v.Action == "exit-program" || v.Action == "exit-program-commit" {
+					var unreachable bool
+					reply, err, unreachable = u.exitActionWhileReachable(p, b)
+					if unreachable {
+						u.exitWithoutCore(v.Action, err)
+						return
+					}
+				} else {
+					reply, err = p.Action(u.lifetime, b)
+				}
 				if err != nil {
 					if v.Action == "exit-program" || v.Action == "exit-program-commit" {
 						if v.Action == "exit-program" {
@@ -268,6 +280,7 @@ func (u *modernUI) proxyPush(p *ServiceUIProxy) {
 		u.publishStatus(map[string]string{"event": "backend-unavailable", "code": desktopReadErrorCode(err)})
 		return
 	}
+	RecordCoreLinkSuccess()
 	var snapshot struct {
 		Desktop     json.RawMessage              `json:"desktop"`
 		Connections map[string]ApplicationResult `json:"connections"`
@@ -283,6 +296,47 @@ func (u *modernUI) proxyPush(p *ServiceUIProxy) {
 	for _, event := range snapshot.Events {
 		u.sendEvent(event)
 	}
+}
+
+// How long the exit request keeps trying a core that cannot be reached at
+// all (the launcher meanwhile tries to start it again) before the window
+// leaves on its own. A core that answers, even with a failure, never counts.
+const coreUnreachableExitAfter = 25 * time.Second
+
+func (u *modernUI) exitActionWhileReachable(p *ServiceUIProxy, b []byte) (json.RawMessage, error, bool) {
+	started := time.Now()
+	for delay := 500 * time.Millisecond; ; delay = min(delay*2, 3*time.Second) {
+		reply, err := p.Action(u.lifetime, b)
+		if err == nil {
+			return reply, nil, false
+		}
+		if _, _, _, transport := coreipc.ErrorDetail(err); !transport || u.lifetime.Err() != nil {
+			return nil, err, false
+		}
+		if time.Since(started) >= coreUnreachableExitAfter {
+			return nil, err, true
+		}
+		select {
+		case <-u.lifetime.Done():
+			return nil, err, false
+		case <-time.After(delay):
+		}
+	}
+}
+
+// The window never owns system changes: the core restores them. When the core
+// cannot be reached at all, closing this window cannot make anything worse, and
+// the core's start-up recovery completes any unfinished restoration. Say so
+// plainly instead of leaving the window stuck.
+func (u *modernUI) exitWithoutCore(action string, cause error) {
+	code, _, _ := CoreLinkErrorCode(cause)
+	RecordForcedUIExit()
+	body := "無法連線到後台服務，因此無法確認還原是否完成。\r\n\r\n介面現在關閉；關閉介面不會更動任何網路、USB 或 Apple 服務設定。後台下次啟動時會先檢查並還原尚未完成的變更，請重新開啟 USB Link。\r\n\r\n診斷代碼：" + code
+	if action == "exit-program-commit" {
+		body = "還原已確認，但無法連線到後台完成最後確認，介面現在關閉。\r\n\r\n診斷代碼：" + code
+	}
+	NativePanelWithContext(u.lifetime, "後台無法連線", body, "知道了", nil)
+	u.cancel()
 }
 
 type ServiceUIProxy struct {

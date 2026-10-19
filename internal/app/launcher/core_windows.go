@@ -31,6 +31,7 @@ import (
 	"suhang/usbnet/internal/app/usbhost"
 	"suhang/usbnet/internal/contracts/coreipc"
 	"suhang/usbnet/internal/dependencies"
+	"suhang/usbnet/internal/diagnostics/coreterm"
 	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/background"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
@@ -43,6 +44,13 @@ type coreLifetime struct {
 }
 
 var liveCore atomic.Pointer[coreLifetime]
+
+// One small row per concern: how the previous core ended, and the pipe's own
+// failure record. Neither is authority; both are exported with diagnostics.
+func coreLifecycleRow(s coreterm.Status) map[string]any {
+	return map[string]any{"core_version": version, "core_lifecycle": s}
+}
+
 var prompts = coreprompt.New()
 var coreUpdateNotices = coreupdatenotice.New(verifyCoreNoticeClientLifetime)
 
@@ -85,6 +93,7 @@ func runCoreService() {
 	}
 	if err = background.RunCoreService(background.CoreOptions{
 		Executable: exe, OwnerSID: binding.OwnerSID, Verify: verifyCore, Log: logger,
+		Terminated: func(reason string, code uint32) { coreterm.End(reason, code, time.Now()) },
 		Run: func(ctx context.Context, owner background.CoreContext) error {
 			appCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
@@ -269,11 +278,15 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 	switch request.Method {
 	case "snapshot":
 		var query struct {
-			Replay    bool               `json:"replay"`
-			UITimings []uistartup.Timing `json:"ui_timings,omitempty"`
+			Replay    bool                 `json:"replay"`
+			UITimings []uistartup.Timing   `json:"ui_timings,omitempty"`
+			UIIPC     *ipadncm.UIIPCReport `json:"ui_ipc,omitempty"`
 		}
 		if err := strictCorePayload(request.Payload, &query); err != nil {
 			return response, err
+		}
+		if query.UIIPC != nil {
+			ipadncm.NoteUIIPCReport(*query.UIIPC)
 		}
 		if !uistartup.Record(query.UITimings, peer.PID, peer.Creation) {
 			return response, fmt.Errorf("CORE_UI_TIMING_INVALID")
@@ -292,7 +305,7 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 		}
 		display = owner.exit.display(display, ipadncm.DefaultNetworkIsolationDiagnostics(), version)
 		display = extendDesktopSnapshot(display)
-		response.Payload, err = json.Marshal(struct {
+		type snapshotEnvelope struct {
 			Version      string                   `json:"version"`
 			Healthy      bool                     `json:"remote_usb_healthy"`
 			Display      json.RawMessage          `json:"display"`
@@ -301,7 +314,17 @@ func handleCoreRequest(ctx context.Context, peer coreipc.Peer, request coreipc.R
 			Options      map[string]bool          `json:"startup_options"`
 			UpdateNotice *coreupdatenotice.Notice `json:"update_notice,omitempty"`
 			LoginUI      *programLoginUIStatus    `json:"login_ui,omitempty"`
-		}{version, !owner.exit.active() && ipadncm.RemoteUSBConnectionHealthy(), display, prompts.Snapshot(), startuptelemetry.Snapshot(), startupopt.Snapshot(), coreUpdateNotices.Snapshot(coreNoticeClient(peer)), owner.exit.loginUIStatus(programExitOwner{SID: peer.SID, Session: peer.Session, PID: peer.PID, Creation: peer.Creation})})
+		}
+		envelope := snapshotEnvelope{version, !owner.exit.active() && ipadncm.RemoteUSBConnectionHealthy(), display, prompts.Snapshot(), startuptelemetry.Snapshot(), startupopt.Snapshot(), coreUpdateNotices.Snapshot(coreNoticeClient(peer)), owner.exit.loginUIStatus(programExitOwner{SID: peer.SID, Session: peer.Session, PID: peer.PID, Creation: peer.Creation})}
+		response.Payload, err = json.Marshal(envelope)
+		if err == nil && len(response.Payload) > coreipc.MaxMessage-256 {
+			// The display was measured before these sections joined it. Cut long
+			// diagnostic text rather than leave the window unable to read at all.
+			if trimmed, ok := ipadncm.TrimDisplayForTransport(envelope.Display, len(response.Payload)-(coreipc.MaxMessage-256)+512); ok {
+				envelope.Display = trimmed
+				response.Payload, err = json.Marshal(envelope)
+			}
+		}
 		if err != nil || len(response.Payload) > coreipc.MaxMessage-256 {
 			return response, fmt.Errorf("CORE_SNAPSHOT_LIMIT")
 		}
@@ -713,6 +736,46 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			return handoffLoginUI(exe, minimized)
 		}, cancel)
 	}
+	// Any failed call is kept with its specific cause for diagnostics. When the
+	// core itself is gone or silent, start it again (never while exiting).
+	var recovery coreRecovery
+	linkFailed := func(operation string, err error) {
+		outage, consecutive := ipadncm.RecordCoreLinkFailure(operation, err)
+		if _, _, _, transport := coreipc.ErrorDetail(err); transport {
+			replay.Store(true) // A replacement core must learn the pending display requests again.
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		action := recovery.Decide(time.Now(), err, outage, consecutive)
+		if action == coreRecoveryNone {
+			return
+		}
+		go func() {
+			defer func() { recovery.Finish(time.Now()) }()
+			result := "started"
+			binding, bindingErr := connectioninstall.CurrentCoreBinding()
+			var recoverErr error
+			switch {
+			case bindingErr != nil || !strings.EqualFold(binding.Executable, exe):
+				// A different verified core is the upgrade handoff's concern.
+				recoverErr = fmt.Errorf("CORE_UI_RESTART_BINDING_CHANGED")
+			default:
+				if action == coreRecoveryRestart {
+					result = "restarted"
+					recoverErr = connectioninstall.StopCoreService()
+				}
+				if recoverErr == nil {
+					recoverErr = connectioninstall.StartCoreService()
+				}
+			}
+			if recoverErr != nil {
+				code, _, _ := ipadncm.CoreLinkErrorCode(recoverErr)
+				result = result + "_failed_" + code
+			}
+			ipadncm.RecordCoreRestartAttempt(result)
+		}()
+	}
 	ipadncm.SetServiceUIProxy(&ipadncm.ServiceUIProxy{
 		ObserveOpen: uiTimings.Add,
 		Read: func(readCtx context.Context) (json.RawMessage, error) {
@@ -722,6 +785,7 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 			registration, registrationErr := call(readCtx, "action", json.RawMessage(`{"action":"ui-register","ui_open":false}`))
 			if registrationErr != nil {
 				readFailure()
+				linkFailed("register", registrationErr)
 				return nil, registrationErr
 			}
 			admitted, confirmed := loginUIAdmission(registration)
@@ -733,16 +797,21 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 				return nil, fmt.Errorf("CORE_UI_ALREADY_REGISTERED")
 			}
 			timings := uiTimings.Take()
+			linkReport, linkDelivered := ipadncm.TakeCoreLinkReport()
 			q, _ := json.Marshal(struct {
-				Replay    bool               `json:"replay"`
-				UITimings []uistartup.Timing `json:"ui_timings,omitempty"`
-			}{replay.Swap(false), timings})
+				Replay    bool                 `json:"replay"`
+				UITimings []uistartup.Timing   `json:"ui_timings,omitempty"`
+				UIIPC     *ipadncm.UIIPCReport `json:"ui_ipc,omitempty"`
+			}{replay.Swap(false), timings, linkReport})
 			b, err := call(readCtx, "snapshot", q)
 			if err != nil {
 				uiTimings.Restore(timings)
 				readFailure()
+				linkFailed("read", err)
 				return nil, err
 			}
+			linkDelivered()
+			recovery.Healthy()
 			var snapshot struct {
 				Version      string                   `json:"version"`
 				Display      json.RawMessage          `json:"display"`
@@ -823,7 +892,18 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 				}
 				return call(actionCtx, "action", json.RawMessage(`{"action":"dependency-refresh"}`))
 			}
-			return call(actionCtx, "action", b)
+			reply, err := call(actionCtx, "action", b)
+			if err != nil {
+				// A refusal from the core is an answer, not an outage.
+				if _, _, _, transport := coreipc.ErrorDetail(err); transport {
+					linkFailed("action", err)
+				}
+			} else if dep.Action == "exit-program-commit" {
+				// The core stops itself after this acknowledgement; the window
+				// must not start it again while it is closing.
+				recovery.Suppress()
+			}
+			return reply, err
 		},
 	})
 	defer ipadncm.SetServiceUIProxy(nil)

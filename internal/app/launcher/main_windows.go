@@ -23,6 +23,7 @@ import (
 	"suhang/usbnet/internal/buildinfo"
 	"suhang/usbnet/internal/dependencies"
 	"suhang/usbnet/internal/diagnostics/attemptlog"
+	"suhang/usbnet/internal/diagnostics/coreterm"
 	"suhang/usbnet/internal/diagnostics/memorydiag"
 	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
@@ -269,6 +270,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	})
 	if service {
 		serviceDiagnosticDirectory.Store(recoveryDir)
+		// How the previous core ended is evidence even when this run is healthy.
+		_ = macconnection.RecordCoreEvidence(recoveryDir, coreLifecycleRow(coreterm.Begin(recoveryDir, version, uint32(os.Getpid()), time.Now())))
 	}
 	defer func() {
 		if lock != 0 {
@@ -661,6 +664,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		macconnection.RuntimeNetworkEvidence = func() any {
 			return map[string]any{"core_version": version, "ipad_runtime_network": ipadncm.RuntimeNetworkDiagnostics()}
 		}
+	}
+	macconnection.CoreHealthEvidence = func() []any {
+		return []any{coreLifecycleRow(coreterm.Snapshot()), map[string]any{"core_version": version, "core_ipc": ipadncm.CoreIPCDiagnostics()}}
 	}
 	macconnection.ConnectionEvidence = func() any {
 		return map[string]any{"core_version": version, "local_diagnostics_enabled": buildinfo.LocalDiagnostics == "true", "ipad_connection": ipadncm.CompactConnectionEvidence(), "desktop_snapshot": ipadncm.DesktopSnapshotDiagnostics(), "developer_debug": ipadncm.DeveloperDebugDiagnostics()}
