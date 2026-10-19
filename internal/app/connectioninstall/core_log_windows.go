@@ -15,9 +15,9 @@ import (
 
 	"golang.org/x/sys/windows"
 	"suhang/usbnet/internal/diagnostics/coreterm"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 )
 
-const coreLogDirectory = "USBLink-Core-7c494949-9688-4bd4-90c6-257e315f9550"
 const coreLogMarker = "core-log-product.txt"
 const coreLogCurrent = "core.log"
 const coreLogPrevious = "core.previous.log"
@@ -94,7 +94,14 @@ func OpenCoreLog() (io.WriteCloser, string, error) {
 			break
 		}
 	}
-	path := filepath.Join(base, coreLogDirectory)
+	logs, e := machinepaths.LogsFolder()
+	if e != nil {
+		return nil, "", e
+	}
+	path := logs.Active()
+	if noReparse(filepath.Dir(path)) != nil {
+		return nil, "", fmt.Errorf("CORE_LOG_PROGRAM_DATA_UNPROVEN")
+	}
 	sd, e := windows.SecurityDescriptorFromString("O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
 	if e != nil {
 		return nil, "", e
@@ -282,8 +289,8 @@ func (w *coreLogWriter) Close() error {
 // how the previous core ended. Bounded printable ASCII; evidence only.
 func CoreLogEvidence() map[string]any {
 	row := map[string]any{}
-	base, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
-	dir := filepath.Join(base, coreLogDirectory)
+	logs, e := machinepaths.LogsFolder()
+	dir := logs.Active()
 	if e != nil || noReparse(dir) != nil {
 		row["error"] = "CORE_LOG_DIRECTORY_UNAVAILABLE"
 		return row

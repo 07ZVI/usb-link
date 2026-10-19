@@ -5,33 +5,46 @@ package connectioninstall
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 
 	"golang.org/x/sys/windows"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 	"suhang/usbnet/internal/platform/windows/protectedacl"
 )
 
 const protectedStoreDirSDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
 const protectedStoreFileSDDL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)"
-const groupingRecoveryDirectory = "Suhang-iPad-Grouping-Recovery"
 
 var protectedStoreStatus atomic.Value
 
-// ProtectedStoreDirectories are the fixed machine directories whose exact
+// ProtectedStoreDirectories are the fixed machine directories (legacy and current) whose exact
 // protected DACL the core's stores verify. Explorer's "Continue" prompt adds
 // the user's ACE to them, which those checks treat as tampering.
 func ProtectedStoreDirectories() ([]string, error) {
-	w, e := windows.GetWindowsDirectory()
+	recovery, e := machinepaths.RecoveryFolder()
 	if e != nil {
 		return nil, e
 	}
-	data, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	logs, e := machinepaths.LogsFolder()
 	if e != nil {
 		return nil, e
 	}
-	return []string{filepath.Join(w, "Temp", groupingRecoveryDirectory), filepath.Join(data, coreLogDirectory)}, nil
+	// Old and new both: an upgrade can be rolled back, and a migration moves one to the other.
+	return []string{recovery.Old, recovery.New, logs.Old, logs.New}, nil
+}
+
+// coreOwners are the accounts besides SYSTEM/Administrators that may own the
+// stores: the installing administrator owns files an elevated installer created.
+func coreOwners() []string {
+	var owners []string
+	if u, e := windows.GetCurrentProcessToken().GetTokenUser(); e == nil {
+		owners = append(owners, u.User.Sid.String())
+	}
+	if b, e := CurrentCoreBinding(); e == nil {
+		owners = append(owners, b.OwnerSID)
+	}
+	return owners
 }
 
 // RepairProtectedStores runs before any store check. Status is "passed",
@@ -40,14 +53,7 @@ func RepairProtectedStores() ([]protectedacl.Repair, string) {
 	dirs, err := ProtectedStoreDirectories()
 	var repairs []protectedacl.Repair
 	var notes []string
-	// The installing administrator owns files an elevated installer created.
-	var owners []string
-	if u, e := windows.GetCurrentProcessToken().GetTokenUser(); e == nil {
-		owners = append(owners, u.User.Sid.String())
-	}
-	if b, e := CurrentCoreBinding(); e == nil {
-		owners = append(owners, b.OwnerSID)
-	}
+	owners := coreOwners()
 	for _, dir := range dirs {
 		r, e := protectedacl.RepairProtectedDirectory(dir, protectedStoreDirSDDL, protectedStoreFileSDDL, owners...)
 		if e != nil {

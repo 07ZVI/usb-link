@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"suhang/usbnet/internal/app/remoteupdate"
 	"suhang/usbnet/internal/diagnostics/coreterm"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 	"suhang/usbnet/internal/transport/ipadsession"
 )
 
@@ -524,15 +525,16 @@ func (o *nativeInstallation) AwaitAcceptance(ctx context.Context, t Installation
 // the core's own run record. Either may be absent; both are evidence only.
 func observeCoreEnd(version string, began time.Time) (*coreServiceExit, *coreterm.Run) {
 	exit, _ := coreServiceExitStatus()
-	w, e := windows.GetWindowsDirectory()
+	f, e := machinepaths.RecoveryFolder()
 	if e != nil {
 		return exit, nil
 	}
-	run, ok := coreterm.Read(filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery"))
-	if !ok || !ownCoreRun(run, version, began.Add(-5*time.Minute)) {
-		return exit, nil
+	for _, dir := range []string{f.New, f.Old} {
+		if run, ok := coreterm.Read(dir); ok && ownCoreRun(run, version, began.Add(-5*time.Minute)) {
+			return exit, &run
+		}
 	}
-	return exit, &run
+	return exit, nil
 }
 func (o *nativeInstallation) Cleanup(t InstallationTransaction) error {
 	if e := verifyReleaseFiles(o.app, t.NextFiles, false); e != nil {

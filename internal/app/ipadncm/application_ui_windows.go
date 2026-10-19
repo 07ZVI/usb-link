@@ -348,6 +348,7 @@ func startApplicationUI(ctx context.Context, s *applicationState, cancel context
 		w := &appWindow{ctx: ctx, cancel: cancel, state: s, scale: int(dpi), trayAck: newTrayRemovalAck()}
 		instance, _, _ := appKernel.NewProc("GetModuleHandleW").Call(0)
 		cursor, _, _ := appUser.NewProc("LoadCursorW").Call(0, 32512)
+		// Legacy window class name, kept for compatibility with installed versions.
 		class, _ := windows.UTF16PtrFromString("SuhangUSBStatus061")
 		wc := appWindowClass{Size: 80, Procedure: appWindowProc, Instance: instance, Cursor: cursor, Background: 6, Class: class}
 		atom, _, _ := appUser.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(&wc)))

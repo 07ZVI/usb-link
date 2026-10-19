@@ -244,7 +244,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	r := Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "RECOVERY_CHECK", ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest}
 	var handoff *connectioninstall.UpgradeStop
 	if service {
-		for _, line := range repairProtectedStores() {
+		lines, _ := repairProtectedStores()
+		for _, line := range lines {
 			log.Print(line)
 		}
 	}

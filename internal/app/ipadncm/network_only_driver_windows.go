@@ -3,11 +3,11 @@
 package ipadncm
 
 import (
-	"path/filepath"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 )
 
 const networkOnlyDriverUnproven = "NETWORK_ONLY_DRIVER_ADMISSION_UNPROVEN"
@@ -42,8 +42,7 @@ func networkOnlyDriverAdmission(before Snapshot, allowInitial bool) (bool, strin
 }
 
 func networkOnlyDriverStoreProtected(dir string) bool {
-	w, err := windows.GetWindowsDirectory()
-	if err != nil || !strings.EqualFold(filepath.Clean(dir), filepath.Join(w, "Temp", "Suhang-iPad-Grouping-Recovery")) {
+	if !machinepaths.IsActiveRecovery(dir) {
 		return false
 	}
 	p, err := windows.UTF16PtrFromString(dir)

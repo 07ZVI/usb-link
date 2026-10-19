@@ -39,6 +39,7 @@ type Run struct {
 	FailDetail string `json:"startup_stopped_detail,omitempty"`
 	LogError   string `json:"core_log_error,omitempty"`
 	Repair     string `json:"protected_repair,omitempty"`
+	Migration  string `json:"folder_migration,omitempty"`
 }
 
 type Abnormal struct {
@@ -207,7 +208,7 @@ func Begin(dir, version string, pid uint32, now time.Time) Status {
 	next.Current = Run{PID: pid, Version: version, StartedUTC: utc, AliveUTC: utc, State: "running"}
 	e := state.early
 	state.early = Run{}
-	next.Current.Stage, next.Current.StageNote, next.Current.LogError, next.Current.Repair = e.Stage, e.StageNote, e.LogError, e.Repair
+	next.Current.Stage, next.Current.StageNote, next.Current.LogError, next.Current.Repair, next.Current.Migration = e.Stage, e.StageNote, e.LogError, e.Repair, e.Migration
 	st.Current = next.Current
 	st.LastAbnormal = next.LastAbnormal
 	if err := write(dir, next); err != nil && st.PersistenceErr == "" {
@@ -302,6 +303,13 @@ func LogUnavailable(detail string) {
 	state.Lock()
 	defer state.Unlock()
 	apply(func(r *Run) { r.LogError = boundedASCII(detail, 160) })
+}
+
+// Migrated records the outcome of the legacy folder migration.
+func Migrated(note string) {
+	state.Lock()
+	defer state.Unlock()
+	apply(func(r *Run) { r.Migration = boundedASCII(note, 240) })
 }
 
 // Repaired records that protected directories had to be reset before startup.

@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+	"suhang/usbnet/internal/platform/windows/machinepaths"
 	"unsafe"
 )
 
@@ -59,8 +59,7 @@ func residentACLMatches(actual, expected *windows.SECURITY_DESCRIPTOR) bool {
 }
 
 func residentDirectoryProtected(dir string) bool {
-	wd, e := windows.GetWindowsDirectory()
-	if e != nil || !strings.EqualFold(filepath.Clean(dir), filepath.Join(wd, "Temp", "suhang-ipad-grouping-recovery")) {
+	if !machinepaths.IsActiveRecovery(dir) {
 		return false
 	}
 	p, e := windows.UTF16PtrFromString(dir)

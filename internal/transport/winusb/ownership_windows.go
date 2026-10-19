@@ -13,6 +13,7 @@ func OwnRuntime() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
+	// Legacy mutex name, kept for compatibility with installed versions.
 	name, _ := windows.UTF16PtrFromString(`Global\SuhangUSBBridgeRuntime`)
 	h, err := windows.CreateMutex(&windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}, false, name)
 	if err != nil {

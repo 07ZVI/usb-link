@@ -35,6 +35,7 @@ import (
 	"suhang/usbnet/internal/diagnostics/shutdowntrace"
 	"suhang/usbnet/internal/platform/windows/background"
 	"suhang/usbnet/internal/platform/windows/interfaceconfig"
+	"suhang/usbnet/internal/platform/windows/protectedacl"
 )
 
 type coreLifetime struct {
@@ -64,7 +65,7 @@ func coreStartupStopped(service bool, stage string, detail any) {
 
 // Explorer's "Continue" prompt adds the user's ACE to protected core folders;
 // the stores then refuse them. Reset them to the exact protected DACL first.
-func repairProtectedStores() []string {
+func repairProtectedStores() ([]string, []protectedacl.Repair) {
 	repairs, status := connectioninstall.RepairProtectedStores()
 	var lines []string
 	for _, r := range repairs {
@@ -78,7 +79,7 @@ func repairProtectedStores() []string {
 	if status != "passed" {
 		coreterm.Repaired(status)
 	}
-	return lines
+	return lines, repairs
 }
 
 // How the previous core ended, read before this core holds core.log.
@@ -110,7 +111,9 @@ func runCoreService() {
 		return
 	}
 	logger := log.New(os.Stderr, "USBLinkCore ", log.LstdFlags|log.LUTC)
-	repaired := repairProtectedStores()
+	repaired, repairs := repairProtectedStores()
+	// Only here: after the repair, before any store or core.log opens.
+	repaired = append(repaired, connectioninstall.MigrateMachineFolders(repairs)...)
 	coreLogStartup.Store(connectioninstall.CoreLogEvidence())
 	if output, _, logErr := connectioninstall.OpenCoreLog(); logErr == nil {
 		logger.SetOutput(output)
