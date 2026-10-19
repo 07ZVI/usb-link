@@ -142,12 +142,6 @@ func runCoreService() {
 		return
 	}
 	defer releaseSource()
-	remoteInstallID, err = connectioninstall.CoreRemoteLaunch(version)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "CORE_REMOTE_LAUNCH_FAILED:", err)
-		coreEarlyExit("CORE_REMOTE_LAUNCH_FAILED", err)
-		return
-	}
 	logger := log.New(os.Stderr, "USBLinkCore ", log.LstdFlags|log.LUTC)
 	var repaired []string
 	var repairs []protectedacl.Repair
@@ -163,6 +157,20 @@ func runCoreService() {
 	}))
 	// Only here: after the repair, before any store or core.log opens.
 	note(guardStartup("folder_migration", func() { repaired = append(repaired, connectioninstall.MigrateMachineFolders(repairs)...) }))
+	// Remote maintenance only serves USB updates; an unreadable maintenance
+	// folder must not keep the core from starting. This runs after the repair,
+	// which also restores that folder's protected DACL.
+	// A refused remote candidate still ends here, as before.
+	if id, e := connectioninstall.CoreRemoteLaunch(version); errors.Is(e, connectioninstall.ErrRemoteMaintenanceUnavailable) {
+		note("CORE_REMOTE_LAUNCH_SKIPPED: " + e.Error())
+		coreterm.Stage("remote_launch_skipped", e.Error())
+	} else if e != nil {
+		fmt.Fprintln(os.Stderr, "CORE_REMOTE_LAUNCH_FAILED:", e)
+		coreEarlyExit("CORE_REMOTE_LAUNCH_FAILED", e)
+		return
+	} else {
+		remoteInstallID = id
+	}
 	note(guardStartup("core_log_evidence", func() { coreLogStartup.Store(connectioninstall.CoreLogEvidence()) }))
 	var output io.WriteCloser
 	logErr := errors.New("CORE_LOG_OPEN_PANIC")

@@ -5,6 +5,7 @@ package connectioninstall
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 
@@ -34,6 +35,22 @@ func ProtectedStoreDirectories() ([]string, error) {
 	return []string{recovery.Old, recovery.New, logs.Old, logs.New}, nil
 }
 
+// remoteMaintenanceDirectories are every location maintenanceBase may pick;
+// the core reads one of them before it reaches the service dispatcher.
+func remoteMaintenanceDirectories() []string {
+	var dirs []string
+	if old, e := legacyRoot(); e == nil {
+		dirs = append(dirs, filepath.Join(old, "Remote Maintenance"))
+	}
+	if root, e := Root(); e == nil {
+		dirs = append(dirs, filepath.Join(root, "Remote Maintenance"))
+	}
+	if data, e := machinepaths.MachineRoot(); e == nil {
+		dirs = append(dirs, filepath.Join(data, "State", "Remote Maintenance"))
+	}
+	return dirs
+}
+
 // coreOwners are the accounts besides SYSTEM/Administrators that may own the
 // stores: the installing administrator owns files an elevated installer created.
 func coreOwners() []string {
@@ -54,8 +71,18 @@ func RepairProtectedStores() ([]protectedacl.Repair, string) {
 	var repairs []protectedacl.Repair
 	var notes []string
 	owners := coreOwners()
+	type store struct{ dir, dirSDDL, fileSDDL string }
+	var stores []store
 	for _, dir := range dirs {
-		r, e := protectedacl.RepairProtectedDirectory(dir, protectedStoreDirSDDL, protectedStoreFileSDDL, owners...)
+		stores = append(stores, store{dir, protectedStoreDirSDDL, protectedStoreFileSDDL})
+	}
+	// Candidate status files there are created with remoteACL itself.
+	for _, dir := range remoteMaintenanceDirectories() {
+		stores = append(stores, store{dir, remoteACL, remoteACL})
+	}
+	for _, st := range stores {
+		dir := st.dir
+		r, e := protectedacl.RepairProtectedDirectory(dir, st.dirSDDL, st.fileSDDL, owners...)
 		if e != nil {
 			err = errors.Join(err, fmt.Errorf("%s: %w", dir, e))
 			continue

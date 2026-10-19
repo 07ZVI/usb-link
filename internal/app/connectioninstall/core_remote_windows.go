@@ -29,6 +29,10 @@ var coreBootstrapHealth struct {
 }
 var errCoreBootstrapSettling = errors.New("CORE_BOOTSTRAP_HEALTH_SETTLING")
 
+// ErrRemoteMaintenanceUnavailable means the maintenance folder or its job
+// could not be read at all; candidate verdicts are distinct errors.
+var ErrRemoteMaintenanceUnavailable = errors.New("CORE_REMOTE_MAINTENANCE_UNAVAILABLE")
+
 func resetCoreBootstrapHealth() {
 	coreBootstrapHealth.Lock()
 	coreBootstrapHealth.readiness = coreBootstrapReadiness{}
@@ -43,7 +47,7 @@ func CoreRemoteLaunch(version string) (string, error) {
 	}
 	root, e := remoteRoot()
 	if e != nil {
-		return "", e
+		return "", fmt.Errorf("%w: %v", ErrRemoteMaintenanceUnavailable, e)
 	}
 	var job UpdateJob
 	e = readRemote(filepath.Join(root, "job.json"), &job)
@@ -51,7 +55,7 @@ func CoreRemoteLaunch(version string) (string, error) {
 		return "", nil
 	}
 	if e != nil {
-		return "", e
+		return "", fmt.Errorf("%w: %v", ErrRemoteMaintenanceUnavailable, e)
 	}
 	self, e := os.Executable()
 	if e != nil {
