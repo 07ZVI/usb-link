@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 package ipadncm
 
 import (
@@ -24,55 +26,6 @@ func validConnectionArchiveID(id string) bool {
 	return len(id) == 32 && strings.Trim(id, "0123456789abcdef") == ""
 }
 
-type ConnectionArchiveEntry struct {
-	ID         string `json:"id"`
-	Attempt    uint64 `json:"attempt"`
-	CreatedUTC string `json:"created_utc"`
-	Total      int64  `json:"total"`
-	SHA256     string `json:"sha256"`
-	Complete   bool   `json:"complete"`
-	Truncated  bool   `json:"truncated"`
-}
-type ConnectionArchiveIndex struct {
-	Schema      int                      `json:"schema"`
-	Entries     []ConnectionArchiveEntry `json:"entries"`
-	Diagnostics connectionArchiveStatus  `json:"diagnostics"`
-}
-type ConnectionArchiveChunk struct {
-	ID        string `json:"id"`
-	Offset    int64  `json:"offset"`
-	Total     int64  `json:"total"`
-	SHA256    string `json:"sha256"`
-	Data      []byte `json:"data"`
-	Complete  bool   `json:"complete"`
-	Truncated bool   `json:"truncated"`
-}
-type connectionArchiveStatus struct {
-	QueueDepth        int      `json:"queue_depth"`
-	EnqueuedRecords   uint64   `json:"enqueued_records"`
-	WrittenRecords    uint64   `json:"written_records"`
-	WrittenBytes      uint64   `json:"written_bytes"`
-	MasterEnabled     bool     `json:"master_enabled"`
-	CancelledEvents   uint64   `json:"cancelled_events"`
-	Completeness      string   `json:"completeness"`
-	Available         bool     `json:"available"`
-	Phase             string   `json:"phase"`
-	Error             string   `json:"error,omitempty"`
-	CurrentID         string   `json:"current_id,omitempty"`
-	PrehistoryEvicted uint64   `json:"prehistory_evicted"`
-	QueueDropped      uint64   `json:"queue_dropped"`
-	SizeDropped       uint64   `json:"size_dropped"`
-	WriteFailures     uint64   `json:"write_failures"`
-	Rejected          uint64   `json:"rejected"`
-	Redacted          uint64   `json:"redacted"`
-	RetentionRemoved  uint64   `json:"retention_removed"`
-	RetentionFailures uint64   `json:"retention_failures"`
-	PartialTails      uint64   `json:"partial_tails"`
-	UnknownFiles      uint64   `json:"unknown_files"`
-	IndexOmitted      uint64   `json:"index_omitted"`
-	Recent            []string `json:"recent_kinds,omitempty"`
-	RawETL            string   `json:"raw_etl"`
-}
 type connectionArchiveLine struct {
 	Schema    int             `json:"schema"`
 	ID        string          `json:"id"`
@@ -695,4 +648,57 @@ func (c *connectionArchiveController) closeIfRequested() {
 		c.pending = nil
 		c.baseline = nil
 	}
+}
+
+type ConnectionArchiveIndex struct {
+	Schema      int                      `json:"schema"`
+	Entries     []ConnectionArchiveEntry `json:"entries"`
+	Diagnostics connectionArchiveStatus  `json:"diagnostics"`
+}
+
+type ConnectionArchiveChunk struct {
+	ID        string `json:"id"`
+	Offset    int64  `json:"offset"`
+	Total     int64  `json:"total"`
+	SHA256    string `json:"sha256"`
+	Data      []byte `json:"data"`
+	Complete  bool   `json:"complete"`
+	Truncated bool   `json:"truncated"`
+}
+
+type ConnectionArchiveEntry struct {
+	ID         string `json:"id"`
+	Attempt    uint64 `json:"attempt"`
+	CreatedUTC string `json:"created_utc"`
+	Total      int64  `json:"total"`
+	SHA256     string `json:"sha256"`
+	Complete   bool   `json:"complete"`
+	Truncated  bool   `json:"truncated"`
+}
+
+type connectionArchiveStatus struct {
+	QueueDepth        int      `json:"queue_depth"`
+	EnqueuedRecords   uint64   `json:"enqueued_records"`
+	WrittenRecords    uint64   `json:"written_records"`
+	WrittenBytes      uint64   `json:"written_bytes"`
+	MasterEnabled     bool     `json:"master_enabled"`
+	CancelledEvents   uint64   `json:"cancelled_events"`
+	Completeness      string   `json:"completeness"`
+	Available         bool     `json:"available"`
+	Phase             string   `json:"phase"`
+	Error             string   `json:"error,omitempty"`
+	CurrentID         string   `json:"current_id,omitempty"`
+	PrehistoryEvicted uint64   `json:"prehistory_evicted"`
+	QueueDropped      uint64   `json:"queue_dropped"`
+	SizeDropped       uint64   `json:"size_dropped"`
+	WriteFailures     uint64   `json:"write_failures"`
+	Rejected          uint64   `json:"rejected"`
+	Redacted          uint64   `json:"redacted"`
+	RetentionRemoved  uint64   `json:"retention_removed"`
+	RetentionFailures uint64   `json:"retention_failures"`
+	PartialTails      uint64   `json:"partial_tails"`
+	UnknownFiles      uint64   `json:"unknown_files"`
+	IndexOmitted      uint64   `json:"index_omitted"`
+	Recent            []string `json:"recent_kinds,omitempty"`
+	RawETL            string   `json:"raw_etl"`
 }

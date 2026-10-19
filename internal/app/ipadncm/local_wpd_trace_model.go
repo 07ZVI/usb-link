@@ -1,58 +1,14 @@
+//go:build usblink_local_remote
+
 package ipadncm
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
-	"io"
-	"strings"
 	"unicode/utf16"
 )
 
-const localWPDTraceJournalFile = "local-wpd-trace-v1.json"
-const localWPDTraceETLFile = "local-wpd-trace.etl"
-const localWPDTraceJournalLimit = 4096
-
 var wpdProviders = [3]string{"Microsoft-Windows-WPD-API", "Microsoft-Windows-WPD-MTPClassDriver", "Microsoft-Windows-WPD-MTPUS"}
-
-type localWPDTraceJournal struct {
-	Schema   int    `json:"schema"`
-	Session  string `json:"session"`
-	GUID     string `json:"guid"`
-	OwnerSID string `json:"owner_sid"`
-	File     string `json:"file"`
-	Mode     string `json:"mode,omitempty"`
-	Stopped  bool   `json:"stopped"`
-}
-
-func (j localWPDTraceJournal) valid() bool {
-	nonce := strings.TrimPrefix(j.Session, "USBLink-WPD-")
-	format := j.Schema == 1 && j.Mode == "" && j.File == localWPDTraceETLFile || j.Schema == 2 && j.Mode == "metadata_session" && j.File == ""
-	return format && len(nonce) == 32 && strings.Trim(nonce, "0123456789abcdef") == "" && j.Session == "USBLink-WPD-"+nonce &&
-		len(j.GUID) == 38 && j.GUID[0] == '{' && j.GUID[37] == '}' && j.GUID[9] == '-' && j.GUID[14] == '-' && j.GUID[19] == '-' && j.GUID[24] == '-' && strings.Trim(j.GUID, "{}-0123456789abcdefABCDEF") == "" &&
-		strings.HasPrefix(j.OwnerSID, "S-1-") && len(j.OwnerSID) <= 184 && strings.Trim(j.OwnerSID[4:], "0123456789-") == ""
-}
-func decodeLocalWPDTraceJournal(b []byte) (localWPDTraceJournal, error) {
-	var j localWPDTraceJournal
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	if len(b) > localWPDTraceJournalLimit || d.Decode(&j) != nil || d.Decode(new(any)) != io.EOF || !j.valid() {
-		return j, errors.New("WPD_TRACE_JOURNAL_INVALID")
-	}
-	return j, nil
-}
-
-type localWPDTraceFailure struct {
-	Code      string
-	Native    uint32
-	Ownership *wpdSessionQueryEvidence
-}
-
-func (e *localWPDTraceFailure) Error() string { return e.Code }
-func wpdTraceError(code string, native uint32) error {
-	return &localWPDTraceFailure{Code: code, Native: native}
-}
 
 type localWPDTraceEvent struct {
 	Provider        string         `json:"provider"`

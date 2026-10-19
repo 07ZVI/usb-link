@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 package ipadncm
 
 import "encoding/binary"
@@ -97,23 +99,4 @@ func wpdEventIDFilter(ids []uint16) []byte {
 		binary.LittleEndian.PutUint16(b[4+i*2:], id)
 	}
 	return b
-}
-
-const (
-	wpdMetadataBaseMode        uint32 = 0x10000100
-	wpdStopOnHybridShutdown    uint32 = 0x00400000
-	wpdPersistOnHybridShutdown uint32 = 0x00800000
-)
-
-// ETW supplies one hybrid-shutdown policy when none was requested. Accept only
-// these exact owned variants; unrelated flags and contradictory policies fail.
-func wpdMetadataModeOwned(mode uint32) bool {
-	return mode == wpdMetadataBaseMode || mode == wpdMetadataBaseMode|wpdStopOnHybridShutdown || mode == wpdMetadataBaseMode|wpdPersistOnHybridShutdown
-}
-
-func wpdSessionModeOwned(j localWPDTraceJournal, mode, maxFile uint32, file, expected string) bool {
-	if j.Schema == 2 {
-		return j.Mode == "metadata_session" && file == "" && maxFile == 0 && wpdMetadataModeOwned(mode)
-	}
-	return j.Schema == 1 && maxFile == 8 && mode&2 != 0 && file == expected
 }

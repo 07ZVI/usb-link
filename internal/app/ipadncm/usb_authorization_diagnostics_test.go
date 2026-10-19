@@ -1,7 +1,6 @@
 package ipadncm
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -26,15 +25,6 @@ func TestAuthorizationFailureRetainsBoundedFirstAndLatestEvidence(t *testing.T) 
 	if d.Initial.USB.QueryDurationMS != 61 || d.Initial.USB.SerialFailureShape.ReceivedBytes != 82 || d.Initial.USB.RejectionCodes[0] != "USB_SERIAL_OR_PRODUCT_DESCRIPTOR_UNCONFIRMED" || d.Latest.USB.ConnectionReadErrorCodes[0] != "WIN32_1167" {
 		t.Fatal("first or latest failure evidence was lost or aliased", d)
 	}
-	c := archiveTestController()
-	archiveStart(c, 9)
-	if !c.record("usb_authorization", d) {
-		t.Fatal("failure summary cannot use the automatic archive")
-	}
-	archiveDrain(c)
-	if !bytes.Contains(c.active.body, []byte(`"consent_status":"USB_DESCRIPTOR_OR_ATTACHMENT_CHANGED"`)) || !bytes.Contains(c.active.body, []byte(`"serial_read_status":"USB_STRING_READ_WIN32_31"`)) {
-		t.Fatal("specific failure reason missing from automatic export")
-	}
 }
 
 func TestAuthorizationFailureRejectsPrivateTextAndBoundsErrors(t *testing.T) {
@@ -53,24 +43,6 @@ func TestAuthorizationFailureRejectsPrivateTextAndBoundsErrors(t *testing.T) {
 	}
 	if d.Phase != "authorization_failed" || d.Latest != nil {
 		t.Fatal("failure phase or absent-read semantics changed", d)
-	}
-}
-
-func TestAuthorizationFailureFitsAutomaticArchive(t *testing.T) {
-	code := "USB_" + strings.Repeat("A", 92)
-	codes := make([]string, 16)
-	for i := range codes {
-		codes[i] = code
-	}
-	shape := usbIdentityStringFailureShape(make([]byte, 255))
-	r := &usbAuthorizationReadback{USB: USBDescriptorRecheckDiagnostic{
-		Phase: code, InventoryError: code, ProductReadStatus: code, SerialReadStatus: code,
-		RejectionCodes: codes, ConnectionReadErrorCodes: codes, OwnOperationCorrelation: code,
-		SerialFailureShape: &shape,
-	}}
-	d := sanitizedAuthorizationFailure(usbAuthorizationFailureDiagnostic{ConsentStatus: code, Initial: r, Latest: r})
-	if _, _, err := connectionArchivePayload(d); err != nil {
-		t.Fatal("bounded failure summary does not fit automatic export", err)
 	}
 }
 

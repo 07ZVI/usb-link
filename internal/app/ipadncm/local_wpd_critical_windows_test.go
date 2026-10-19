@@ -4,10 +4,11 @@ package ipadncm
 
 import (
 	"encoding/binary"
-	"golang.org/x/sys/windows"
 	"runtime"
 	"testing"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestWPDCallbackProjectsBothQueuesWithoutTDH(t *testing.T) {

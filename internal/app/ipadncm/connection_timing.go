@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 package ipadncm
 
 import (
@@ -44,13 +46,6 @@ type connectionTimingSnapshot struct {
 	NativeNoticeCount   uint64 `json:"native_notice_count"`
 	NativeNoticeCode    uint32 `json:"native_notice_code,omitempty"`
 	NativeNoticeSource  string `json:"native_notice_source,omitempty"`
-}
-
-type connectionTimingPlan struct {
-	revision        uint64
-	mode            string
-	fallback, delay time.Duration
-	changed         <-chan struct{}
 }
 
 type connectionTimingController struct {

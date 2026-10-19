@@ -21,18 +21,17 @@ func StartLocalUSBTrace(_ context.Context, dir string) func() {
 }
 func SetLocalUSBTraceMaster(bool) {}
 func LocalUSBTraceDiagnostics() any {
-	s := newUSBTraceStatus()
-	s.QueryOwnership, s.FirstQueryFailure = usbTraceQuerySnapshot()
-	s.Available = false
-	s.Phase = "local_build_required"
+	last, first := usbTraceQuerySnapshot()
+	s := map[string]any{"available": false, "requested": false, "active": false, "phase": "local_build_required",
+		"query_ownership": last, "first_query_failure": first}
 	usbTraceStub.Lock()
 	failed := usbTraceStub.recoveryFailed
 	usbTraceStub.Unlock()
 	if failed {
-		s.Phase = "recovery_pending"
-		s.RecoveryPending = true
-		s.Coverage = "incomplete"
-		s.Error = "USB_TRACE_RECOVERY_FAILED"
+		s["phase"] = "recovery_pending"
+		s["recovery_pending"] = true
+		s["coverage"] = "incomplete"
+		s["error"] = "USB_TRACE_RECOVERY_FAILED"
 	}
 	return s
 }

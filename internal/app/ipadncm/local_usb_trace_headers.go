@@ -1,3 +1,5 @@
+//go:build usblink_local_remote
+
 package ipadncm
 
 // Only fixed header scalars are retained for rejected records. In particular,
@@ -7,19 +9,6 @@ type usbTraceCallbackHeader struct {
 	ID                                     uint16
 	Version, Opcode                        uint8
 	HasData                                bool
-}
-
-type usbTraceRejectedHeader struct {
-	Provider string `json:"provider"`
-	Reason   string `json:"reason"`
-	EventID  uint16 `json:"event_id"`
-	Version  uint8  `json:"version"`
-	Opcode   uint8  `json:"opcode"`
-	Size     uint16 `json:"header_size"`
-	Flags    uint16 `json:"header_flags"`
-	Extended uint16 `json:"extended_count"`
-	Length   uint16 `json:"data_length"`
-	Count    uint64 `json:"count"`
 }
 
 func usbTraceHeaderProvider(label string) string {

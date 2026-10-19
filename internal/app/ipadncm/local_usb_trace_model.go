@@ -1,10 +1,10 @@
+//go:build usblink_local_remote
+
 package ipadncm
 
 import (
 	"encoding/binary"
-	"sync"
 	"time"
-	"unicode/utf16"
 )
 
 // Only names with explicitly non-content meanings are admitted. A numeric
@@ -90,23 +90,6 @@ func usbTraceSafeIDs(schemas []usbTraceSchema, rejected map[uint16]bool) ([]uint
 	return ids, out
 }
 
-type usbTraceValue struct {
-	Name  string `json:"name"`
-	Value uint32 `json:"value"`
-}
-type usbTraceEvent struct {
-	RunID       string           `json:"run_id"`
-	EventUTC    string           `json:"event_utc,omitempty"`
-	Provider    string           `json:"provider"`
-	EventID     uint16           `json:"event_id"`
-	Version     uint8            `json:"version"`
-	ReceivedUTC string           `json:"received_utc"`
-	ReceivedMS  int64            `json:"received_ms"`
-	TargetScope string           `json:"target_scope"`
-	Count       int              `json:"field_count"`
-	Values      [8]usbTraceValue `json:"values"`
-}
-
 func usbTraceDecode(s usbTraceSchema, payload []byte) (usbTraceEvent, bool) {
 	e := usbTraceEvent{EventID: binary.LittleEndian.Uint16(s.Descriptor[:]), Version: s.Descriptor[2], TargetScope: "unknown", Count: s.Count}
 	if s.Count < 0 || s.Count > len(s.Fields) || len(payload) != s.Bytes {
@@ -139,15 +122,56 @@ func usbTraceDecode(s usbTraceSchema, payload []byte) (usbTraceEvent, bool) {
 	return e, offset == len(payload)
 }
 
-type usbTraceProviderStatus struct {
-	Provider   string `json:"provider"`
-	Enumerated int    `json:"enumerated"`
-	SafeIDs    int    `json:"safe_ids"`
-	Omitted    int    `json:"safe_ids_omitted"`
-	Rejected   int    `json:"rejected"`
-	Enabled    bool   `json:"enabled"`
-	Code       string `json:"code,omitempty"`
+func usbTraceUTC() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+
+func usbTraceOmittedIDs(schemas []usbTraceSchema, rejected map[uint16]bool, retained int) int {
+	seen := map[uint16]bool{}
+	for _, s := range schemas {
+		id := binary.LittleEndian.Uint16(s.Descriptor[:])
+		if !rejected[id] {
+			seen[id] = true
+		}
+	}
+	return max(0, len(seen)-retained)
 }
+func usbTraceEventUTC(ticks int64) string {
+	if ticks < 116444736000000000 || ticks >= 200000000000000000 {
+		return ""
+	}
+	return time.Unix(0, (ticks-116444736000000000)*100).UTC().Format(time.RFC3339Nano)
+}
+
+func usbTraceCanAdmit(requested, contextAlive, terminated, stopping bool) bool {
+	return requested && contextAlive && !terminated && !stopping
+}
+
+func usbTraceScalarOutput(in, out uint16) bool {
+	if usbTraceScalarSize(in) == 0 {
+		return false
+	}
+	if out == 0 {
+		return true
+	}
+	if in == 20 {
+		return out == 18
+	} // TDH input/output enum values differ for HexInt32.
+	return out == in
+}
+
+func usbTraceKeywordMaskSafe(mask, forbidden uint64) bool {
+	// MatchAnyKeyword zero means all keywords, not an empty selection.
+	return mask != 0 && forbidden != 0 && mask&forbidden == 0
+}
+
+func newUSBTraceStatus() usbTraceStatus {
+	s := usbTraceStatus{Available: true, Phase: "disabled", Coverage: "not_covered", TargetScope: "unknown", PairingVisibility: "not_available_metadata_only", SchemaScope: "installed_manifest_versions"}
+	s.ReceivedMeaning = "known_usb_provider_callbacks_not_requests"
+	for i, n := range []string{"USBHUB3", "UCX", "USBXHCI"} {
+		s.Providers[i].Provider = n
+	}
+	return s
+}
+
 type usbTraceStatus struct {
 	QueryOwnership        usbTraceQueryEvidence     `json:"query_ownership"`
 	FirstQueryFailure     usbTraceQueryEvidence     `json:"first_query_failure"`
@@ -192,171 +216,43 @@ type usbTraceStatus struct {
 	PairingVisibility     string                    `json:"pairing_visibility"`
 }
 
-func newUSBTraceStatus() usbTraceStatus {
-	s := usbTraceStatus{Available: true, Phase: "disabled", Coverage: "not_covered", TargetScope: "unknown", PairingVisibility: "not_available_metadata_only", SchemaScope: "installed_manifest_versions"}
-	s.ReceivedMeaning = "known_usb_provider_callbacks_not_requests"
-	for i, n := range []string{"USBHUB3", "UCX", "USBXHCI"} {
-		s.Providers[i].Provider = n
-	}
-	return s
-}
-func usbTraceUTC() string { return time.Now().UTC().Format(time.RFC3339Nano) }
-
-func usbTraceOmittedIDs(schemas []usbTraceSchema, rejected map[uint16]bool, retained int) int {
-	seen := map[uint16]bool{}
-	for _, s := range schemas {
-		id := binary.LittleEndian.Uint16(s.Descriptor[:])
-		if !rejected[id] {
-			seen[id] = true
-		}
-	}
-	return max(0, len(seen)-retained)
-}
-func usbTraceEventUTC(ticks int64) string {
-	if ticks < 116444736000000000 || ticks >= 200000000000000000 {
-		return ""
-	}
-	return time.Unix(0, (ticks-116444736000000000)*100).UTC().Format(time.RFC3339Nano)
+type usbTraceEvent struct {
+	RunID       string           `json:"run_id"`
+	EventUTC    string           `json:"event_utc,omitempty"`
+	Provider    string           `json:"provider"`
+	EventID     uint16           `json:"event_id"`
+	Version     uint8            `json:"version"`
+	ReceivedUTC string           `json:"received_utc"`
+	ReceivedMS  int64            `json:"received_ms"`
+	TargetScope string           `json:"target_scope"`
+	Count       int              `json:"field_count"`
+	Values      [8]usbTraceValue `json:"values"`
 }
 
-func usbTraceCanAdmit(requested, contextAlive, terminated, stopping bool) bool {
-	return requested && contextAlive && !terminated && !stopping
+type usbTraceProviderStatus struct {
+	Provider   string `json:"provider"`
+	Enumerated int    `json:"enumerated"`
+	SafeIDs    int    `json:"safe_ids"`
+	Omitted    int    `json:"safe_ids_omitted"`
+	Rejected   int    `json:"rejected"`
+	Enabled    bool   `json:"enabled"`
+	Code       string `json:"code,omitempty"`
 }
 
-func usbTraceScalarOutput(in, out uint16) bool {
-	if usbTraceScalarSize(in) == 0 {
-		return false
-	}
-	if out == 0 {
-		return true
-	}
-	if in == 20 {
-		return out == 18
-	} // TDH input/output enum values differ for HexInt32.
-	return out == in
+type usbTraceValue struct {
+	Name  string `json:"name"`
+	Value uint32 `json:"value"`
 }
 
-func usbTraceKeywordMaskSafe(mask, forbidden uint64) bool {
-	// MatchAnyKeyword zero means all keywords, not an empty selection.
-	return mask != 0 && forbidden != 0 && mask&forbidden == 0
-}
-
-// Query evidence contains only comparisons and native scalar properties.
-// Neither arbitrary native strings nor the protected session identity escape.
-type usbTraceQueryEvidence struct {
-	Observed    bool   `json:"observed"`
-	NativeCode  uint32 `json:"native_code"`
-	GUIDMatches bool   `json:"guid_matches"`
-	NameMatches bool   `json:"name_matches"`
-	NameValid   bool   `json:"name_valid"`
-	FileValid   bool   `json:"file_valid"`
-	FileEmpty   bool   `json:"file_empty"`
-	Mode        uint32 `json:"mode"`
-	MaxFile     uint32 `json:"max_file"`
-	NameOffset  uint32 `json:"name_offset"`
-	FileOffset  uint32 `json:"file_offset"`
-	BufferBytes uint32 `json:"buffer_bytes"`
-	Mismatch    uint32 `json:"mismatch"`
-}
-
-var usbTraceQueries struct {
-	sync.Mutex
-	last, first usbTraceQueryEvidence
-}
-
-func usbTraceRecordQuery(q usbTraceQueryEvidence) {
-	usbTraceQueries.Lock()
-	defer usbTraceQueries.Unlock()
-	usbTraceQueries.last = q
-	if q.Mismatch != 0 && !usbTraceQueries.first.Observed {
-		usbTraceQueries.first = q
-	}
-}
-func usbTraceQuerySnapshot() (usbTraceQueryEvidence, usbTraceQueryEvidence) {
-	usbTraceQueries.Lock()
-	defer usbTraceQueries.Unlock()
-	return usbTraceQueries.last, usbTraceQueries.first
-}
-func usbTraceResetQueries() {
-	usbTraceQueries.Lock()
-	usbTraceQueries.last = usbTraceQueryEvidence{}
-	usbTraceQueries.first = usbTraceQueryEvidence{}
-	usbTraceQueries.Unlock()
-}
-func usbTraceQueryText(raw []byte, offset uint32) (string, bool) {
-	if offset < 120 || offset%2 != 0 || uint64(offset)+2 > uint64(len(raw)) {
-		return "", false
-	}
-	var value []uint16
-	for i := int(offset); i+1 < len(raw) && len(value) < 1024; i += 2 {
-		v := binary.LittleEndian.Uint16(raw[i:])
-		if v == 0 {
-			return string(utf16.Decode(value)), true
-		}
-		value = append(value, v)
-	}
-	return "", false
-}
-func usbTraceCompareQuery(raw []byte, q usbTraceQueryEvidence, expectedName string) usbTraceQueryEvidence {
-	q.Observed = true
-	if q.BufferBytes < 120 || uint64(q.BufferBytes) > uint64(len(raw)) {
-		q.Mismatch |= 32
-		return q
-	}
-	raw = raw[:q.BufferBytes]
-	name, valid := usbTraceQueryText(raw, q.NameOffset)
-	q.NameValid = valid
-	q.NameMatches = valid && name == expectedName
-	q.FileEmpty = q.FileOffset == 0
-	q.FileValid = q.FileEmpty
-	if q.FileOffset != 0 {
-		file, valid := usbTraceQueryText(raw, q.FileOffset)
-		q.FileValid = valid
-		q.FileEmpty = valid && file == ""
-	}
-	if !q.GUIDMatches {
-		q.Mismatch |= 1
-	}
-	if !q.NameMatches {
-		q.Mismatch |= 2
-	}
-	if !usbTraceSessionModeOwned(q.Mode) {
-		q.Mismatch |= 4
-	}
-	if q.MaxFile != 0 {
-		q.Mismatch |= 8
-	}
-	if !q.FileValid || !q.FileEmpty {
-		q.Mismatch |= 16
-	}
-	return q
-}
-
-// The controller may call stop again from its deferred cleanup. An already
-// failed cleanup must never become success just because its handle was closed.
-type usbTraceStopResult struct {
-	done bool
-	err  error
-}
-
-func (r *usbTraceStopResult) finish(err error) {
-	if !r.done {
-		r.done = true
-		r.err = err
-	}
-}
-
-const usbTraceRealtimeMode uint32 = 0x00000100
-const usbTraceStopOnHybridShutdown uint32 = 0x00400000
-const usbTracePersistOnHybridShutdown uint32 = 0x00800000
-
-// Windows may add exactly one documented hybrid-shutdown policy when an
-// older receipt's session was created without an explicit policy.
-func usbTraceSessionModeOwned(mode uint32) bool {
-	switch mode {
-	case usbTraceRealtimeMode, usbTraceRealtimeMode | usbTraceStopOnHybridShutdown, usbTraceRealtimeMode | usbTracePersistOnHybridShutdown:
-		return true
-	default:
-		return false
-	}
+type usbTraceRejectedHeader struct {
+	Provider string `json:"provider"`
+	Reason   string `json:"reason"`
+	EventID  uint16 `json:"event_id"`
+	Version  uint8  `json:"version"`
+	Opcode   uint8  `json:"opcode"`
+	Size     uint16 `json:"header_size"`
+	Flags    uint16 `json:"header_flags"`
+	Extended uint16 `json:"extended_count"`
+	Length   uint16 `json:"data_length"`
+	Count    uint64 `json:"count"`
 }
