@@ -89,6 +89,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	txDepth := flag.Int("tx-depth", 16, "bounded asynchronous USB OUT depth (1-16)")
 	batchRequested := flag.Int("batch-max", 16, "maximum already-ready frames per NTB (1-32; no timer)")
 	readDepth := flag.Int("read-depth", 16, "pending USB IN requests (4-16)")
+	macMTUCap := flag.String("mac-mtu-cap", "auto", "developer experiment: auto, 9000 or 1500")
 	flag.Parse()
 	launchPhase := "mac_launch_validate"
 	var firstFailure netconfig.FirstMacStartupFailure
@@ -117,6 +118,10 @@ func run(dir string, l *log.Logger) (runErr error) {
 	}
 	if *txDepth < 1 || *txDepth > 16 || *batchRequested < 1 || *batchRequested > 32 || *readDepth < 4 || *readDepth > 16 {
 		return fmt.Errorf("invalid transport limits")
+	}
+	mtuCap, e := ncm.ParseMTUCap(*macMTUCap)
+	if e != nil {
+		return e
 	}
 	addresses, e := usbaddress.Lookup(*profile)
 	if e != nil {
@@ -218,7 +223,7 @@ func run(dir string, l *log.Logger) (runErr error) {
 	var topology []usbaddress.InterfaceProof
 	var device *winusb.NCMDevice
 	if *profile == usbaddress.Unified {
-		device, err = winusb.InitializeNCMWithTrial(0, false, 0, l)
+		device, err = winusb.InitializeNCMWithTrial(0, false, 0, l, mtuCap)
 	} else {
 		device, err = winusb.InitializeNCM(0, false, 0, l)
 	}
@@ -998,10 +1003,11 @@ func run(dir string, l *log.Logger) (runErr error) {
 	if err != nil {
 		return err
 	}
-	batchSizes, err := ncm.NewBatchSizes(device.Parameters, *batchRequested, int(device.MaxSegment))
+	batchSizes, err := ncm.NewBatchSizes(device.Parameters, *batchRequested, mtuCap.DeviceMaxSegment(int(device.MaxSegment)))
 	if err != nil {
 		return err
 	}
+	l.Printf("MTU_CAP setting=%s applied_frame_limit=%d", mtuCap, batchSizes.FrameLimit)
 	writer, err := winusb.NewWriter(device.Data, device.Out.ID, int(min(device.Parameters.OutMax, ncm.MaxNTB)), *txDepth)
 	if err != nil {
 		return err
@@ -1344,12 +1350,14 @@ func run(dir string, l *log.Logger) (runErr error) {
 				}
 				if peer.MAC != [6]byte{} && !peerAnnounced {
 					peerAnnounced = true
-					if *profile == usbaddress.Unified && device.Datagram != nil {
+					if *profile == usbaddress.Unified && !mtuCap.AllowsJumbo() {
+						l.Print("MTU_TRIAL_SKIPPED reason=mac_mtu_cap_1500 effective_mtu=1500")
+					} else if *profile == usbaddress.Unified && device.Datagram != nil {
 						var nonce [16]byte
 						if _, err = rand.Read(nonce[:]); err != nil {
 							return err
 						}
-						trial = mtutrial.New(peer.MAC, nonce, min(int(device.Datagram.Current), batchSizes.FrameLimit))
+						trial = mtutrial.New(peer.MAC, nonce, mtuCap.TrialFrameLimit(int(device.Datagram.Current), batchSizes.FrameLimit))
 						l.Printf("MTU_TRIAL_STARTED baseline=1500 frame_limit=%d peer=%s no_peer_install=true", device.Datagram.Current, net.HardwareAddr(peer.MAC[:]))
 					}
 					l.Printf("PEER_RESOLVED mac=%s IPv4=%s", net.HardwareAddr(peer.MAC[:]), addresses.Peer)

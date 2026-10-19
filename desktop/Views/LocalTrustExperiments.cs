@@ -63,9 +63,11 @@ public sealed partial class Dashboard
             controls.Add(Hint(experiment.Help));
             controls.Add(status);
         }
+        controls.Add(MacMtuCapControls());
         controls.Add(Hint("此進階選擇會保存；只在開發者調試開啟時使用。關閉後可能需重新接入恢復普通模式。", "Subtle"));
         localTrustExperimentRefresh = () =>
         {
+            macMtuCapRefresh?.Invoke();
             foreach (var (state, toggle, status) in bindings)
             {
                 var selected = state.PendingID != "" ? state.PendingEnabled : state.Saved;
@@ -156,6 +158,7 @@ public sealed partial class Dashboard
     void ResetTrustExperimentWaits()
     {
         foreach (var experiment in trustExperiments) experiment.PendingID = "";
+        macMtuCapPendingID = "";
     }
 
     static void SendTrustExperiment(string action, bool enabled, string id)

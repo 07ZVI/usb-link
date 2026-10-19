@@ -37,6 +37,8 @@ func ConnectionRuntimeDetails() any {
 				details["bridge_process_pid"] = r.MacBridgeProcessPID
 				details["bridge_process_creation_filetime"] = strconv.FormatUint(r.MacBridgeProcessCreation, 10)
 				details["effective_mtu"] = r.MacEffectiveMTU
+				details["mac_mtu_cap"] = r.MacMTUCap
+				details["mac_mtu_cap_frame_limit"] = r.MacMTUCapFrameLimit
 				details["path_mtu_warning"] = r.MacPathMTUWarning
 				details["peer_ipv4"] = "10.6.9.2"
 				details["peer_neighbor_verified"] = r.MacPeerResolved

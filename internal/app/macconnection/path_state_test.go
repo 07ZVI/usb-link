@@ -23,3 +23,24 @@ func TestPathStateReportsFallbackAndCacheFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMTUCapLine(t *testing.T) {
+	for line, want := range map[string]struct {
+		setting string
+		limit   int
+	}{
+		"2026 MTU_CAP setting=auto applied_frame_limit=16014": {"auto", 16014},
+		"MTU_CAP setting=9000 applied_frame_limit=9014":       {"9000", 9014},
+		"x MTU_CAP setting=1500 applied_frame_limit=1514\r":   {"1500", 1514},
+	} {
+		setting, limit, ok := parseMTUCap(line)
+		if !ok || setting != want.setting || limit != want.limit {
+			t.Fatal(line, setting, limit, ok)
+		}
+	}
+	for _, line := range []string{"", "MTU_CAP setting=16000 applied_frame_limit=16014", "MTU_CAP setting=1500", "MTU_CAP setting=1500 applied_frame_limit=99999", "MTU_CAP applied_frame_limit=1514 setting=1500", "MTU_CAP setting=1500 applied_frame_limit=1514 extra=1"} {
+		if _, _, ok := parseMTUCap(line); ok {
+			t.Fatal("accepted", line)
+		}
+	}
+}

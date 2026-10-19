@@ -43,6 +43,8 @@ func configureLocalRemote(m *connectioninstall.RemoteManager) {
 	ipadncm.SetLocalPhotoPolicyPersistence(m.SaveLocalPhotoPolicyPreference, m.ReadLocalPhotoPolicyPreference)
 	ipadncm.SetLocalNCMDirectPersistence(m.SaveLocalNCMDirectPreference, m.ReadLocalNCMDirectPreference)
 	ipadncm.SetLocalAMDSHoldPersistence(m.SaveLocalAMDSHoldPreference, m.ReadLocalAMDSHoldPreference)
+	ipadncm.SetLocalMacMTUCapPersistence(m.SaveLocalMacMTUCapPreference, m.ReadLocalMacMTUCapPreference)
+	macconnection.MacMTUCapSetting = ipadncm.LocalMacMTUCapSetting
 	ipadncm.SetLocalRemoteControl(func(enabled bool) (string, error) {
 		if enabled {
 			// Timing preference errors stay visible in their own snapshot;
@@ -68,6 +70,7 @@ func configureLocalRemoteUnavailable(err error) {
 	ipadncm.SetLocalPhotoPolicyPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
 	ipadncm.SetLocalNCMDirectPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
 	ipadncm.SetLocalAMDSHoldPersistence(func(bool) error { return errors.New(code) }, func() (bool, error) { return false, errors.New(code) })
+	ipadncm.SetLocalMacMTUCapPersistence(func(string) error { return errors.New(code) }, func() (string, error) { return "", errors.New(code) })
 	macconnection.DeveloperStatus = func() any {
 		return map[string]any{"enabled": false, "listening": false, "initialization_code": code, "initialization_failure": diagnostic}
 	}

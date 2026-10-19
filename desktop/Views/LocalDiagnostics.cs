@@ -136,6 +136,7 @@ public sealed partial class Dashboard
         UpdateConnectionTiming(d);
         UpdatePhotoIsolation(d);
         UpdateLocalTrustExperiments(d);
+        UpdateMacMtuCap(d);
         UpdateConnectionArchive(d);
         UpdateLocalUSBTrace(d);
         if (!d.TryGetProperty("developer_debug", out var debug) || debug.ValueKind != JsonValueKind.Object) { localDiagnosticsRefresh?.Invoke(); return; }
@@ -297,7 +298,7 @@ public sealed partial class Dashboard
                 photoIsolationDeliveryFailureID = id;
                 break;
             default:
-                if (!UpdateTrustExperimentDeliveryFailure(Text("action"), id)) return;
+                if (!UpdateTrustExperimentDeliveryFailure(Text("action"), id) && !UpdateMacMtuCapDeliveryFailure(Text("action"), id)) return;
                 break;
         }
         localDiagnosticsRefresh?.Invoke();

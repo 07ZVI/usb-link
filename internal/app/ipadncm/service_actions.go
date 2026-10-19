@@ -16,7 +16,7 @@ type localControlFailure struct {
 // the matching UI wait and let later snapshots establish the actual state.
 func localControlFailureEvent(action, id string) (localControlFailure, bool) {
 	switch action {
-	case "local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off":
+	case "local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off", "mac-mtu-cap-auto", "mac-mtu-cap-9000", "mac-mtu-cap-1500":
 	default:
 		return localControlFailure{}, false
 	}
@@ -34,7 +34,7 @@ func serviceAdditionalAction(action string) bool {
 	switch action {
 	case "local-usb-update-on", "local-usb-update-off":
 		return buildinfo.LocalRemote
-	case "trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off":
+	case "trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off", "mac-mtu-cap-auto", "mac-mtu-cap-9000", "mac-mtu-cap-1500":
 		return buildinfo.LocalRemote && buildinfo.LocalDiagnostics == "true"
 	case "trust-service-trial-start", "trust-service-trial-cancel":
 		return buildinfo.LocalDiagnostics == "true"

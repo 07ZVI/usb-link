@@ -23,6 +23,8 @@ type Result struct {
 	InterfaceConfig            []interfaceconfig.OperationTiming     `json:"mac_interface_configuration_operations,omitempty"`
 	NCMDescriptors             string                                `json:"mac_ncm_descriptor_summary,omitempty"`
 	EffectiveMTU               int                                   `json:"effective_mtu,omitempty"`
+	MTUCap                     string                                `json:"mac_mtu_cap,omitempty"`
+	MTUCapFrameLimit           int                                   `json:"mac_mtu_cap_frame_limit,omitempty"`
 	PathMTUWarning             string                                `json:"path_mtu_warning,omitempty"`
 	PreparationError           string                                `json:"runtime_preparation_error,omitempty"`
 	BenchmarkURL               string                                `json:"benchmark_url,omitempty"`
@@ -73,6 +75,31 @@ func parsePathState(line string) (mtu int, healthy, ok bool) {
 		return
 	}
 	return n, v == "true", true
+}
+
+// parseMTUCap reads the bridge's fixed "MTU_CAP setting=<v> applied_frame_limit=<n>" line.
+func parseMTUCap(line string) (setting string, frameLimit int, ok bool) {
+	const marker = "MTU_CAP "
+	if len(line) > 4096 {
+		return
+	}
+	i := strings.Index(line, marker)
+	if i < 0 {
+		return
+	}
+	fields := strings.Fields(line[i+len(marker):])
+	if len(fields) != 2 || !strings.HasPrefix(fields[0], "setting=") || !strings.HasPrefix(fields[1], "applied_frame_limit=") {
+		return
+	}
+	cap, err := ncm.ParseMTUCap(strings.TrimPrefix(fields[0], "setting="))
+	if err != nil {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(fields[1], "applied_frame_limit="))
+	if err != nil || n < 1514 || n > 16014 {
+		return
+	}
+	return cap.String(), n, true
 }
 
 var descriptorSummaryPattern = regexp.MustCompile(`^[A-Za-z0-9 _{}()\[\],:=./-]+$`)

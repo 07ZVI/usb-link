@@ -474,6 +474,7 @@ func (u *modernUI) desktopStatus() any {
 		PhotoPolicy:       desktopExperimentControl(LocalPhotoPolicyDiagnostics()),
 		NCMDirect:         desktopExperimentControl(LocalNCMDirectDiagnostics()),
 		AMDSHold:          desktopExperimentControl(LocalAMDSHoldDiagnostics()),
+		MacMTUCap:         LocalMacMTUCapDiagnostics(),
 		ConnectionArchive: ConnectionArchiveDiagnostics(),
 		LocalUSBTrace:     desktopUSBTraceSummary(LocalUSBTraceDiagnostics()),
 		PnPNativeTrace:    desktopUSBTraceSummary(LocalPnPTraceDiagnostics()),
@@ -509,6 +510,7 @@ func (u *modernUI) desktopStatus() any {
 			{"照片介面前置阻斷（策略就位不代表已阻斷）", LocalPhotoPolicyDiagnostics()},
 			{"NCM Direct（模式 5，不等於 USB 配置 5）", LocalNCMDirectDiagnostics()},
 			{"Apple 服務屏蔽對照（原狀態恢復以讀回為準）", LocalAMDSHoldDiagnostics()},
+			{"Mac 連線 MTU 上限（實驗；下次 Mac 連線生效）", LocalMacMTUCapDiagnostics()},
 		} {
 			if b, err := json.Marshal(item.value); err == nil {
 				status.Detail += "\r\n" + item.label + "：" + string(b)

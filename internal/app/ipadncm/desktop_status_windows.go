@@ -18,6 +18,7 @@ type desktopStatusSnapshot struct {
 	PhotoPolicy             any                        `json:"photo_policy,omitempty"`
 	NCMDirect               any                        `json:"ncm_direct,omitempty"`
 	AMDSHold                any                        `json:"amds_hold,omitempty"`
+	MacMTUCap               any                        `json:"mac_mtu_cap,omitempty"`
 	ConnectionArchive       any                        `json:"connection_archive,omitempty"`
 	desktopipc.DeviceStatus
 	Event             string                      `json:"event"`

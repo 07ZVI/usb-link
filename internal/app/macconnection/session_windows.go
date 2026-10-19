@@ -35,6 +35,7 @@ import (
 	"suhang/usbnet/internal/sharing/usbhttp"
 	"suhang/usbnet/internal/sharing/usbservice"
 	"suhang/usbnet/internal/transport/bridge"
+	"suhang/usbnet/internal/transport/ncm"
 	"suhang/usbnet/internal/transport/parentlifetime"
 	"suhang/usbnet/internal/transport/usbaddress"
 	"suhang/usbnet/internal/transport/wintun"
@@ -62,6 +63,10 @@ var WPDTraceEvidence func() any
 var PhotoPolicyEvidence func() any
 var NCMDirectEvidence func() any
 var AMDSHoldEvidence func() any
+
+// MacMTUCapSetting returns the developer MTU cap for the next Mac session:
+// "auto", "9000" or "1500". Nil or an unknown value means auto.
+var MacMTUCapSetting func() string
 var ConnectionArchiveEvidence func() any
 var NativeUSBEvidence func() any
 var NativePnPEvidence func() any
@@ -485,6 +490,14 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 		}
 	}
 	cmd.Args = append(cmd.Args, "--internet-root", root)
+	mtuCap := ncm.MTUCapAuto
+	if MacMTUCapSetting != nil {
+		if c, err := ncm.ParseMTUCap(MacMTUCapSetting()); err == nil {
+			mtuCap = c
+		}
+	}
+	out.MTUCap = mtuCap.String()
+	cmd.Args = append(cmd.Args, "--mac-mtu-cap="+mtuCap.String())
 	cmd.Args = append(cmd.Args, "--wintun-module-hold="+strconv.FormatBool(wintun.ModuleLifetimeHoldEnabled()))
 	cmd.Args = append(cmd.Args, "--owned-dad-zero="+strconv.FormatBool(interfaceconfig.OwnedDADZeroEnabled()))
 	cmd.Args = append(cmd.Args, "--combined-legacy-network="+strconv.FormatBool(netconfig.CombinedLegacyNetworkEnabled()))
@@ -587,6 +600,9 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 			}
 			if summary, ok := parseDescriptorSummary(line); ok {
 				update(func(r *Result) { r.NCMDescriptors = summary })
+			}
+			if setting, limit, ok := parseMTUCap(line); ok {
+				update(func(r *Result) { r.MTUCap, r.MTUCapFrameLimit = setting, limit })
 			}
 			if mtu, healthy, ok := parsePathState(line); ok {
 				update(func(r *Result) {

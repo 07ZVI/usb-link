@@ -209,6 +209,17 @@ public sealed partial class Dashboard
                     UpdateLocalDiagnostics(ack.RootElement);
                     if (experiment.DeliveryFailureID != "" || control.IsChecked == true) throw new InvalidOperationException("matching authoritative experiment ack must replace delivery warning");
                 }
+                using var capState = JsonDocument.Parse("""{"mac_mtu_cap":{"available":true,"busy":false,"persistence":"saved","saved_cap":"9000","effective_cap":"9000","applies":"next_connection"}}""");
+                UpdateLocalDiagnostics(capState.RootElement);
+                var capControl = detailWindow!.GetVisualDescendants().OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "Mac 連線 MTU 上限（實驗）");
+                if (capControl.SelectedIndex != 1 || !capControl.IsEnabled || macMtuCapSaved != "9000") throw new InvalidOperationException("saved MTU cap must be shown and selectable");
+                macMtuCapPendingID = new string('e', 32); macMtuCapPendingValue = "1500";
+                UpdateLocalDiagnostics(capState.RootElement);
+                if (macMtuCapPendingID == "" || capControl.SelectedIndex != 2) throw new InvalidOperationException("stale MTU cap snapshot finished a current request");
+                using (var capFailure = JsonDocument.Parse("""{"event":"local-control-result","action":"mac-mtu-cap-1500","request_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","code":"CORE_UI_ACTION_FAILED"}""")) Update(capFailure.RootElement);
+                if (macMtuCapPendingID != "" || macMtuCapDeliveryFailureID == "" || capControl.SelectedIndex != 1) throw new InvalidOperationException("failed MTU cap delivery must release the wait and keep the last saved value");
+                using (var capAck = JsonDocument.Parse("""{"mac_mtu_cap":{"available":true,"busy":false,"persistence":"saved","saved_cap":"1500","effective_cap":"1500","request_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}""")) UpdateLocalDiagnostics(capAck.RootElement);
+                if (macMtuCapDeliveryFailureID != "" || capControl.SelectedIndex != 2 || !macMtuCapMessage.Contains("下次 Mac 連線")) throw new InvalidOperationException("matching MTU cap acknowledgement must replace the delivery warning");
                 using (var armed = JsonDocument.Parse("""{"photo_policy":{"available":true,"requested":true,"effective":false,"busy":false,"persistence":"saved","saved_enabled":true,"policy_armed":true,"phase":"policy_armed_waiting_reenumeration"}}""")) UpdateLocalDiagnostics(armed.RootElement);
                 if (!trustExperiments.Single(e => e.Key == "photo_policy").Message.Contains("尚未確認前置阻斷")) throw new InvalidOperationException("armed policy must not imply blocked photo traffic");
                 using (var unsupported = JsonDocument.Parse("""{"photo_policy":{"available":false,"requested":true,"effective":false,"busy":false,"persistence":"saved","saved_enabled":true,"phase":"unsupported","error":"PHOTO_POLICY_WINDOWS_EDITION_OR_BUILD_UNSUPPORTED"}}""")) UpdateLocalDiagnostics(unsupported.RootElement);
@@ -312,6 +323,21 @@ public sealed partial class Dashboard
                                 if (request.RootElement.EnumerateObject().Count() != 2 || request.RootElement.GetProperty("action").GetString() != experiment.Action + (i == 0 ? "-on" : "-off") || request.RootElement.GetProperty("id").GetString() != new string(i == 0 ? 'a' : 'b', 32)) throw new InvalidOperationException("experiment must emit only fixed action and correlation identity");
                             }
                             markerOutput.GetStringBuilder().Clear();
+                        }
+                        SendMacMtuCap("9000", new string('a', 32));
+                        SendMacMtuCap("auto", new string('b', 32));
+                        var capRequests = markerOutput.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                        if (capRequests.Length != 2) throw new InvalidOperationException("MTU cap request count");
+                        for (var i = 0; i < capRequests.Length; i++)
+                        {
+                            using var request = JsonDocument.Parse(capRequests[i]);
+                            if (request.RootElement.EnumerateObject().Count() != 2 || request.RootElement.GetProperty("action").GetString() != (i == 0 ? "mac-mtu-cap-9000" : "mac-mtu-cap-auto") || request.RootElement.GetProperty("id").GetString() != new string(i == 0 ? 'a' : 'b', 32)) throw new InvalidOperationException("MTU cap must emit only fixed action and correlation identity");
+                        }
+                        markerOutput.GetStringBuilder().Clear();
+                        foreach (var badCap in new[] { ("16000", new string('a', 32)), ("1500", "old") })
+                        {
+                            try { SendMacMtuCap(badCap.Item1, badCap.Item2); throw new InvalidOperationException("invalid MTU cap request accepted"); }
+                            catch (ArgumentException) { }
                         }
                         foreach (var invalid in new[] { ("shell", new string('a', 32)), ("wpd-trace", new string('a', 32)), ("amds-hold", "old") })
                         {

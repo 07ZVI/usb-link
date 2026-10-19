@@ -24,6 +24,7 @@ func setLocalExperimentMaster(on bool) {
 	SetLocalUSBTraceMaster(on)
 	SetLocalPnPTraceMaster(on)
 	SetLocalNCMDirectMaster(on)
+	SetLocalMacMTUCapMaster(on)
 }
 
 func localDeveloperDebugStatus() any {
@@ -32,6 +33,8 @@ func localDeveloperDebugStatus() any {
 	}
 	return localDeveloperDebug.snapshot()
 }
+
+var macMTUCapActions = map[string]string{"mac-mtu-cap-auto": "auto", "mac-mtu-cap-9000": "9000", "mac-mtu-cap-1500": "1500"}
 
 func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 	action := request.Action
@@ -47,6 +50,19 @@ func handleLocalRemoteAction(u *modernUI, request desktopRequest) bool {
 		set = SetLocalNCMDirect
 	case "amds-hold-on", "amds-hold-off":
 		set = SetLocalAMDSHold
+	}
+	if setting, ok := macMTUCapActions[action]; ok {
+		if !validStartupDisplayRequestID(request.ID) {
+			u.setNotice("本地實驗設定請求無效。")
+			return true
+		}
+		go func() {
+			if err := SetLocalMacMTUCap(setting, request.ID); err != nil {
+				u.setNotice("本地實驗設定未完成：" + err.Error())
+			}
+			u.requestRefresh()
+		}()
+		return true
 	}
 	if set != nil {
 		if !validStartupDisplayRequestID(request.ID) {

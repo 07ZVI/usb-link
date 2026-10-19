@@ -36,6 +36,8 @@ type ApplicationResult struct {
 	DeviceKind                                     string                  `json:"device_kind,omitempty"`
 	MacPeerResolved                                bool                    `json:"mac_arp_peer_resolved"`
 	MacEffectiveMTU                                int                     `json:"mac_effective_mtu,omitempty"`
+	MacMTUCap                                      string                  `json:"mac_mtu_cap,omitempty"`
+	MacMTUCapFrameLimit                            int                     `json:"mac_mtu_cap_frame_limit,omitempty"`
 	MacNCMDescriptors                              string                  `json:"mac_ncm_descriptor_summary,omitempty"`
 	MacPathMTUWarning                              string                  `json:"mac_path_mtu_warning,omitempty"`
 	ServicesReady                                  bool                    `json:"services_ready"`

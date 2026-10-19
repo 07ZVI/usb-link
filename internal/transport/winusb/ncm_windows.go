@@ -38,14 +38,16 @@ func (d *NCMDevice) Close() {
 
 // InitializeNCM is the same verified phase-1 sequence, shared by probe and bridge.
 func InitializeNCM(group int, parent bool, timeoutMS uint32, l *log.Logger) (*NCMDevice, error) {
-	return initializeNCM(group, parent, timeoutMS, l, false)
+	return initializeNCM(group, parent, timeoutMS, l, false, ncm.MTUCapAuto)
 }
 
-func InitializeNCMWithTrial(group int, parent bool, timeoutMS uint32, l *log.Logger) (*NCMDevice, error) {
-	return initializeNCM(group, parent, timeoutMS, l, true)
+// InitializeNCMWithTrial may raise the maximum datagram size, never beyond the
+// ceiling that limit allows.
+func InitializeNCMWithTrial(group int, parent bool, timeoutMS uint32, l *log.Logger, limit ncm.MTUCap) (*NCMDevice, error) {
+	return initializeNCM(group, parent, timeoutMS, l, true, limit)
 }
 
-func initializeNCM(group int, parent bool, timeoutMS uint32, l *log.Logger, trial bool) (*NCMDevice, error) {
+func initializeNCM(group int, parent bool, timeoutMS uint32, l *log.Logger, trial bool, limit ncm.MTUCap) (*NCMDevice, error) {
 	nodes, e := Enumerate(l)
 	if e != nil {
 		return nil, e
@@ -207,7 +209,7 @@ func initializeNCM(group int, parent bool, timeoutMS uint32, l *log.Logger, tria
 		}
 	}()
 	if trial {
-		datagram, e = ncm.TryDatagram(control.datagramControl, uint16(cd.Number), f.Capabilities, f.MaxSegment)
+		datagram, e = ncm.TryDatagramCapped(control.datagramControl, uint16(cd.Number), f.Capabilities, f.MaxSegment, limit)
 		if e != nil {
 			l.Printf("MTU_TRIAL frame negotiation unavailable: %v; IP MTU remains 1500", e)
 		}

@@ -11,7 +11,7 @@ import (
 
 func TestLocalControlFailureKeepsRequestIdentityWithoutClaimingOutcome(t *testing.T) {
 	id := strings.Repeat("a", 32)
-	for _, action := range []string{"local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off"} {
+	for _, action := range []string{"local-usb-update-on", "local-usb-update-off", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off", "mac-mtu-cap-auto", "mac-mtu-cap-9000", "mac-mtu-cap-1500"} {
 		event, ok := localControlFailureEvent(action, id)
 		if !ok || event.Event != "local-control-result" || event.Action != action || event.RequestID != id || event.Code != "CORE_UI_ACTION_FAILED" {
 			t.Fatal(action, event, ok)
@@ -70,7 +70,7 @@ func TestLocalTimingTrialActionAdmission(t *testing.T) {
 	t.Cleanup(func() { buildinfo.LocalDiagnostics = old })
 	for _, profile := range []string{"true", "false", ""} {
 		buildinfo.LocalDiagnostics = profile
-		for _, action := range []string{"trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off"} {
+		for _, action := range []string{"trust-timing-fast", "trust-timing-delayed", "trust-timing-reset", "photo-isolation-on", "photo-isolation-off", "wpd-trace-on", "wpd-trace-off", "photo-policy-on", "photo-policy-off", "ncm-direct-on", "ncm-direct-off", "amds-hold-on", "amds-hold-off", "mac-mtu-cap-auto", "mac-mtu-cap-9000", "mac-mtu-cap-1500"} {
 			if serviceAdditionalAction(action) != (buildinfo.LocalRemote && profile == "true") {
 				t.Fatal(profile, action)
 			}
