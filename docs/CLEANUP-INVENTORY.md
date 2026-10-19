@@ -1,12 +1,12 @@
 # Investigation and diagnostic code inventory
 
 Scope: code added while investigating the iPad "Trust This Computer" prompt and
-related connection experiments. Goal: public builds stop compiling and running
-heavy investigation tooling without changing anything on the connection path.
+related connection experiments. The owner decided to delete the investigation-only
+code instead of keeping it behind the developer build tag.
 
 Build profiles: **public** = default tags (what `project.py package --profile
-release` ships); **dev** = tag `usblink_local_remote`. Sizes are non-test Go lines.
-"Public set" = files `go list` selects for `GOOS=windows GOARCH=amd64` with default tags.
+release` ships); **dev** = tag `usblink_local_remote`. "Public set" = files `go list`
+selects for `GOOS=windows GOARCH=amd64` with default tags.
 
 Evidence: the on-device investigation is summarized in
 [IPAD-TRUST-PROMPTS.zh-CN.md](IPAD-TRUST-PROMPTS.zh-CN.md) (0.10.41-0.10.55
@@ -14,64 +14,64 @@ sections). Its end state, as stated by the project owner: the prompt is produced
 by iPadOS itself when the PTP interface appears about 16 s after the mode-3
 switch, with the Windows node disabled, 0 MTP commands issued and AMDS stopped.
 So the tracing built to catch a Windows-side trigger has nothing left to prove.
-Docs have no per-experiment "closed" notes, so a **DELETE** needs both "dev-only or
-unreferenced" and an explicit conclusion; none qualified yet (see Deferred).
 
-Decisions: KEEP-PUBLIC (user-facing diagnostic), MOVE-TO-DEV-BUILD (build tag, no
-longer in public), DELETE, KEEP (reason given), DEFER (connection-path coupling;
-needs Windows device validation, not done here).
+Decisions: KEEP-PUBLIC (user-facing diagnostic), DELETED, KEEP (reason given),
+DEFER (needs Windows device validation, not done here).
 
-## Done in this change
+## Deleted
 
-| Area | Files / lines (all builds) | Public set before -> after | Public dependents | Decision |
-|---|---|---|---|---|
-| WPD/MTP ETW trace: `ipadncm/local_wpd_trace_*`, `local_wpd_critical_*` (decode, manifest, privacy filter, projection, critical queue, query model) | 19 files / 3,533 | 10 / 1,744 -> 5 / 508 | Status field `wpd_trace` stays (null). IPC and local diagnostics tolerate absence. | MOVE-TO-DEV-BUILD. Native consumer was already dev-only. **KEEP** the minimal journal, session-ownership check, store and `RestoreLocalWPDTrace` in public: it stops a session a dev build left running, a host-state restore. |
-| Windows USB ETW trace: `local_usb_trace_*` | 8 / 1,445 | 4 / 554 -> 3 / 345 | `local_usb_trace` stays; public stub now returns a small map (same `available`/`phase`/`error`/`coverage`/ownership keys). | MOVE-TO-DEV-BUILD; recovery (`RestoreLocalUSBTrace`) kept for the same reason. |
-| PnP native trace: `local_pnp_trace_*` | 3 / 314 | 2 / 279 -> 1 / 9 | `pnp_native_trace` stays null. | MOVE-TO-DEV-BUILD. `deviceguard.ChangeMetadataStream` is KEPT: it is plumbed through the public CM callback (`changes_windows.go`); public stubs are no-ops. |
-| Connection archive: `local_connection_archive_*` | 3 / 948 | 2 / 716 -> 1 / 12 | `connection_archive` stays null; `Record*` stubs stay (called from public code). | MOVE-TO-DEV-BUILD. Reader stubs (only dev callers) deleted. |
-| Connection timing trial: `connection_timing*.go` | 6 / 595 | 4 / 515 -> 2 / 49 | Public already used the `*_disabled_windows.go` fast-path stubs; only `connectionTimingPlan` kept. | MOVE-TO-DEV-BUILD. |
-| Trust timeline sampler: `trust_diagnostics_windows.go` | 188 | in public set -> out | `StartTrustDiagnostics` was a no-op unless `LocalDiagnostics=="true"`. State machine (`trust_diagnostics.go`) stays: `connection_trace.go` calls `RecordTrustOperation`/`stamp` (inert in public). | MOVE-TO-DEV-BUILD (sampler only). |
-| Runtime network sampler: `runtime_network_diagnostics*.go` | 3 / 402 | in public set -> out | `StartRuntimeNetworkDiagnostics`/`RuntimeNetworkDiagnostics` now public no-ops (nil value), only read when `LocalDiagnostics=="true"`. | MOVE-TO-DEV-BUILD. |
-| Standalone tools, none built by any `project.py` profile: `cmd/ipad-probe` + `internal/diagnostics/ipadprobe`; `cmd/ncm-probe`; `cmd/usb-latency`; `cmd/usb-throughput`; `cmd/ipad-ncm-check`; `cmd/ipad-ncm-status-check`; `cmd/ipad-usb-access-check`; `cmd/device-check` + `internal/platform/windows/devicecheck` | ~2,100 incl. packages | 12 files -> 0 | Nothing imports them (`ncm-probe` appears only as a historical log name / retired-asset hash). `usb-throughput` is named "development diagnostic only" in BROWSER-SPEED-TEST.md. | MOVE-TO-DEV-BUILD (still buildable with the tag). No doc says they concluded, so not deleted. |
+Commits: **A8** `8685208`, **A1-A7** `f093fbd`, **B1-B3** `c4c42b5` (all on top of 0.10.57).
 
-## Kept in public on purpose
+| Item | What was removed | Commit |
+|---|---|---|
+| A1 WPD/MTP ETW trace | `ipadncm/local_wpd_trace_*` and `local_wpd_critical_*` except the recovery core; WPD status object, desktop WPD section, `wpd-trace-*` actions, preference store | `f093fbd` |
+| A2 Windows USB ETW trace | `local_usb_trace_*` except the recovery core and query-ownership comparison; USB trace status and desktop section | `f093fbd` |
+| A3 PnP native trace | `local_pnp_trace_*`, `pnp_native_trace` status | `f093fbd` |
+| A4 Connection archive | `local_connection_archive_*`, every `Record*` call site, the connection environment sampler, the rearm-gate projection, the sanitized authorization failure projection, the archive HTTP handler on the developer remote, `usb-link-local-update --collect-archives`, `mac/collect-windows.py` archive export and its test, desktop archive status | `f093fbd`, `mac/` in the docs/scripts commit |
+| A5 Connection timing trial | `connection_timing*` including `connectionTimingPlan`, the persisted timing preference, `trust-timing-*` actions, desktop timing status. Idle gating keeps the fixed fast-path constants (1 s fallback, no delay). | `f093fbd` |
+| A6 Trust timeline sampler | `trust_diagnostics_windows.go`, the trust timeline state machine and its status; only the bounded PnP node types used by NCM Direct remain in `trust_diagnostics.go`. `TrustPromptDiagnostics` is untouched. | `f093fbd` |
+| A7 Runtime network sampler | `runtime_network_diagnostics*` and its no-op public stubs | `f093fbd` |
+| A8 Standalone tools | `cmd/ipad-probe` + `internal/diagnostics/ipadprobe`; `cmd/ncm-probe`; `cmd/usb-latency`; `cmd/usb-throughput`; `cmd/ipad-ncm-check`; `cmd/ipad-ncm-status-check`; `cmd/ipad-usb-access-check`; `cmd/device-check` + `internal/platform/windows/devicecheck` | `8685208` |
+| B1 AMDS mode diagnostic | `amds_mode_diagnostic_windows.go` (job runner), `amds_local_trial*`, the batch-hold gate, the replug gate, `trust-service-trial-*` actions | `c4c42b5` |
+| B2 Unpaired experiment | `unpaired_experiment*`, `unpaired_pair_leaf*`, `unpaired_pair_metadata_windows.go`, DHCP/neighbor/TCP event hooks, launcher startup-hold constant | `c4c42b5` |
+| B3 Candidate stages | `candidate_control_windows.go`, `candidate_proof*`, the stage machinery in `candidate_features.go` | `c4c42b5` |
+
+The B gates were replaced by the constants they always produced; the proof for
+each gate is in the `c4c42b5` commit message. The legacy diagnostic commands
+(`IPADUNPAIRED*`, `IPADCANDIDATE*`, `IPADAMDS*`, `IPADDIAGNOSTIC*`) still answer
+"legacy isolation diagnostics retired".
+
+## Kept on purpose
 
 | Item | Why |
 |---|---|
-| `TrustPromptDiagnostics` (the exported line "iPad 首次連線與信任提示診斷"), `usb_authorization_diagnostics*`, `usb_descriptor_*`, `startup_diagnostics`, `monitor_diagnostics`, `netdebug`, `grouping_receipt_diagnostics` | These produce connection status, failure codes and the lines users attach to bug reports. The prompt line reads the remembered-photo-instance store and attempt failures, not any removed tracing; verified by compilation without the trace models and by its existing tests. |
-| `connection_trace.go`, `rearm_diagnostics.go`, `mode_arrival*` | Called from the connection flow; cheap and inert. |
-| NCM Direct (mode 5): `local_ncm_direct_*` | Required by the owner as a developer experiment. Already dev-only (public has a stub). Untouched. |
+| A9 recovery cores: `local_wpd_trace_{core,cleanup,store,recovery}`, `local_usb_trace_{core,recovery}`, `RestoreLocalWPDTrace`, `RestoreLocalUSBTrace` | A developer build may have left an ETW session running. `StartLocalWPDTrace` / `StartLocalUSBTrace` only run this restore at startup and uninstall; a failure is logged (`WPD_TRACE_RESTORE_FAILED`, `USB_TRACE_RESTORE_FAILED`) instead of being published in status. |
+| `amds_diagnostic_recovery_windows.go` (receipt reader, `RecoverAMDSModeDiagnostic`, `diagnosticServiceState`) | `InitSimplifiedIPadNetwork` still replays an `amds-diagnostic.json` receipt an older build may have left, and the AMDS hold shares the helpers. Host-state restore, same reason as A9. |
+| `unpaired_product*.go` | The one-time compatibility migration and the network-only receipt readers still decode the retired owner and choice files. |
+| `deviceguard.ChangeMetadataStream` | Plumbed through the public CM callback (`changes_windows.go`); the public stubs are no-ops. Its only consumer, the PnP trace, is gone, so it is a candidate for a later removal together with the callback parameter. |
+| `TrustPromptDiagnostics` (the exported line "iPad 首次連線與信任提示診斷"), `usb_authorization_diagnostics*`, `usb_descriptor_*`, `startup_diagnostics`, `monitor_diagnostics`, `netdebug`, `grouping_receipt_diagnostics` | These produce connection status, failure codes and the lines users attach to bug reports. |
+| `connection_trace.go`, `mode_arrival*` | Called from the connection flow; cheap and inert. |
+| NCM Direct (mode 5): `local_ncm_direct_*` | Developer experiment required by the owner. |
 | `internal/diagnostics/grouptrial` | Name is historical; production grouping uses it. |
-| `mtutrial`, `latencyprobe`, `rawusb`, `bench`, `throughput`, `probecontrol`, `memorydiag`, `shutdowntrace`, `exitrecord`, `macalias` | On the bridge data path or the browser speed test / exit protocol. |
+| `mtutrial`, `latencyprobe`, `rawusb`, `bench`, `throughput`, `probecontrol`, `memorydiag`, `shutdowntrace`, `exitrecord`, `macalias` | On the bridge data path or the browser speed test / exit protocol. `shutdowntrace` still lists the retired `pnp_stop` and `environment_stop` phase names. |
 | `local_photo_*`, `local_amds_hold_*`, `network_only_*`, `software_reconnect_*`, photo-policy leftovers | Photo isolation, AMDS hold, mode switching, restore protocol. Explicitly out of scope. |
-| Desktop `LocalDiagnostics`, `LocalTrustExperiments` views | Already compiled only with `USBLinkLocalDiagnostics`; the parsers use `TryGetProperty`, so null/absent fields from public stubs need no UI change. |
+| Desktop `LocalDiagnostics`, `LocalTrustExperiments` views | Compiled only with `USBLinkLocalDiagnostics`; they now show only the developer-debug switch, photo isolation, NCM Direct, the MTU control and the recovery warnings. |
+| `remoteupdate.ReserveIdleActions` signature | Still has candidate and AMDS parameters; the caller passes `false`. |
 
-## Deferred: dead or experimental, but wired into connection decisions
-
-Removing these edits `launcher/main_windows.go`, `idle_windows.go`,
-`application_windows.go` or the grouping/DHCP flow, which would touch the path
-that lets a Mac or iPad connect. Behaviour-preserving in theory, unproven without
-a Windows device. Proposed as a separate change with hardware acceptance.
+## Still deferred
 
 | Item | Lines | Evidence | Coupling | Proposed |
 |---|---|---|---|---|
-| `amds_mode_diagnostic_windows.go`, `amds_local_trial*` (Apple service comparison) | 554 + 84 | docs 0.10.18 comparison done; `StartAMDSModeDiagnostic` unreachable from every `main` | `AMDSModeDiagnosticActive/Pending` gate `CanConnect` and idle | DELETE once gates become constants |
-| `unpaired_*` experiment (Trust/unpaired recovery) | 1,255 | entry points unreachable (deadcode); no doc conclusion | `UnpairedExperimentCanConnect`, idle, DHCP event hooks, upgrade admission | DELETE after device check |
-| `candidate_*` (iPad candidate stages) | 345 | entry points unreachable; legacy commands already answer "retired" | idle/launcher gates | DELETE after device check |
 | `network_only_phase*` capture | ~500 | capture entry unreachable | network-only restore path | DEFER |
 | Wintun lifecycle probe (`launcher/wintun_*probe*`, `netconfig/wintun_lifetime_probe*`) | ~800 | developer-remote only, but the argv dispatcher is in public `main` | Wintun path (out of scope) | MOVE-TO-DEV-BUILD later |
 | `netconfig/firewall_resident_diagnostic*`, `host_identity_diagnostic*` | ~430 | feed local remote runtime details | netconfig | DEFER |
 
-## Size effect (public Windows set, `go list` GoFiles, non-test)
+## Size effect (`GOOS=windows GOARCH=amd64`, non-test Go files under `internal` and `cmd`)
 
-| | Files | Lines |
-|---|---|---|
-| Before | 737 | 113,873 |
-| After (includes +330 lines for the new Mac NCM descriptor summary) | 715 | 108,626 |
-| Repository, all Go incl. tests (nothing deleted, moved code stays for dev builds; plus new probe, tests and split files) | 1,290 -> 1,300 | 172,630 -> 173,346 |
-
-Dev build (`usblink_local_remote`) code is unchanged in behaviour; developer file set
-went 788 -> 794 files only because of the new split files and summary.
+| | Public files | Public lines | Dev (`usblink_local_remote`) files | Dev lines | All Go incl. tests (files / lines) |
+|---|---|---|---|---|---|
+| Before (0.10.57, `c6f7702`) | 685 | 103,808 | 767 | 120,332 | 1,271 / 168,156 |
+| After | 665 | 100,798 | 708 | 108,039 | 1,150 / 149,200 |
 
 ## Mac NCM descriptor summary (read-only)
 

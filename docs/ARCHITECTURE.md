@@ -74,16 +74,15 @@ A failed service read produces a bounded `backend-unavailable` event with a fixe
 
 ## ipadncm package decomposition plan
 
-Status: plan only; no package split yet. `internal/app/ipadncm` holds about 360 files (126 tests). See [CLEANUP-INVENTORY.md](CLEANUP-INVENTORY.md): most `local_wpd_*`, `local_usb_trace_*`, `local_pnp_trace_*`, `local_connection_archive_*` and `connection_timing*` code is now developer-build only (build tag `usblink_local_remote`); public builds keep only the leftover-session recovery core. Counts below predate that move. Filename prefixes (`ls | cut`) show the subdomains. Lines count all files with the prefix, including tests.
+Status: plan only; no package split yet. `internal/app/ipadncm` holds about 300 files (95 tests). The WPD/USB/PnP ETW traces, the connection archive, the connection timing trial, the trust timeline and runtime network samplers, the AMDS mode diagnostic, the unpaired experiment and the candidate stages are deleted (see [CLEANUP-INVENTORY.md](CLEANUP-INVENTORY.md)); only the leftover-session recovery cores for the ETW traces and the AMDS diagnostic receipt remain. Filename prefixes (`ls | cut`) show the subdomains. Lines count all files with the prefix, including tests.
 
-| Prefix | Files (tests) | Lines | Proposed package |
+| Prefix | Files | Lines | Proposed package |
 |---|---|---|---|
-| `local_wpd_*` | 36 (19) | ~6,400 | `ipadncm/wpdtrace` |
-| `local_photo_*` | 19 (4) | ~2,800 | `ipadncm/photoprobe` |
-| `network_only_*` | 14 (5) | ~2,000 | `ipadncm/networkonly` |
-| `software_reconnect_*` | 13 (5) | ~1,850 | `ipadncm/softreconnect` |
+| `local_photo_*` | 22 | ~3,900 | `ipadncm/photoprobe` |
+| `network_only_*` | 17 | ~2,000 | `ipadncm/networkonly` |
+| `software_reconnect_*` | 13 | ~1,850 | `ipadncm/softreconnect` |
 
-Smaller clusters (`local_ncm_*` 12, `local_usb_*` 10, `local_amds_*` 10, `usb_descriptor_*` 9, `connection_timing_*` 8, `trust_revoke_*` 6) are later candidates and are not planned here.
+Smaller clusters (`local_ncm_*` 12, `local_amds_*` 10, `usb_descriptor_*` 9, `local_wpd_*` 7 and `local_usb_*` 4 recovery cores, `trust_revoke_*` 6) are later candidates and are not planned here.
 
 ### Coupling estimate
 
@@ -91,9 +90,7 @@ Method: collect top-level `func`/`type`/`var`/`const` names defined in each pref
 
 | Prefix | Names referenced from outside | Of which exported | Reverse references | Notes |
 |---|---|---|---|---|
-| `connection_timing_*` (reference) | 12 | 5 | 24 | Only 2 files outside use it. |
-| `local_wpd_*` | 33 | 3 | 55 | Mostly diagnostic helpers (`snapshot`, `record`, `sample`, `publish`). |
-| `local_photo_*` | 26 | 9 | 62 | Shares `snapshot`/`restore`/`allowed` conventions with `local_wpd_*`. |
+| `local_photo_*` | 26 | 9 | 62 | Shares `snapshot`/`restore`/`allowed` conventions with the other local experiments. |
 | `software_reconnect_*` | 15 | 7 | 57 | Entry points such as `IPadSoftwareReconnectCanConnect` are already exported; the unexported ones are trust handles and property helpers. |
 | `network_only_*` | 41 | 12 | 71 | Highest outbound use: `networkOnlyDriverStoreProtected`, `portableNodeReceipt`, `portableCfg` (12-14 files each). |
 
@@ -104,10 +101,9 @@ Test caveat: tests in these prefixes use unexported helpers and several tests re
 ### Suggested order (least coupled first)
 
 1. Extract the shared lower-level package (helpers only, no behaviour). This is a prerequisite for all steps below.
-2. `wpdtrace`: largest and mostly diagnostic; few exported entry points.
-3. `photoprobe`: similar shape to `wpdtrace`, so it reuses the same pattern.
-4. `softreconnect`: small surface, but it touches trust and consent paths.
-5. `networkonly`: most coupled and security-sensitive; last.
+2. `photoprobe`: largest remaining and mostly diagnostic.
+3. `softreconnect`: small surface, but it touches trust and consent paths.
+4. `networkonly`: most coupled and security-sensitive; last.
 
 ### Process
 
