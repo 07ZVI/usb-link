@@ -299,8 +299,6 @@ func runAMDSModeDiagnostic(ctx context.Context, version, requested, dir, root st
 		r.Error = "SERVICE_RESTORE_JOURNAL_UNAVAILABLE"
 		return
 	}
-	RecordTrustOperation(currentSoftwareAttempt(), "apple_service_lease_begin")
-	defer func() { RecordTrustOperation(currentSoftwareAttempt(), "apple_service_lease_end") }()
 	defer func() {
 		diagnosticPhase("restoring_service")
 		restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -14,9 +14,8 @@ func TestAuthorizationReadbackCountsBothTruncationStages(t *testing.T) {
 	}
 	s := Snapshot{ConnectionReadErrorCodes: codes, Devices: []Device{{Errors: codes}}}
 	r := authorizationReadback(s, s, 61*time.Millisecond)
-	d := sanitizedAuthorizationFailure(usbAuthorizationFailureDiagnostic{Initial: &r})
-	if len(d.Initial.USB.RejectionCodes) != 8 || d.Initial.RejectionCodesOmitted != 24 || len(d.Initial.USB.ConnectionReadErrorCodes) != 8 || d.Initial.ReadCodesOmitted != 24 {
-		t.Fatal("omitted counts lost the first truncation", d.Initial)
+	if len(r.USB.RejectionCodes) != 8 || r.RejectionCodesOmitted != 24 || len(r.USB.ConnectionReadErrorCodes) != 8 || r.ReadCodesOmitted != 24 {
+		t.Fatal("omitted counts lost the first truncation", r)
 	}
 }
 

@@ -125,9 +125,8 @@ func TestConfirmedNormalReplugSkipsAdditionalDebounce(t *testing.T) {
 	if !g.ready(arrival, peer.identity, peer, true) {
 		t.Fatal("confirmed replug waited another two seconds")
 	}
-	s := rearmDiagnostic(arrival, now, peer.identity, peer, true, g, false, false, true)
-	if !s.FastReplug || !s.AbsenceConfirmed || s.MinimumMS != 0 || s.Reason != "same_root_ready_after_cached_absence" {
-		t.Fatal("fast-path evidence missing", s)
+	if !g.fastReplug {
+		t.Fatal("fast-path evidence missing")
 	}
 }
 

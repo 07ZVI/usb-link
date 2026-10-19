@@ -30,12 +30,8 @@ func (m *monitorDiagnosticCounter) stageFor(expectedAttempt uint64, stage, evide
 		return
 	}
 	m.Lock()
-	var archived *ConnectionEvent
 	defer func() {
 		m.Unlock()
-		if archived != nil {
-			RecordConnectionArchiveEvent("connection_stage", map[string]any{"attempt": archived.Attempt, "stage": archived.Stage, "event_utc": archived.UTC, "ms_since_software_attempt_not_physical_insertion": archived.ElapsedMS})
-		}
 	}()
 	if m.deviceKind != "iPad" || m.attemptStarted.IsZero() {
 		return
@@ -64,7 +60,6 @@ func (m *monitorDiagnosticCounter) stageFor(expectedAttempt uint64, stage, evide
 	now := time.Now()
 	event := ConnectionEvent{Attempt: m.attempt, UTC: now.UTC().Format(time.RFC3339Nano), ElapsedMS: now.Sub(m.attemptStarted).Milliseconds(), Stage: stage, Evidence: evidence}
 	m.r.ConnectionTrace = append(m.r.ConnectionTrace, event)
-	archived = &event
 }
 func recordConnectionStage(stage, evidence string) { monitorDiagnostics.stage(stage, evidence, true) }
 
@@ -92,7 +87,6 @@ func RecordConnectionOperation(operation string) func() {
 	m.operationAt = time.Now()
 	m.Unlock()
 	m.stageFor(attempt, operation+"_begin", "own_operation_started", false)
-	RecordTrustOperation(attempt, operation+"_begin")
 	return func() {
 		m.Lock()
 		same := m.attempt == attempt
@@ -106,7 +100,6 @@ func RecordConnectionOperation(operation string) func() {
 			}
 		}
 		m.Unlock()
-		RecordTrustOperation(attempt, operation+"_end")
 		if same {
 			m.stageFor(attempt, operation+"_end", "own_operation_returned; result in existing diagnostics", false)
 		}

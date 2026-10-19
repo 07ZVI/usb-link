@@ -26,7 +26,7 @@ func StartPhotoIsolation(ctx context.Context, dir string) func() {
 		localPhoto.context = run
 		localPhoto.stamp = func() (string, string, int64) {
 			now := time.Now()
-			id, ms := trustDiagnostics.stamp(now)
+			id, ms := "", int64(-1) // the trust timeline observer no longer exists
 			return now.UTC().Format(time.RFC3339Nano), id, ms
 		}
 		done := make(chan struct{})

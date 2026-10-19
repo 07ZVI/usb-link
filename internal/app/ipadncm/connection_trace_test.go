@@ -2,7 +2,6 @@ package ipadncm
 
 import (
 	"encoding/json"
-	"suhang/usbnet/internal/buildinfo"
 	"testing"
 	"time"
 )
@@ -27,30 +26,6 @@ func TestConnectionStageCarriesObservationTimeForNativeCorrelation(t *testing.T)
 	var decoded ConnectionEvent
 	if err != nil || json.Unmarshal(b, &decoded) != nil || decoded.UTC != e.UTC || decoded.ElapsedMS != e.ElapsedMS {
 		t.Fatal("observation time lost in snapshot", string(b), err)
-	}
-}
-
-func TestPreSwitchControlOperationsReachTrustTimeline(t *testing.T) {
-	oldMonitor, oldTrust, oldFlag := monitorDiagnostics, trustDiagnostics, buildinfo.LocalDiagnostics
-	t.Cleanup(func() {
-		monitorDiagnostics, trustDiagnostics, buildinfo.LocalDiagnostics = oldMonitor, oldTrust, oldFlag
-	})
-	monitorDiagnostics = newMonitorDiagnosticCounter()
-	trustDiagnostics = &trustDiagnosticState{}
-	trustDiagnostics.start(time.Now(), "control-window-test")
-	buildinfo.LocalDiagnostics = "true"
-	RecordConnectionAttemptFor("iPad")
-	for _, operation := range []string{"usb_control_open", "usb_get_mode", "usb_mode_switch", "usb_set_mode_request"} {
-		RecordConnectionOperation(operation)()
-	}
-	events := TrustDiagnosticsSnapshot().Events
-	if len(events) != 9 {
-		t.Fatalf("control operation windows missing: %+v", events)
-	}
-	for i, stage := range []string{"usb_control_open_begin", "usb_control_open_end", "usb_get_mode_begin", "usb_get_mode_end", "usb_mode_switch_begin", "usb_mode_switch_end", "usb_set_mode_request_begin", "usb_set_mode_request_end"} {
-		if events[i+1].Kind != stage || events[i+1].Attempt != 1 {
-			t.Fatalf("control operation attribution mismatch: %+v", events[i+1])
-		}
 	}
 }
 

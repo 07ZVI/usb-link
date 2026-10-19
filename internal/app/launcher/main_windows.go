@@ -388,12 +388,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		_ = ipadncm.InitSimplifiedIPadNetwork(recoveryDir)
 		r.Recovery = ipadncm.InspectPersistentNetworkGrouping(recoveryDir)
 		ipadncm.RecordSimplifiedGroupingWarning(r.Recovery.Error)
-		defer ipadncm.StartConnectionArchive(ctx, recoveryDir)()
-		defer shutdowntrace.Wrap(shutdowntrace.PhaseEnvironmentStop, ipadncm.StartConnectionEnvironment(ctx, version))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseDefaultIsolationStop, ipadncm.StartDefaultNetworkIsolation(ctx, recoveryDir))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseWPDStop, ipadncm.StartLocalWPDTrace(ctx, recoveryDir))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseUSBStop, ipadncm.StartLocalUSBTrace(ctx, recoveryDir))()
-		defer shutdowntrace.Wrap(shutdowntrace.PhasePnPStop, ipadncm.StartLocalPnPTrace(ctx))()
 		defer shutdowntrace.Wrap(shutdowntrace.PhaseDirectStop, ipadncm.StartLocalNCMDirect(ctx, recoveryDir))()
 	}
 	var macRecovery macconnection.RecoveryReport
@@ -627,28 +624,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		macconnection.DeveloperStatus = func() any { return developerRemote.ListenerStatus() }
 	}
 	if buildinfo.LocalDiagnostics == "true" {
-		macconnection.ConnectionArchiveEvidence = func() any {
-			return map[string]any{"core_version": version, "connection_archive": ipadncm.ConnectionArchiveDiagnostics()}
-		}
-		ipadncm.StartRuntimeNetworkDiagnostics(ctx)
-		ipadncm.StartTrustDiagnostics(ctx)
-		macconnection.TrustEvidence = func() any {
-			return map[string]any{"core_version": version, "ipad_trust_timeline": ipadncm.TrustDiagnosticsSnapshot(), "apple_service_trial": ipadncm.LocalTrustServiceTrialSnapshot()}
-		}
-		macconnection.TimingEvidence = func() any {
-			return map[string]any{"core_version": version, "connection_timing": ipadncm.ConnectionTimingDiagnostics()}
-		}
 		macconnection.PhotoEvidence = func() any {
 			return map[string]any{"core_version": version, "photo_isolation": ipadncm.PhotoIsolationDiagnostics()}
-		}
-		macconnection.WPDTraceEvidence = func() any {
-			return map[string]any{"core_version": version, "wpd_trace": ipadncm.LocalWPDTraceDiagnostics()}
-		}
-		macconnection.NativeUSBEvidence = func() any {
-			return map[string]any{"core_version": version, "local_usb_trace": ipadncm.LocalUSBTraceDiagnostics()}
-		}
-		macconnection.NativePnPEvidence = func() any {
-			return map[string]any{"core_version": version, "pnp_native_trace": ipadncm.LocalPnPTraceDiagnostics()}
 		}
 		macconnection.PhotoPolicyEvidence = func() any {
 			return map[string]any{"core_version": version, "photo_policy": ipadncm.LocalPhotoPolicyDiagnostics()}
@@ -658,9 +635,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		macconnection.AMDSHoldEvidence = func() any {
 			return map[string]any{"core_version": version, "amds_hold": ipadncm.LocalAMDSHoldDiagnostics(), "default_network_isolation": ipadncm.DefaultNetworkIsolationDiagnostics()}
-		}
-		macconnection.RuntimeNetworkEvidence = func() any {
-			return map[string]any{"core_version": version, "ipad_runtime_network": ipadncm.RuntimeNetworkDiagnostics()}
 		}
 	}
 	macconnection.CoreHealthEvidence = func() []any {
@@ -863,9 +837,7 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		ipadncm.SetMonitorStatus("WAITING_SHARED_HOST", "")
 		lease := usbhost.NewAttemptLease(ctx, usbhost.AcquireSharedHost)
 		if !startupopt.Enabled(startupopt.ParallelPrepare) {
-			ipadncm.RecordConnectionTimingStage("shared_host_wait_begin")
 			joinError := lease.Join()
-			ipadncm.RecordConnectionTimingStage("shared_host_wait_end")
 			if joinError != nil {
 				lease.Close()
 				break
@@ -883,9 +855,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		ipadncm.SetConnectionContext(attemptCtx)
 		r = Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "PREPARE", UpgradeStop: handoff, LegacyServiceRetired: retired, LegacyCleanupWarning: legacyWarning, MacRecovery: macRecovery, InstallVersionCleanup: pruned, ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest, Authorization: authorization, DeviceKind: kind, AppleSessionsNotRequested: true}
 		ipadncm.RecordConnectionAttemptFor(kind)
-		if kind == "iPad" {
-			ipadncm.RecordConnectionTimingAttemptStart()
-		}
 		if remoteInstallID != "" {
 			_ = macconnection.RecordUpgradeEvidence(recoveryDir, version, "BEGIN_"+kind+"_SESSION", "")
 		}
@@ -911,7 +880,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		authorization.FinishSecurityAttempt()
 		ipadncm.ClearSimplifiedIPadConnectionScope()
 		hostInvalidated := lease.Invalidated()
-		ipadncm.RecordConnectionArchiveEvent("owner_phase", map[string]any{"phase": "session_cancel_begin", "device_kind": kind})
 		stopAttempt()
 		clearHostJoin()
 		softwareConsentContext.Store(nil)
@@ -945,8 +913,6 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		}
 		lastRecovery.Store(recoverySummary(r))
 		ipadncm.MarkIPadSoftwareReconnectSessionCleanup(!unsafeCleanup)
-		ipadncm.RecordConnectionArchiveEvent("owner_phase", map[string]any{"phase": "session_cleanup_complete", "device_kind": kind, "cleanup_safe": !unsafeCleanup})
-		ipadncm.RequestConnectionEnvironmentCapture()
 		if unsafeCleanup {
 			cleanupPending = true
 			runIPadPending(ctx, recoveryDir, system, false)

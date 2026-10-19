@@ -25,16 +25,8 @@ func TestExpandedDiagnosticEnvelopesFitUSBLogRecords(t *testing.T) {
 		Directory:    &groupingReceiptDirectory{Status: "READ_FAILED", EntriesExamined: 128, ReceiptsExamined: 128, InvalidReceipts: 128, Truncated: true},
 	}
 	connection.NativeStart = compactNativeStart(StartupReadinessDiagnostic{Attempt: ^uint64(0), Status: "NCM_PRESENT_NATIVE_DRIVER_START_FAILED", ExitReason: "TEN_SECOND_CAP", FastPathReason: "CONFIGURED_RECEIPT_UNAVAILABLE_OR_INVALID", Samples: []StartupDiagnosticSample{{Controls: 2, FailedControls: 1, StartedControls: 1}}})
-	network := RuntimeNetworkDiagnostic{Status: "READ_OK", SampledUTC: "2026-10-16T00:00:00Z", AgeMS: 9223372036854775807}
-	for i := 0; i < runtimeNetworkAdapterLimit; i++ {
-		network.Adapters = append(network.Adapters, RuntimeNetworkAdapter{Index: ^uint32(0), OperStatus: 1, IPv4: []string{"255.255.255.255", "255.255.255.255"}})
-	}
-	for i := 0; i < runtimeNetworkTCPMatchLimit; i++ {
-		network.TCP.Matches = append(network.TCP.Matches, RuntimeNetworkTCPMatch{Kind: "localsend_default_port", Local: "255.255.255.255:65535", Remote: "255.255.255.255:65535", State: "established"})
-	}
 	for _, envelope := range []map[string]any{
 		{"core_version": "0.10.14", "local_diagnostics_enabled": true, "ipad_connection": connection},
-		{"core_version": "0.10.14", "ipad_runtime_network": network},
 	} {
 		encoded, err := json.Marshal(envelope)
 		if err != nil || len(encoded) > 8192 {

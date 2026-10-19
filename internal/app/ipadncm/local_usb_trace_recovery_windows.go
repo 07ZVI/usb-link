@@ -115,7 +115,6 @@ func usbTraceQuery(j usbTraceJournal) (*wpdTracePropertyBuffer, bool, error) {
 	r, _, _ := wpdControlTrace.Call(0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(j.Name))), uintptr(unsafe.Pointer(b)), 0)
 	q := usbTraceQueryEvidence{Observed: true, NativeCode: uint32(r)}
 	if r != 0 {
-		usbTraceRecordQuery(q)
 		if r == 4201 {
 			return b, false, nil
 		}
@@ -130,7 +129,6 @@ func usbTraceQuery(j usbTraceJournal) (*wpdTracePropertyBuffer, bool, error) {
 	q.BufferBytes = b.Properties.Wnode.Size
 	raw := unsafe.Slice((*byte)(unsafe.Pointer(b)), int(unsafe.Sizeof(*b)))
 	q = usbTraceCompareQuery(raw, q, j.Name)
-	usbTraceRecordQuery(q)
 	if q.Mismatch != 0 {
 		return b, false, errors.New("USB_TRACE_SESSION_NOT_OWNED")
 	}

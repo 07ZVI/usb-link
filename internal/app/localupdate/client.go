@@ -115,7 +115,7 @@ func newClient(inv invitation) (*client, func()) {
 }
 
 func (c *client) request(ctx context.Context, method, path string, body io.Reader, manifest string, length int64) ([]byte, error) {
-	if !(method == "GET" && (path == "/v1/status" || path == "/v1/diagnostics/index" || path == "/v1/restart") || method == "POST" && (path == "/v1/prepare" || path == "/v1/apply" || path == "/v1/cancel" || path == "/v1/diagnostics/chunk" || path == "/v1/restart")) {
+	if !(method == "GET" && (path == "/v1/status" || path == "/v1/restart") || method == "POST" && (path == "/v1/prepare" || path == "/v1/apply" || path == "/v1/cancel" || path == "/v1/restart")) {
 		return nil, fmt.Errorf("unsupported USB push action")
 	}
 	q, err := http.NewRequestWithContext(ctx, method, endpoint+path, body)

@@ -15,9 +15,8 @@ func TestLocalNCMDirectPreferenceOwnerAndIndependentSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	master, _ := localDebugPreferenceName(sid)
-	timing, _ := localTimingPreferenceName(sid)
 	foreign, _ := localNCMDirectPreferenceName(other)
-	if name == master || name == timing || name == foreign || strings.Contains(name, sid) {
+	if name == master || name == foreign || strings.Contains(name, sid) {
 		t.Fatal("preference namespace or owner collision")
 	}
 	for _, enabled := range []bool{false, true} {
