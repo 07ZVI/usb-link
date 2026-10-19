@@ -81,7 +81,9 @@ Mac/iPad labeling, unavailable native routes, browser heartbeat freshness and
 inactive-session URL suppression. The actual browser completed both throughput
 directions on a loopback fixture, then restarted and cancelled a second test.
 Loopback numbers are not USB performance measurements. See
-[browser measurement boundaries](BROWSER-SPEED-TEST.md).
+[browser measurement boundaries](BROWSER-SPEED-TEST.md). Historical USB throughput
+results from earlier versions are collected in
+[SPEED-TEST-HISTORY.zh-CN.md](SPEED-TEST-HISTORY.zh-CN.md).
 
 The 30-second browser WebSocket test also completed with 3000/3000 echoes on the
 loopback fixture. The Avalonia macOS renderer passed the connection smoke test,
