@@ -149,6 +149,13 @@ var appWindowProc = windows.NewCallback(func(hwnd uintptr, message uint32, wpara
 				w.setTrayTip(trayTip)
 			}
 			return 0
+		case 0x8005: // Installer-requested close: end now, no exit-program protocol.
+			// The verified installer stops the core, which restores on its own.
+			// Cancelling here also keeps the core recovery from restarting it.
+			w.stopping = true
+			w.cancel()
+			w.removeTray()
+			return 0
 		case 0x8004: // Exit path: delete the icon on this thread, then acknowledge.
 			w.removeTray()
 			return 0

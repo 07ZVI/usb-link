@@ -49,6 +49,12 @@ type InstallationTransaction struct {
 	PreviousFiles map[string]string `json:"previous_files,omitempty"`
 }
 
+// InstallationPhaseActive reports whether an installer owns the core's
+// lifecycle. Only a finished or rolled-back transaction hands it back.
+func InstallationPhaseActive(p InstallationPhase) bool {
+	return validInstallationPhase(p) && p != InstallComplete && p != InstallRolledBack
+}
+
 func validInstallationPhase(p InstallationPhase) bool {
 	switch p {
 	case InstallStaged, InstallQuiescing, InstallPreviousBound, InstallPublished, InstallStarted, InstallAccepted, InstallCleaning, InstallComplete, InstallRestoring, InstallRolledBack:

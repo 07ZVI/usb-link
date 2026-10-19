@@ -385,7 +385,7 @@ func (o *nativeInstallation) Quiesce(ctx context.Context, t InstallationTransact
 		return fmt.Errorf("INSTALL_SERVICE_CHANGED")
 	}
 	if b == *t.Previous {
-		if e = closeInstallationLoginClients(ctx, b); e != nil {
+		if e = closeInstallationLoginClients(ctx, b, func() error { return StopExpectedCoreService(b) }); e != nil {
 			return e
 		}
 	}

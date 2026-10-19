@@ -75,3 +75,18 @@ func TestCoreRecoveryDistinguishesHungFromRefusing(t *testing.T) {
 		t.Fatal("a dropped request is unresponsiveness, not absence")
 	}
 }
+
+func TestCoreRecoveryWaitsWhileAnInstallerOwnsTheService(t *testing.T) {
+	absent := &coreipc.CallError{Stage: "connect", Code: "CORE_IPC_PIPE_ABSENT", Win32: 2}
+	timeout := &coreipc.CallError{Stage: "read", Code: "CORE_IPC_READ_TIMEOUT", Err: context.DeadlineExceeded}
+	blocked := true
+	r := coreRecovery{blocked: func() bool { return blocked }}
+	now := time.Now()
+	if r.Decide(now, absent, time.Hour, 100) != coreRecoveryNone || r.Decide(now, timeout, time.Hour, 100) != coreRecoveryNone {
+		t.Fatal("recovery acted while an installer or a deliberate stop owned the service")
+	}
+	blocked = false
+	if r.Decide(now, absent, 2*time.Second, 2) != coreRecoveryStart {
+		t.Fatal("a genuine crash is no longer recovered once the installer is done")
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 )
 
 // Program files are immutable release content. Machine state and transactions
@@ -189,4 +191,36 @@ func LocalInstallationDraining(exe string) bool {
 	}
 	hash, e := fileHash(exe)
 	return e == nil && hash == t.Previous.SHA256
+}
+
+// LocalInstallationActive is the explicit "installer owns the core" signal for
+// this user: an unfinished installation transaction. A UI must neither start
+// nor stop the core service while it is true, whichever version is installing.
+func LocalInstallationActive() bool {
+	t, present, e := readInstallationTransaction()
+	if e != nil || !present {
+		return e != nil && present // An unreadable, present journal is not proof of absence.
+	}
+	u, ue := windows.GetCurrentProcessToken().GetTokenUser()
+	if ue != nil || u.User.Sid.String() != t.OwnerSID {
+		return false
+	}
+	return InstallationPhaseActive(t.Phase)
+}
+
+// CoreServiceTransitioning reports a start or stop already in progress; the
+// service is then being driven deliberately by someone else.
+func CoreServiceTransitioning() bool {
+	m, e := mgr.Connect()
+	if e != nil {
+		return false
+	}
+	defer m.Disconnect()
+	s, _, e := ownedCoreService(m)
+	if e != nil {
+		return false
+	}
+	defer s.Close()
+	state, e := s.Query()
+	return e == nil && (state.State == svc.StopPending || state.State == svc.StartPending)
 }

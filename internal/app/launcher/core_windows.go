@@ -738,7 +738,9 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 	}
 	// Any failed call is kept with its specific cause for diagnostics. When the
 	// core itself is gone or silent, start it again (never while exiting).
-	var recovery coreRecovery
+	recovery := coreRecovery{blocked: func() bool {
+		return connectioninstall.LocalInstallationActive() || connectioninstall.CoreServiceTransitioning()
+	}}
 	linkFailed := func(operation string, err error) {
 		outage, consecutive := ipadncm.RecordCoreLinkFailure(operation, err)
 		if _, _, _, transport := coreipc.ErrorDetail(err); transport {
@@ -754,6 +756,9 @@ func runCoreLoginUI(ctx context.Context, cancel context.CancelFunc, exe string, 
 		go func() {
 			defer func() { recovery.Finish(time.Now()) }()
 			result := "started"
+			if ctx.Err() != nil || recovery.blocked() {
+				return
+			}
 			binding, bindingErr := connectioninstall.CurrentCoreBinding()
 			var recoverErr error
 			switch {

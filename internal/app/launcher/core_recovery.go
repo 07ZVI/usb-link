@@ -12,7 +12,8 @@ import (
 // stopped (listener failure, unexpected application stop, crash) stays stopped
 // until something starts it. The login UI is that something: it starts the
 // verified core again with bounded backoff, and never while the program is
-// intentionally exiting or being replaced.
+// intentionally exiting, an installer owns the service, or the service is
+// already starting or stopping on purpose.
 
 type coreRecoveryAction int
 
@@ -35,9 +36,13 @@ const (
 type coreRecovery struct {
 	mu         sync.Mutex
 	suppressed bool
-	running    bool
-	next       time.Time
-	backoff    time.Duration
+	// blocked reports that someone else deliberately drives the service (an
+	// installer transaction, a stop or start already in progress). Nil means
+	// nothing blocks recovery.
+	blocked func() bool
+	running bool
+	next    time.Time
+	backoff time.Duration
 }
 
 // coreLinkKind separates a missing core from an unresponsive one. A reply from
@@ -76,6 +81,9 @@ func (r *coreRecovery) Decide(now time.Time, err error, outage time.Duration, co
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.suppressed || r.running || now.Before(r.next) {
+		return coreRecoveryNone
+	}
+	if r.blocked != nil && r.blocked() {
 		return coreRecoveryNone
 	}
 	action := coreRecoveryNone

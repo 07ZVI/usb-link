@@ -8,14 +8,18 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"strings"
-	"time"
 	"unsafe"
 )
+
+// Private window message (WM_APP+5) that makes a current login client end at
+// once: no confirmation, no exit-program restore (the core restores when the
+// installer stops it), tray icon removed within a bounded wait.
+const installerCloseMessage = 0x8005
 
 // Ask existing, source-verified login clients to use their normal End command.
 // WM_CLOSE only hides this application's tray window. No process is killed,
 // and a same-named window/process belonging to another user is never selected.
-func closeInstallationLoginClients(ctx context.Context, b CoreServiceBinding) error {
+func closeInstallationLoginClients(ctx context.Context, b CoreServiceBinding, stopCore func() error) error {
 	if VerifyCoreExecutable(b.Executable) != nil {
 		return fmt.Errorf("INSTALL_UI_SOURCE_CHANGED")
 	}
@@ -63,6 +67,11 @@ func closeInstallationLoginClients(ctx context.Context, b CoreServiceBinding) er
 		if fresh != pid || VerifyCoreExecutable(b.Executable) != nil {
 			return 1
 		}
+		// Current clients end on the dedicated message without the interactive
+		// exit-program protocol. 0.10.53 to 0.10.57 treat the End command as a
+		// confirmation request and older ones as End, so it follows for them;
+		// a current client has already begun closing and ignores it.
+		user32.NewProc("PostMessageW").Call(hwnd, installerCloseMessage, 0, 0)
 		ok, _, err := user32.NewProc("PostMessageW").Call(hwnd, 0x111, 101, 0)
 		if ok == 0 {
 			result = errors.Join(result, fmt.Errorf("INSTALL_UI_CLOSE_REQUEST_FAILED: %v", err))
@@ -86,26 +95,19 @@ func closeInstallationLoginClients(ctx context.Context, b CoreServiceBinding) er
 	}
 	// Older clients can need over twenty seconds to finish verified network
 	// restoration. Let them finish before replacing their files; never kill them.
-	wait, stop := context.WithTimeout(ctx, 60*time.Second)
-	defer stop()
-	for _, h := range handles {
-		for wait.Err() == nil {
-			status, e := windows.WaitForSingleObject(h, 100)
-			if e != nil {
-				return e
-			}
-			if status == windows.WAIT_OBJECT_0 {
-				break
-			}
-			if status != uint32(windows.WAIT_TIMEOUT) {
-				return fmt.Errorf("INSTALL_UI_WAIT_UNCONFIRMED")
-			}
+	return waitInstallationUIExit(ctx, len(handles), func(i int) (bool, error) {
+		status, e := windows.WaitForSingleObject(handles[i], 0)
+		if e != nil {
+			return false, e
 		}
-		if wait.Err() != nil {
-			return fmt.Errorf("INSTALL_UI_STILL_RUNNING: 請關閉 USB Link 介面後重新執行同一安裝程式。 %w", wait.Err())
+		switch status {
+		case windows.WAIT_OBJECT_0:
+			return true, nil
+		case uint32(windows.WAIT_TIMEOUT):
+			return false, nil
 		}
-	}
-	return nil
+		return false, fmt.Errorf("INSTALL_UI_WAIT_UNCONFIRMED")
+	}, installUICloseGrace, installUICloseTotal, installUIPoll, stopCore)
 }
 
 // Local uninstall uses the same normal client shutdown before touching private
@@ -125,5 +127,5 @@ func CloseInstalledLoginClients(ctx context.Context, exe string) error {
 	if e != nil || u.User.Sid.String() != b.OwnerSID || !strings.EqualFold(b.Executable, exe) {
 		return fmt.Errorf("INSTALL_UI_OWNER_CHANGED")
 	}
-	return closeInstallationLoginClients(ctx, b)
+	return closeInstallationLoginClients(ctx, b, nil)
 }
