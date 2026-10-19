@@ -51,6 +51,19 @@ func remoteMaintenanceDirectories() []string {
 	return dirs
 }
 
+// policyStoreDirectories are the security store (current and its pre-State
+// location, which an upgrade migrates) and the iPad trust recycle store.
+func policyStoreDirectories() []string {
+	var dirs []string
+	if data, e := machinepaths.MachineRoot(); e == nil {
+		dirs = append(dirs, filepath.Join(data, "State", "security"), filepath.Join(filepath.Dir(data), "USB Link Trust Recycle"))
+	}
+	if root, e := Root(); e == nil {
+		dirs = append(dirs, filepath.Join(root, "security"))
+	}
+	return dirs
+}
+
 // coreOwners are the accounts besides SYSTEM/Administrators that may own the
 // stores: the installing administrator owns files an elevated installer created.
 func coreOwners() []string {
@@ -79,6 +92,11 @@ func RepairProtectedStores() ([]protectedacl.Repair, string) {
 	// Candidate status files there are created with remoteACL itself.
 	for _, dir := range remoteMaintenanceDirectories() {
 		stores = append(stores, store{dir, remoteACL, remoteACL})
+	}
+	// Host policy intents/receipts (Mac gateway, SMB) and the trust recycle
+	// store verify the same protected DACL on their directory.
+	for _, dir := range policyStoreDirectories() {
+		stores = append(stores, store{dir, protectedStoreDirSDDL, protectedStoreFileSDDL})
 	}
 	for _, st := range stores {
 		dir := st.dir
