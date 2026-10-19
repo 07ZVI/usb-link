@@ -255,6 +255,13 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
 }
+
+// uploadSink hides io.Discard's ReaderFrom: io.CopyBuffer would otherwise ignore
+// the supplied 64 KiB buffer and read the request body in 8 KiB pieces.
+type uploadSink struct{}
+
+func (uploadSink) Write(p []byte) (int, error) { return len(p), nil }
+
 func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up bool) {
 	// A browser can consume the final TCP bytes before the sending handler
 	// retires. Queue the replacement briefly rather than rejecting stream 5.
@@ -300,7 +307,7 @@ func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up
 	if up {
 		controller.SetReadDeadline(time.Now().Add(10 * time.Second))
 		defer controller.SetReadDeadline(time.Time{})
-		count, err = io.CopyBuffer(io.Discard, http.MaxBytesReader(w, q.Body, ChunkBytes), make([]byte, 64*1024))
+		count, err = io.CopyBuffer(uploadSink{}, http.MaxBytesReader(w, q.Body, ChunkBytes), make([]byte, 64*1024))
 	} else {
 		controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		defer controller.SetWriteDeadline(time.Time{})

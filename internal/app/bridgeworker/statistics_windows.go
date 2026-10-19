@@ -16,10 +16,10 @@ type statistics struct {
 	MaxRejectedIPLength                                                                                                 uint32
 }
 
-func diagnostics(dir, nonce string, stats statistics, topology []usbaddress.InterfaceProof) ([]byte, error) {
+func diagnostics(dir, nonce string, stats statistics, topology []usbaddress.InterfaceProof, ingress map[string]any) ([]byte, error) {
 	return logfile.MarshalDiagnosticSnapshot(map[string]any{
 		"version": version, "group": 0, "nonce": nonce, "stats": stats,
 		"performance": performanceSnapshot(), "usb_network": usbaddress.NativeDetails(topology),
-		"wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(),
+		"wintun_module_lifetime": wintun.ModuleLifetimeSnapshot(), "ingress": ingress,
 	}, logfile.ReadDiagnosticTails(dir))
 }

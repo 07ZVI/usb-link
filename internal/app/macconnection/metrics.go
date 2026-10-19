@@ -34,6 +34,9 @@ type Result struct {
 	SunshineTCPObserved        bool                                  `json:"mac_to_sunshine_established_usb_ipv4_tcp_observed"`
 	TCPQueryError              string                                `json:"tcp_query_error,omitempty"`
 	BridgeFailureClass         string                                `json:"bridge_failure_class,omitempty"`
+	BridgeStopReason           string                                `json:"bridge_stop_reason,omitempty"`
+	BridgeStopDetail           string                                `json:"bridge_stop_detail,omitempty"`
+	BridgeExitCode             *int                                  `json:"bridge_exit_code,omitempty"`
 	Stage                      string                                `json:"stage"`
 	BridgeStarted              bool                                  `json:"bridge_started"`
 	Ready                      bool                                  `json:"bridge_initialized_not_peer_proof"`
@@ -115,8 +118,24 @@ func parseCounters(line string) (in, out, drops uint64, ok bool) {
 	return v["ToWindowsBytes"], v["ToMacBytes"], v["Dropped"], true
 }
 
+// parseBridgeStop reads the worker's final BRIDGE_STOP line (stop.go in bridgeworker).
+func parseBridgeStop(line string) (code, detail string, exit int, ok bool) {
+	const marker = "BRIDGE_STOP code="
+	i := strings.Index(line, marker)
+	if i < 0 || len(line) > 1024 {
+		return
+	}
+	code, rest, _ := strings.Cut(line[i+len(marker):], " exit_code=")
+	exitText, detail, _ := strings.Cut(rest, " detail=")
+	n, err := strconv.Atoi(exitText)
+	if err != nil || code == "" || strings.Contains(code, " ") {
+		return "", "", 0, false
+	}
+	return code, detail, n, true
+}
+
 func bridgeFailureClass(line string) string {
-	for _, p := range []struct{ needle, code string }{{"existing subnet", "SUBNET_CONFLICT"}, {"subnet already used", "SUBNET_CONFLICT"}, {"peer not resolved", "PEER_UNRESOLVED"}, {"Duplicate", "DUPLICATE_ADDRESS"}, {"Wintun", "WINTUN_FAILURE"}, {"WinUSB", "WINUSB_FAILURE"}, {"PowerShell", "NETWORK_CONFIGURATION_FAILURE"}, {"powershell", "NETWORK_CONFIGURATION_FAILURE"}, {"control", "USB_CONTROL_FAILURE"}, {"read", "USB_READ_FAILURE"}, {"write", "USB_WRITE_FAILURE"}} {
+	for _, p := range []struct{ needle, code string }{{"USB_IN_READ_FAILED", "USB_IN_READ_FAILED"}, {"USB_IN_NTB_DECODE_FAILED", "USB_IN_NTB_DECODE_FAILED"}, {"USB_IN_RESUBMIT_FAILED", "USB_IN_RESUBMIT_FAILED"}, {"USB_OUT_COMPLETION_TIMEOUT", "USB_OUT_COMPLETION_TIMEOUT"}, {"existing subnet", "SUBNET_CONFLICT"}, {"subnet already used", "SUBNET_CONFLICT"}, {"peer not resolved", "PEER_UNRESOLVED"}, {"Duplicate", "DUPLICATE_ADDRESS"}, {"Wintun", "WINTUN_FAILURE"}, {"WinUSB", "WINUSB_FAILURE"}, {"PowerShell", "NETWORK_CONFIGURATION_FAILURE"}, {"powershell", "NETWORK_CONFIGURATION_FAILURE"}, {"control", "USB_CONTROL_FAILURE"}, {"read", "USB_READ_FAILURE"}, {"write", "USB_WRITE_FAILURE"}} {
 		if strings.Contains(line, p.needle) {
 			return p.code
 		}

@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+func TestParseBridgeStopAndInPathClasses(t *testing.T) {
+	code, detail, exit, ok := parseBridgeStop("2026/01/01 BRIDGE_STOP code=USB_OUT_COMPLETION_TIMEOUT exit_code=1 detail=USB OUT completion exceeded 2s deadline")
+	if !ok || code != "USB_OUT_COMPLETION_TIMEOUT" || exit != 1 || detail == "" {
+		t.Fatal(code, detail, exit, ok)
+	}
+	if _, _, _, ok = parseBridgeStop("BRIDGE_STOP code=X exit_code=abc detail="); ok {
+		t.Fatal("bad exit accepted")
+	}
+	if _, _, _, ok = parseBridgeStop("STATS Dropped:1"); ok {
+		t.Fatal("unrelated line accepted")
+	}
+	if got := bridgeFailureClass("RESULT=STOP error=USB_IN_NTB_DECODE_FAILED: NTB decode: read"); got != "USB_IN_NTB_DECODE_FAILED" {
+		t.Fatal(got)
+	}
+}
+
 func TestBridgeStatsUseDirectionalBytesAndRejectMalformed(t *testing.T) {
 	in, out, drops, ok := parseCounters("2026/10/02 STATS {USBReads:8 ToMac:9 ToWindowsBytes:123 ToMacBytes:456 Dropped:7 Filtered:6} peer=00:01:02:03:04:05")
 	if !ok || in != 123 || out != 456 || drops != 7 {

@@ -663,6 +663,9 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 					})
 				}
 			}
+			if code, detail, exit, ok := parseBridgeStop(line); ok {
+				update(func(r *Result) { r.BridgeStopReason, r.BridgeStopDetail, r.BridgeExitCode = code, detail, &exit })
+			}
 			if strings.Contains(line, "RESULT=STOP error=") {
 				update(func(r *Result) { r.BridgeFailureClass = bridgeFailureClass(line) })
 			}
@@ -981,6 +984,15 @@ func RunArchiveWithHostJoin(ctx context.Context, parent string, payload RuntimeA
 
 	if e != nil && out.Error == "" {
 		out.Error = "MAC_BRIDGE_ENDED_WITH_ERROR"
+	}
+	// A crash, kill or panic before BRIDGE_STOP is written still leaves the OS status.
+	var exitErr *exec.ExitError
+	if errors.As(e, &exitErr) && out.BridgeExitCode == nil {
+		code := exitErr.ExitCode()
+		out.BridgeExitCode = &code
+		if out.BridgeStopReason == "" {
+			out.BridgeStopReason = "BRIDGE_EXITED_WITHOUT_STOP_LINE"
+		}
 	}
 	cleanup := runMacCleanup(func() error {
 		defer shutdowntrace.Begin(shutdowntrace.PhaseMacSessionRecovery)()
