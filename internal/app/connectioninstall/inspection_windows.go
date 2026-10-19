@@ -29,6 +29,7 @@ func InspectInstallation() InstallationInspection {
 		}
 	}
 	check("pendingRebootRemoval", pendingInstallationRemoval())
+	r.Checks["protectedStoreRepair"] = ProtectedStoreRepairStatus()
 	integrations, integrationError := inspectInstallationIntegrations()
 	r.Integrations = integrations
 	check("startupAndShortcuts", integrationError)

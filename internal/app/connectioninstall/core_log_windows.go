@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"suhang/usbnet/internal/diagnostics/coreterm"
 )
 
 const coreLogDirectory = "USBLink-Core-7c494949-9688-4bd4-90c6-257e315f9550"
@@ -275,4 +276,24 @@ func (w *coreLogWriter) Close() error {
 	}
 	w.err = errors.Join(w.err, w.dir.Close())
 	return w.err
+}
+
+// CoreLogEvidence is read before OpenCoreLog holds the log, so the tail shows
+// how the previous core ended. Bounded printable ASCII; evidence only.
+func CoreLogEvidence() map[string]any {
+	row := map[string]any{}
+	base, e := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	dir := filepath.Join(base, coreLogDirectory)
+	if e != nil || noReparse(dir) != nil {
+		row["error"] = "CORE_LOG_DIRECTORY_UNAVAILABLE"
+		return row
+	}
+	for key, leaf := range map[string]string{"current": coreLogCurrent, "previous": coreLogPrevious} {
+		if size, text, ok := coreterm.Tail(filepath.Join(dir, leaf), 2048); ok {
+			row[key+"_size"], row[key+"_tail"] = size, text
+		} else {
+			row[key+"_size"] = -1
+		}
+	}
+	return row
 }

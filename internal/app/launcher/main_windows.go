@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -242,6 +243,11 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	}
 	r := Result{Protocol: "SUHANG-USB-EASY/2", Version: version, Started: time.Now().UTC().Format(time.RFC3339), Stage: "RECOVERY_CHECK", ComponentVersion: appleComponent.Version, ComponentHash: appleComponent.Digest}
 	var handoff *connectioninstall.UpgradeStop
+	if service {
+		for _, line := range repairProtectedStores() {
+			log.Print(line)
+		}
+	}
 	if !resident {
 		handoff = connectioninstall.RequestPreviousStop()
 		defer handoff.Close()
@@ -269,6 +275,9 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 		serviceDiagnosticDirectory.Store(recoveryDir)
 		// How the previous core ended is evidence even when this run is healthy.
 		_ = macconnection.RecordCoreEvidence(recoveryDir, coreLifecycleRow(coreterm.Begin(recoveryDir, version, uint32(os.Getpid()), time.Now())))
+		if row, ok := coreLogStartup.Load().(map[string]any); ok {
+			_ = macconnection.RecordCoreEvidence(recoveryDir, map[string]any{"core_version": version, "core_log": row})
+		}
 		coreterm.Stage("recovery_store_open", "")
 	}
 	defer func() {

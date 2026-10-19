@@ -127,5 +127,5 @@ func CloseInstalledLoginClients(ctx context.Context, exe string) error {
 	if e != nil || u.User.Sid.String() != b.OwnerSID || !strings.EqualFold(b.Executable, exe) {
 		return fmt.Errorf("INSTALL_UI_OWNER_CHANGED")
 	}
-	return closeInstallationLoginClients(ctx, b, nil)
+	return closeInstallationLoginClients(ctx, b, func() error { return StopExpectedCoreService(b) })
 }

@@ -71,6 +71,7 @@ func InstallRelease(ctx context.Context, version string, archive io.ReaderAt, si
 		return "", e
 	}
 	defer func() { result = errors.Join(result, unlock()) }()
+	RepairProtectedStores()
 	if e := ValidateInstallationPayload(version, archive, size); e != nil {
 		return "", e
 	}
@@ -370,6 +371,7 @@ func (o *nativeInstallation) Verify(t InstallationTransaction) error {
 	return nil
 }
 func (o *nativeInstallation) Quiesce(ctx context.Context, t InstallationTransaction) error {
+	RepairProtectedStores()
 	if t.Previous == nil {
 		return nil
 	}
@@ -465,6 +467,7 @@ func (o *nativeInstallation) Publish(t InstallationTransaction) error {
 }
 
 func (o *nativeInstallation) Start(t InstallationTransaction) error {
+	RepairProtectedStores()
 	exe := filepath.Join(o.app, BinaryName)
 	if e := bindCoreService(exe, nil, "", false); e != nil {
 		return e
@@ -568,6 +571,7 @@ func (o *nativeInstallation) Cleanup(t InstallationTransaction) error {
 	return nil
 }
 func (o *nativeInstallation) Restore(t InstallationTransaction) error {
+	RepairProtectedStores()
 	if e := o.Verify(t); e != nil {
 		return e
 	}

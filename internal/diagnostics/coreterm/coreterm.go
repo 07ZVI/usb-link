@@ -7,6 +7,7 @@ package coreterm
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -37,6 +38,7 @@ type Run struct {
 	FailStage  string `json:"startup_stopped_stage,omitempty"`
 	FailDetail string `json:"startup_stopped_detail,omitempty"`
 	LogError   string `json:"core_log_error,omitempty"`
+	Repair     string `json:"protected_repair,omitempty"`
 }
 
 type Abnormal struct {
@@ -125,6 +127,34 @@ func excerpt(dir string) string {
 	return string(out)
 }
 
+// Tail returns the size of the regular file at path and its last limit bytes,
+// reduced to printable ASCII. Absent or redirected files report ok=false.
+func Tail(path string, limit int64) (size int64, text string, ok bool) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return 0, "", false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, "", false
+	}
+	defer f.Close()
+	size = info.Size()
+	if size > limit {
+		if _, err = f.Seek(size-limit, io.SeekStart); err != nil {
+			return size, "", false
+		}
+	}
+	b, _ := io.ReadAll(io.LimitReader(f, limit))
+	out := make([]rune, 0, len(b))
+	for _, r := range string(b) {
+		if r == '\n' || r == '\t' || r >= 0x20 && r < 0x7f {
+			out = append(out, r)
+		}
+	}
+	return size, string(out), true
+}
+
 // Begin records the start of this core process and classifies how the previous
 // one ended: "running" at start means it never recorded a stop. It also routes
 // a fatal Go panic or runtime crash to a file in dir, since a service has no
@@ -177,7 +207,7 @@ func Begin(dir, version string, pid uint32, now time.Time) Status {
 	next.Current = Run{PID: pid, Version: version, StartedUTC: utc, AliveUTC: utc, State: "running"}
 	e := state.early
 	state.early = Run{}
-	next.Current.Stage, next.Current.StageNote, next.Current.LogError = e.Stage, e.StageNote, e.LogError
+	next.Current.Stage, next.Current.StageNote, next.Current.LogError, next.Current.Repair = e.Stage, e.StageNote, e.LogError, e.Repair
 	st.Current = next.Current
 	st.LastAbnormal = next.LastAbnormal
 	if err := write(dir, next); err != nil && st.PersistenceErr == "" {
@@ -272,6 +302,13 @@ func LogUnavailable(detail string) {
 	state.Lock()
 	defer state.Unlock()
 	apply(func(r *Run) { r.LogError = boundedASCII(detail, 160) })
+}
+
+// Repaired records that protected directories had to be reset before startup.
+func Repaired(note string) {
+	state.Lock()
+	defer state.Unlock()
+	apply(func(r *Run) { r.Repair = boundedASCII(note, 240) })
 }
 
 func boundedASCII(s string, n int) string {

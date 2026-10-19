@@ -62,6 +62,28 @@ func coreStartupStopped(service bool, stage string, detail any) {
 	coreterm.Fail(stage, text)
 }
 
+// Explorer's "Continue" prompt adds the user's ACE to protected core folders;
+// the stores then refuse them. Reset them to the exact protected DACL first.
+func repairProtectedStores() []string {
+	repairs, status := connectioninstall.RepairProtectedStores()
+	var lines []string
+	for _, r := range repairs {
+		if r.Repaired() {
+			lines = append(lines, fmt.Sprintf("PROTECTED_DIRECTORY_REPAIRED path=%s changed=%d checked=%d skipped=%d previous_aces=%d", r.Path, r.Changed, r.Checked, r.Skipped, r.PreviousACEs))
+		}
+	}
+	if strings.HasPrefix(status, "failed") {
+		lines = append(lines, "PROTECTED_DIRECTORY_REPAIR_FAILED "+status)
+	}
+	if status != "passed" {
+		coreterm.Repaired(status)
+	}
+	return lines
+}
+
+// How the previous core ended, read before this core holds core.log.
+var coreLogStartup atomic.Value
+
 var prompts = coreprompt.New()
 var coreUpdateNotices = coreupdatenotice.New(verifyCoreNoticeClientLifetime)
 
@@ -88,6 +110,8 @@ func runCoreService() {
 		return
 	}
 	logger := log.New(os.Stderr, "USBLinkCore ", log.LstdFlags|log.LUTC)
+	repaired := repairProtectedStores()
+	coreLogStartup.Store(connectioninstall.CoreLogEvidence())
 	if output, _, logErr := connectioninstall.OpenCoreLog(); logErr == nil {
 		logger.SetOutput(output)
 		log.SetOutput(output)
@@ -95,6 +119,9 @@ func runCoreService() {
 	} else {
 		logger.Printf("CORE_LOG_UNAVAILABLE: %v", logErr)
 		coreterm.LogUnavailable(logErr.Error())
+	}
+	for _, line := range repaired {
+		logger.Print(line)
 	}
 	verifyCore := func(path string) error {
 		fresh, err := connectioninstall.CurrentCoreBinding()

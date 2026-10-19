@@ -69,10 +69,11 @@ func TestStagePersistsAndEarlyValuesAreAdopted(t *testing.T) {
 	state.dir, state.early = "", Run{}
 	state.Unlock()
 	LogUnavailable("CORE_LOG_PRIVATE_ACL_REQUIRED")
+	Repaired("C:\\x reset=1 caf\u00e9")
 	Stage("early", "x")
 	t0 := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
 	st := Begin(dir, "0.10.60", 1, t0)
-	if st.Current.LogError != "CORE_LOG_PRIVATE_ACL_REQUIRED" || st.Current.Stage != "early" {
+	if st.Current.LogError != "CORE_LOG_PRIVATE_ACL_REQUIRED" || st.Current.Stage != "early" || st.Current.Repair != "C:\\x reset=1 caf?" {
 		t.Fatalf("%+v", st.Current)
 	}
 	Stage("mac_recovery", "start")
@@ -88,5 +89,23 @@ func TestStagePersistsAndEarlyValuesAreAdopted(t *testing.T) {
 	Stage("late", "ignored")
 	if f, _ = read(dir); f.Current.Stage != "mac_recovery" {
 		t.Fatalf("%+v", f.Current)
+	}
+}
+
+func TestTailIsBoundedASCIIAndRegularOnly(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "core.log")
+	if err := os.WriteFile(p, []byte(strings.Repeat("old\n", 100)+"caf\u00e9 \x1b[31mend\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	size, text, ok := Tail(p, 64)
+	if !ok || size < 400 || len(text) > 64 || !strings.HasSuffix(text, "caf end\n") && !strings.Contains(text, "[31mend") || strings.Contains(text, "\x1b") {
+		t.Fatal(ok, size, text)
+	}
+	if _, _, ok := Tail(filepath.Join(dir, "missing"), 64); ok {
+		t.Fatal("missing file reported")
+	}
+	if _, _, ok := Tail(dir, 64); ok {
+		t.Fatal("directory reported")
 	}
 }
