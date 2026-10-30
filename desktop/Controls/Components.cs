@@ -296,6 +296,7 @@ internal static class Friendly
         ("INTERNET_WINNAT_UNAVAILABLE", "這台電腦不支援所需的 Windows NAT 功能，無法共享網際網路。"),
         ("INTERNET_USB_GATEWAY_REQUIRED", "請先接上 USB 裝置並完成連線，再開啟網際網路共享。"),
         ("FIREWALL_RULE_NOT_EFFECTIVE", "規則已寫入，但 Windows 尚未確認它生效。請重新整理核對。"),
+        ("NATIVE_SMB_RECEIPT_CHANGED", "已有共享的保存設定與目前設定不一致；不一定是新添加的磁碟有問題。請查看詳細錯誤。"),
         ("NATIVE_SMB_CHANGED_IN_WINDOWS", "這個共享已在 Windows 中被修改，請在 Windows 核對，或改由 Windows 管理。"),
         ("NATIVE_SMB_NAME_CONFLICT", "已有同名的共享，請改用其他資料夾或名稱。"),
         ("CORE_UI_ACTION_FAILED", "操作未能送達背景程式，尚未確認是否執行。可稍後重試。"),

@@ -425,6 +425,7 @@ func setNativeSMB(enabled bool) error {
 		}
 		want := nativeSMBShare{ID: f.ID, Name: folderShareName(f.Path), Path: f.Path, SID: sid, GuestSID: guest}
 		accessConflict := false
+		hasAccessSetting := false
 		for _, p := range c.Access {
 			if p.ID == f.ID {
 				if !strings.EqualFold(filepath.Clean(p.Path), filepath.Clean(f.Path)) || "win:"+p.FileID != f.Identity {
@@ -432,6 +433,7 @@ func setNativeSMB(enabled bool) error {
 					accessConflict = true
 					break
 				}
+				hasAccessSetting = true
 				want.AccountAccess, want.GuestAccess = p.Account, p.Guest
 			}
 		}
@@ -441,6 +443,7 @@ func setNativeSMB(enabled bool) error {
 		found, conflict := false, false
 		for _, old := range c.Shares {
 			if old.ID == f.ID {
+				preserveSMBReceiptAccess(&want, old, hasAccessSetting)
 				want.Name = old.Name
 				want.NamePath = old.NamePath
 				want.MigrationName, want.MigrationFileID = old.MigrationName, old.MigrationFileID

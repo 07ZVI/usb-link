@@ -78,6 +78,7 @@ public sealed partial class Dashboard
   shareFolderIssue=Text(value,"problem");if(shareFolderIssue=="")shareNotice.Hide();else shareNotice.Show("Warn",shareFolderIssue);
   if(!value.TryGetProperty("folders",out var list)||list.ValueKind!=JsonValueKind.Array){if(shareFolderIssue=="")shareNotice.Show("Warn","Windows 共享回覆不完整。");DrainShareRefresh();return;}
   shareFolderRows.Children.Clear();
+  if(shareFolderIssue!="")shareFolderRows.Children.Add(new Expander { Header="詳細錯誤（可複製）", Content=new TextBox { Text=shareFolderIssue, IsReadOnly=true, AcceptsReturn=true, TextWrapping=TextWrapping.Wrap, MaxHeight=160 } });
   var folders=Entries(value,"folders").ToArray();
   foreach(var folder in folders) shareFolderRows.Children.Add(ShareFolderCard(folder));
   if(shareFolderIssue==""){

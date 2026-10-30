@@ -173,3 +173,12 @@ func forgetSMBShareName(c *nativeSMBConfiguration, id string) {
 		}
 	}
 }
+
+// A legacy publication can own access values without a separate preference.
+// Absence is not an instruction to reset them. Explicit preferences still
+// participate in the exact receipt comparison and conflict detection.
+func preserveSMBReceiptAccess(want *nativeSMBShare, old nativeSMBShare, hasSetting bool) {
+	if !hasSetting {
+		want.AccountAccess, want.GuestAccess = old.AccountAccess, old.GuestAccess
+	}
+}

@@ -217,7 +217,7 @@ func (m *RemoteManager) openLocalRemote() error {
 		return fmt.Errorf("LOCAL_REMOTE_USB_GENERATION_CHANGED")
 	}
 	if m.api == nil {
-		api := &remoteupdate.Server{Version: m.version, Token: m.config.Token, Key: remoteupdate.PublisherKey(), Status: m.localRemoteStatus, Resilient: func() bool { return true }}
+		api := &remoteupdate.Server{Version: m.version, Token: m.config.Token, Key: remoteupdate.PublisherKey(), Status: m.localRemoteStatus, Diagnostics: func() any { return map[string]any{"native_smb": NativeSMBDiagnostics()} }, Resilient: func() bool { return true }}
 		api.Stage = func(manifest remoteupdate.Manifest, body io.Reader) (string, error) {
 			if !m.localRemoteActiveAPI(api) {
 				return "", fmt.Errorf("LOCAL_REMOTE_USB_REVOKED")

@@ -380,3 +380,20 @@ func TestVolumeNameBindingSurvivesDisable(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyReceiptAccessWithoutPreferenceDoesNotConflict(t *testing.T) {
+	for _, access := range [][2]string{{"modify", "none"}, {"read", "read"}, {"", ""}} {
+		old := nativeSMBShare{ID: migrationTestID, AccountAccess: access[0], GuestAccess: access[1]}
+		want := nativeSMBShare{ID: migrationTestID}
+		preserveSMBReceiptAccess(&want, old, false)
+		if want != old {
+			t.Fatal("legacy share would falsely conflict", want, old)
+		}
+	}
+	old := nativeSMBShare{AccountAccess: "modify", GuestAccess: "none"}
+	want := nativeSMBShare{AccountAccess: "read", GuestAccess: "read"}
+	preserveSMBReceiptAccess(&want, old, true)
+	if want == old || want.AccountAccess != "read" || want.GuestAccess != "read" {
+		t.Fatal("explicit conflicting preference hidden")
+	}
+}
