@@ -4,6 +4,7 @@
   <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   <AssemblyName>USBLink.Desktop</AssemblyName><Version>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../VERSION').Trim())</Version><IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   <ApplicationManifest>app.manifest</ApplicationManifest>
+  <ApplicationIcon>Assets/usb-link.ico</ApplicationIcon>
   <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   <NuGetAudit>true</NuGetAudit>
  </PropertyGroup>
@@ -14,6 +15,7 @@
   <DefineConstants>$(DefineConstants);USBLINK_LOCAL_DIAGNOSTICS</DefineConstants>
  </PropertyGroup>
  <ItemGroup>
+  <AvaloniaResource Include="Assets/usb-link.ico" />
   <Compile Remove="obj/**/*.cs;bin/**/*.cs" />
   <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
   <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />

@@ -771,7 +771,7 @@ func migrateInstallationSecurity(state string) error {
 	}
 	// Existing policy writers only use these product records; unknown additions
 	// require inspection and stay at their original location.
-	known := map[string]bool{"native-smb.json": true, "native-smb-acls.json": true, "native-smb-guest.json": true, "native-smb-account.json": true, "native-smb-account-rename.json": true, "shared-folders.json": true, "policy.json": true, "usb-devices.json": true, "firewall.json": true, "device-policy.json": true, "usb-gateway.json": true, "application-firewall.json": true, "usb-device-policy.json": true}
+	known := map[string]bool{"native-smb.json": true, "native-smb-acls.json": true, "native-smb-volume-moves.json": true, "shared-folder-identities.json": true, "native-smb-guest.json": true, "native-smb-account.json": true, "native-smb-account-rename.json": true, "shared-folders.json": true, "policy.json": true, "usb-devices.json": true, "firewall.json": true, "device-policy.json": true, "usb-gateway.json": true, "application-firewall.json": true, "usb-device-policy.json": true}
 	entries, e := os.ReadDir(old)
 	if e != nil {
 		return e

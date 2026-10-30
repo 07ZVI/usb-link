@@ -3,32 +3,77 @@
 import pathlib, struct
 
 
-def manifest_object(manifest: bytes) -> bytes:
-    # RT_MANIFEST=24, CREATEPROCESS_MANIFEST_RESOURCE_ID=1, neutral language.
-    directory = lambda: struct.pack('<IIHHHH', 0, 0, 0, 0, 0, 1)
-    resources = (directory() + struct.pack('<II', 24, 0x80000018)
-                 + directory() + struct.pack('<II', 1, 0x80000030)
-                 + directory() + struct.pack('<II', 0, 72)
-                 + struct.pack('<IIII', 88, len(manifest), 65001, 0) + manifest)
-    resources += bytes((-len(resources)) % 4)
+def resource_object(items: dict) -> bytes:
+    """Numeric type/name/language resource tree with one relocation per payload."""
+    tree = {}
+    for (kind, name, language), content in sorted(items.items()):
+        tree.setdefault(kind, {}).setdefault(name, {})[language] = content
+    resources = bytearray()
+    leaves = []
+
+    def directory(children):
+        start = len(resources)
+        resources.extend(struct.pack('<IIHHHH', 0, 0, 0, 0, 0, len(children)))
+        resources.extend(bytes(8 * len(children)))
+        for i, (identity, child) in enumerate(sorted(children.items())):
+            if isinstance(child, dict):
+                target = directory(child) | 0x80000000
+            else:
+                target = len(resources)
+                resources.extend(bytes(16))
+                leaves.append((target, child))
+            struct.pack_into('<II', resources, start+16+i*8, identity, target)
+        return start
+
+    directory(tree)
+    for entry, content in leaves:
+        resources.extend(bytes((-len(resources)) % 4))
+        struct.pack_into('<IIII', resources, entry, len(resources), len(content), 0, 0)
+        resources.extend(content)
+    resources.extend(bytes((-len(resources)) % 4))
     relocation_offset = 60 + len(resources)
-    symbol_offset = relocation_offset + 10
+    symbol_offset = relocation_offset + 10 * len(leaves)
     header = struct.pack('<HHIIIHH', 0x8664, 1, 0, symbol_offset, 2, 0, 0)
     section = struct.pack('<8sIIIIIIHHI', b'.rsrc\0\0\0', 0, 0, len(resources),
-                          60, relocation_offset, 0, 1, 0, 0x40000040)
-    relocation = struct.pack('<IIH', 72, 0, 3)  # IMAGE_REL_AMD64_ADDR32NB
+                          60, relocation_offset, 0, len(leaves), 0, 0x40000040)
+    relocations = b''.join(struct.pack('<IIH', entry, 0, 3) for entry, _ in leaves)
     symbol = struct.pack('<8sIhHBB', b'.rsrc\0\0\0', 0, 1, 0, 3, 1)
-    auxiliary = struct.pack('<IHHIhBBH', len(resources), 1, 0, 0, 0, 0, 0, 0)
-    return header + section + resources + relocation + symbol + auxiliary + struct.pack('<I', 4)
+    auxiliary = struct.pack('<IHHIhBBH', len(resources), len(leaves), 0, 0, 0, 0, 0, 0)
+    return header + section + resources + relocations + symbol + auxiliary + struct.pack('<I', 4)
+
+
+def icon_resources(icon: bytes) -> dict:
+    if len(icon) < 6:
+        raise ValueError('Truncated ICO header')
+    reserved, kind, count = struct.unpack_from('<HHH', icon)
+    if reserved != 0 or kind != 1 or not 1 <= count <= 64 or len(icon) < 6+16*count:
+        raise ValueError('Invalid ICO directory')
+    entries = []
+    resources = {}
+    for i in range(count):
+        width, height, colors, reserved, planes, bits, length, offset = struct.unpack_from('<BBBBHHII', icon, 6+16*i)
+        if reserved or not length or offset < 6+16*count or offset+length > len(icon):
+            raise ValueError('Invalid ICO image extent')
+        entries.append(struct.pack('<BBBBHHIH', width, height, colors, 0, planes, bits, length, i+1))
+        resources[(3, i+1, 0)] = icon[offset:offset+length]  # RT_ICON
+    resources[(14, 1, 0)] = struct.pack('<HHH', 0, 1, count) + b''.join(entries)  # RT_GROUP_ICON
+    return resources
+
+
+def manifest_object(manifest: bytes, icon=None) -> bytes:
+    resources = {(24, 1, 0): manifest}
+    if icon is not None:
+        resources.update(icon_resources(icon))
+    return resource_object(resources)
 
 
 def write_resource(root: pathlib.Path) -> pathlib.Path:
     target = root / 'cmd/ipad-usb-easy/zz_setup_windows_amd64.syso'
-    target.write_bytes(manifest_object((root / 'cmd/ipad-usb-easy/setup.manifest').read_bytes()))
+    target.write_bytes(manifest_object((root / 'cmd/ipad-usb-easy/setup.manifest').read_bytes(), (root / 'desktop/Assets/usb-link.ico').read_bytes()))
     return target
 
 
-def verify_manifest(executable: pathlib.Path, expected: bytes) -> None:
+def read_pe_resource(executable: pathlib.Path, resource_type: int, resource_id: int) -> bytes:
     """Follow the PE resource tree, rather than searching incidental byte copies."""
     data = executable.read_bytes()
     pe = struct.unpack_from('<I', data, 0x3c)[0]
@@ -55,13 +100,25 @@ def verify_manifest(executable: pathlib.Path, expected: bytes) -> None:
             name, target = struct.unpack_from('<II', data, base+directory+16+i*8)
             if name == identity:
                 return target
-        raise ValueError('Missing manifest resource')
+        raise ValueError(f'Missing resource {resource_type}/{resource_id}/{identity}')
 
-    type_dir = child(0, 24)
-    name_dir = child(type_dir & 0x7fffffff, 1)
+    type_dir = child(0, resource_type)
+    name_dir = child(type_dir & 0x7fffffff, resource_id)
     leaf = child(name_dir & 0x7fffffff, 0)
     if not type_dir & 0x80000000 or not name_dir & 0x80000000 or leaf & 0x80000000:
         raise ValueError('Invalid manifest tree')
     content, length = struct.unpack_from('<II', data, base+leaf)
-    if not size or data[offset(content):offset(content)+length] != expected:
+    if not size:
+        raise ValueError('Empty PE resources')
+    return data[offset(content):offset(content)+length]
+
+
+def verify_manifest(executable: pathlib.Path, expected: bytes) -> None:
+    if read_pe_resource(executable, 24, 1) != expected:
         raise ValueError('Embedded launcher manifest differs from reviewed source')
+
+
+def verify_icon(executable: pathlib.Path, expected: bytes, group_id: int = 1) -> None:
+    for (kind, identity, _), content in icon_resources(expected).items():
+        if read_pe_resource(executable, kind, group_id if kind == 14 else identity) != content:
+            raise ValueError('Embedded launcher icon differs from reviewed source')

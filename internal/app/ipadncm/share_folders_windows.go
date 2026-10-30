@@ -64,6 +64,11 @@ func (u *modernUI) shareFoldersAction(v desktopRequest) bool {
 		var err error
 		var passwordSaved, nameSaved bool
 		switch v.Action {
+		case "share-folders-refresh":
+			_, err = connectioninstall.RefreshSharedFolders()
+			if err == nil {
+				err = connectioninstall.MigrateNativeSMBVolumes()
+			}
 		case "share-folder-add":
 			err = connectioninstall.AddSharedFolder(v.Path)
 			if err == nil && v.AccountAccess != "" {

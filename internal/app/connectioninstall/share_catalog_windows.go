@@ -195,6 +195,7 @@ func loadShareCatalog() (*fileshare.Catalog, error) {
 				c.Close()
 				return nil, fmt.Errorf("SHARE_FOLDER_UNAVAILABLE: %s: %w", f.Name, err)
 			}
+			c.RestoreName(f.ID, f.Name)
 		}
 	}
 	// Persist identities learned while migrating a legacy catalogue. Unknown

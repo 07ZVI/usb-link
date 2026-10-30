@@ -7,6 +7,8 @@ import (
 )
 
 type nativeSMBShare struct {
+	// Original path is only a name-validation anchor, never a filesystem access path.
+	NamePath                           string `json:",omitempty"`
 	MigrationName                      string `json:",omitempty"`
 	MigrationFileID                    string `json:",omitempty"`
 	ID, Name, Path, SID, GuestSID      string
@@ -16,7 +18,10 @@ type nativeSMBShare struct {
 	AccessUpdate                       bool
 	NextAccountAccess, NextGuestAccess string
 }
+type nativeSMBNameBinding struct{ ID, Path, Name, NamePath string }
+
 type nativeSMBConfiguration struct {
+	Names   []nativeSMBNameBinding `json:",omitempty"`
 	Version int
 	Shares  []nativeSMBShare
 	Access  []nativeSMBAccessSetting
@@ -55,12 +60,19 @@ func smbRecoveryShareUnrelated(rootPath, rootID, sharePath, shareID string) bool
 }
 
 func nativeSMBStateVersion(c nativeSMBConfiguration) int {
+	version := 1
+	if len(c.Names) != 0 {
+		return 3
+	}
 	for _, s := range c.Shares {
+		if s.NamePath != "" {
+			return 3
+		}
 		if s.MigrationName != "" {
-			return 2
+			version = 2
 		}
 	}
-	return 1
+	return version
 }
 
 // Validate every alias before cleanup; a foreign second name must not cause
@@ -114,4 +126,50 @@ func selectSMBMigrationACLRoot(id, path, fileID string, roots []smbMigrationACLI
 		return i, nil
 	}
 	return -1, fmt.Errorf("NATIVE_SMB_MIGRATION_ACL_RECEIPT_MISSING")
+}
+
+// Windows cannot change a published share's path in place. A durable intent
+// precedes this operation. Retrying accepts the old path, the gap after delete,
+// or the already-published target, while preserving an intentionally absent share.
+func rebindSMBShare(published bool, inspect func() (string, error), retire, publish func() error) error {
+	state, err := inspect()
+	if err != nil {
+		return err
+	}
+	if !published {
+		if state == "missing" {
+			return nil
+		}
+		return fmt.Errorf("SMB_VOLUME_SHARE_CHANGED_DURING_MIGRATION")
+	}
+	switch state {
+	case "target":
+		return nil
+	case "old":
+		if err = retire(); err != nil {
+			return err
+		}
+	case "missing":
+	default:
+		return fmt.Errorf("NATIVE_SMB_CHANGED_IN_WINDOWS")
+	}
+	return publish()
+}
+
+func rememberSMBShareName(c *nativeSMBConfiguration, s nativeSMBShare) {
+	binding := nativeSMBNameBinding{s.ID, s.Path, s.Name, s.NamePath}
+	for i, old := range c.Names {
+		if old.ID == s.ID {
+			c.Names[i] = binding
+			return
+		}
+	}
+	c.Names = append(c.Names, binding)
+}
+func forgetSMBShareName(c *nativeSMBConfiguration, id string) {
+	for i := len(c.Names) - 1; i >= 0; i-- {
+		if c.Names[i].ID == id {
+			c.Names = append(c.Names[:i], c.Names[i+1:]...)
+		}
+	}
 }

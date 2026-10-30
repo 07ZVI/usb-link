@@ -116,7 +116,8 @@ public sealed partial class Dashboard
   if(Text(folder,"folder_problem") is {Length:>0} problem)body.Add(Banner(problem,"Warn"));
   if(recovery)body.Add(Banner("權限恢復尚未完成。可先重試關閉共享；若已自行管理權限，可選擇保留目前權限。","Warn"));
   if(recover.Children.Count>0)body.Add(recover);
-  return ListItem.Make(name,path,trailing,Icons.Folder,tone=="Idle"?"Idle":tone,body.ToArray());
+  var displayPath=Text(folder,"display_path");if(displayPath=="")displayPath=path;
+  return ListItem.Make(name,displayPath,trailing,Icons.Folder,tone=="Idle"?"Idle":tone,body.ToArray());
  }
  static Control Banner(string text,string tone){var n=new Notice();n.Show(tone,text);return n;}
  void KeepSharePermissions(string id,string name,string path)=>AppWindow.Confirm(shareFoldersWindow,"保留目前權限？","此操作只清除「"+name+"」的權限恢復記錄，不會更改目前權限。先前給專用帳戶或 Guest 的讀寫權限可能仍然保留；如不需要，請自行在 Windows 檢查並移除。資料夾的共享必須已關閉，之後可以重新設定共享或移除資料夾。","保留並清除恢復記錄",()=>RequestShareFolders("native-smb-acl-forget",id:id,remember:true),detail:path);

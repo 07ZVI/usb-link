@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Single public build entry: python3 scripts/project.py check|build|package|verify."""
 import argparse,hashlib,json,os,pathlib,re,shutil,subprocess,sys,tempfile,zipfile,urllib.request
-from windows_resource import write_resource, verify_manifest
+from windows_resource import write_resource, verify_manifest, verify_icon
 from local_installer_retention import retain as retain_local_installers
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 VERSION=(ROOT/'VERSION').read_text(encoding='utf-8').strip()
@@ -104,6 +104,7 @@ def prepare(profile="release"):
  with tempfile.TemporaryDirectory(prefix='desktop-publish-',dir=OUT) as directory:
   published=pathlib.Path(directory)
   run([DOTNET,'publish','desktop/Suhang.Desktop.csproj','--no-restore','-c','Release','-r','win-x64','--self-contained','false','-p:PublishSingleFile=false','-p:USBLinkDesignTools=false',f'-p:USBLinkLocalDiagnostics={str(profile == "local").lower()}','-p:DebugType=None','-p:DebugSymbols=false',f'-p:PathMap={ROOT}=/_/usb-link',f'-p:Version={VERSION}','-o',published])
+  verify_icon(published/'USBLink.Desktop.exe',(ROOT/'desktop/Assets/usb-link.ico').read_bytes(),group_id=32512)
   files={f.relative_to(published).as_posix():f for f in published.rglob('*') if f.is_file() and f.suffix!='.pdb'}
   product=re.search(r'const ProductID = "([^"]+)"',(ROOT/'internal/app/connectioninstall/task.go').read_text(encoding='utf-8')).group(1)
   manifest=published/'desktop-ownership.json'
@@ -144,6 +145,7 @@ def build(profile="release"):
   verify_release_surface(bridge, profile)
   go_build('./cmd/ipad-usb-easy',installer,True,'-H windowsgui -X suhang/usbnet/internal/app/macconnection.expectedBridgeSHA='+bridge+' -X suhang/usbnet/internal/buildinfo.LocalDiagnostics='+str(profile == 'local').lower(),profile=profile)
   verify_manifest(installer,(ROOT/'cmd/ipad-usb-easy/setup.manifest').read_bytes())
+  verify_icon(installer,(ROOT/'desktop/Assets/usb-link.ico').read_bytes())
   run([GO,'test','./internal/app/connectioninstall','-run','TestInstallationShipped','-count=1','-v'],{**ENV,'SUHANG_DESKTOP_BENCH_ARCHIVE':str(ASSETS/'desktop.zip'),'USBLINK_TEST_VERSION':VERSION,'USBLINK_TEST_INSTALLER':str(installer)})
  finally:
   resource.unlink(missing_ok=True)

@@ -29,6 +29,7 @@ type Folder struct {
 	ExternalShare      bool   `json:"external_share,omitempty"`
 	AccessRecovery     bool   `json:"access_recovery,omitempty"`
 	MigrationPending   bool   `json:"migration_pending,omitempty"`
+	DisplayPath        string `json:"display_path,omitempty"`
 	Identity           string `json:"-"`
 	Problem            string `json:"folder_problem,omitempty"`
 }
@@ -91,6 +92,11 @@ func (c *Catalog) add(id, dir, identity string) (Folder, error) {
 	err := c.user(func() error { var e error; actual, e = c.probe(dir); return e })
 	if err != nil {
 		return Folder{}, err
+	}
+	for _, m := range c.folders {
+		if m.Identity != "" && m.Identity == actual {
+			return Folder{}, fmt.Errorf("SHARE_FOLDER_ALREADY_ADDED")
+		}
 	}
 	if identity != "" && identity != actual {
 		return Folder{}, fmt.Errorf("SHARE_ROOT_IDENTITY_CHANGED")
@@ -226,4 +232,35 @@ func (c *Catalog) RestoreIdentity(id, dir, identity string) (Folder, error) {
 	f = Folder{ID: id, Name: filepath.Base(dir), Path: filepath.Clean(dir), Available: false, Identity: identity, Problem: e.Error()}
 	c.folders[id] = &mountedFolder{Folder: f}
 	return f, nil
+}
+
+// Move a catalog entry to an independently verified alias of the same directory.
+// Preserve its name, identity and ID, including in the saved membership.
+func (c *Catalog) Relocate(id, path string) error {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.folders[id]
+	if m == nil {
+		return os.ErrNotExist
+	}
+	var actual string
+	err := c.user(func() error { var e error; actual, e = c.probe(path); return e })
+	if err != nil {
+		return err
+	}
+	if m.Identity == "" || actual != m.Identity {
+		return fmt.Errorf("SHARE_ROOT_IDENTITY_CHANGED")
+	}
+	m.Path, m.Available, m.Problem = path, true, ""
+	m.active.Store(true)
+	return nil
+}
+func (c *Catalog) RestoreName(id, name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if m := c.folders[id]; m != nil && name != "" {
+		m.Name = name
+	}
 }

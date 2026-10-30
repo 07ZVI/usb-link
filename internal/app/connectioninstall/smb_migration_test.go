@@ -280,3 +280,103 @@ func TestSMBMigrationMissingOrChangedACLReceiptPreservesOriginal(t *testing.T) {
 		})
 	}
 }
+
+func TestVolumeBindingPreservesDriveRootShareName(t *testing.T) {
+	path := `\\?\Volume{12345678-1234-1234-1234-123456789abc}\`
+	for _, name := range []string{"D_", "F_ (2)", "Disk", "Disk (3)"} {
+		if !validFolderNativeShareName(name, path) {
+			t.Fatal("original name rejected", name)
+		}
+	}
+	if validFolderNativeShareName("OtherFolder", path) {
+		t.Fatal("unrelated name accepted")
+	}
+	if folderShareName(path) != "Disk" {
+		t.Fatal("raw volume GUID leaked into share name")
+	}
+}
+
+func TestVolumeRebindRecoversInterruptedReplacement(t *testing.T) {
+	for _, failAt := range []string{"delete", "create", "after-create", "none"} {
+		t.Run(failAt, func(t *testing.T) {
+			state := "old"
+			injected := false
+			inspect := func() (string, error) { return state, nil }
+			retire := func() error {
+				if !injected && failAt == "delete" {
+					injected = true
+					return fmt.Errorf("interrupted")
+				}
+				state = "missing"
+				return nil
+			}
+			publish := func() error {
+				if !injected && failAt == "create" {
+					injected = true
+					return fmt.Errorf("interrupted")
+				}
+				state = "target"
+				if !injected && failAt == "after-create" {
+					injected = true
+					return fmt.Errorf("interrupted")
+				}
+				return nil
+			}
+			first := rebindSMBShare(true, inspect, retire, publish)
+			if failAt != "none" && first == nil {
+				t.Fatal("failure lost")
+			}
+			if err := rebindSMBShare(true, inspect, retire, publish); err != nil || state != "target" {
+				t.Fatal(state, err)
+			}
+		})
+	}
+}
+
+func TestVolumeRebindDoesNotTakeOverForeignOrAbsentShare(t *testing.T) {
+	for _, tc := range []struct {
+		state                string
+		published, wantError bool
+	}{
+		{"foreign", true, true}, {"missing", false, false}, {"old", false, true}, {"target", false, true},
+	} {
+		called := false
+		mutation := func() error { called = true; return nil }
+		err := rebindSMBShare(tc.published, func() (string, error) { return tc.state, nil }, mutation, mutation)
+		if called || (err != nil) != tc.wantError {
+			t.Fatalf("%+v: mutation=%v err=%v", tc, called, err)
+		}
+	}
+}
+
+func TestVolumeNameBindingSurvivesDisable(t *testing.T) {
+	root := `\\?\Volume{12345678-1234-1234-1234-123456789abc}\`
+	for _, s := range []nativeSMBShare{
+		{ID: migrationTestID, Name: "media", NamePath: `D:\media`, Path: root + "Media"},
+		{ID: migrationTestID, Name: "LONGFO~1", NamePath: `D:\LONGFO~1`, Path: root + "Long Folder"},
+		{ID: migrationTestID, Name: "D_", NamePath: `D:\`, Path: root},
+	} {
+		if !validNativeSMBShareName(s) {
+			t.Fatal("normalized path invalidated original name", s)
+		}
+		c := nativeSMBConfiguration{Shares: []nativeSMBShare{s}}
+		rememberSMBShareName(&c, s)
+		c.Shares = nil // Temporary disable retires publication, not selected folders.
+		c.Version = nativeSMBStateVersion(c)
+		data, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored nativeSMBConfiguration
+		if err = json.Unmarshal(data, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if restored.Version != 3 || len(restored.Names) != 1 || restored.Names[0].Name != s.Name || restored.Names[0].NamePath != s.NamePath {
+			t.Fatal("name lost after restart", restored)
+		}
+		forgetSMBShareName(&restored, s.ID)
+		if len(restored.Names) != 0 {
+			t.Fatal("removed folder retained name")
+		}
+	}
+}

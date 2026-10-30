@@ -524,7 +524,14 @@ func setSMBRootDACL(id, path, fileID, expected string, info windows.SECURITY_INF
 		if e != nil {
 			return "", e
 		}
-		if !strings.EqualFold(filepath.Clean(path), filepath.Join(root, "Shared Files")) {
+		expectedPath := filepath.Join(root, "Shared Files")
+		if fileshare.IsVolumePath(path) {
+			expectedPath, e = fileshare.StableVolumePath(expectedPath, "win:"+fileID)
+			if e != nil {
+				return "", e
+			}
+		}
+		if !strings.EqualFold(filepath.Clean(path), expectedPath) {
 			return "", fmt.Errorf("SMB_DEFAULT_ROOT_CHANGED")
 		}
 		err = open()
@@ -646,7 +653,7 @@ func ownedSMBDefaultDACL(path string, actual, expected *windows.SECURITY_DESCRIP
 		return false
 	}
 	for _, r := range c.Roots {
-		if r.ID == "000000000000000000000001" && strings.EqualFold(r.Path, path) && (r.AcceptedBaseline || sameSMBRootDACL(r.Before, expected.String())) && (sameSMBRootDACL(r.After, actual.String()) || sameSMBRootDACL(r.PreviousAfter, actual.String())) {
+		if r.ID == "000000000000000000000001" && (strings.EqualFold(r.Path, path) || fileshare.IsVolumePath(r.Path) && r.FileID != "") && (r.AcceptedBaseline || sameSMBRootDACL(r.Before, expected.String())) && (sameSMBRootDACL(r.After, actual.String()) || sameSMBRootDACL(r.PreviousAfter, actual.String())) {
 			if r.FileID != "" {
 				_, fileID, err := smbRootSecurity(path)
 				if err != nil || fileID != r.FileID {

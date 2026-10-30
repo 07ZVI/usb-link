@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"suhang/usbnet/internal/sharing/fileshare"
 	"unicode/utf16"
 )
 
@@ -45,6 +46,9 @@ func legacyNativeShareName(id, name string) bool {
 }
 
 func folderShareName(path string) string {
+	if fileshare.IsVolumePath(path) && path == fileshare.VolumeRoot(path) {
+		return "Disk"
+	}
 	parts := strings.Split(strings.TrimRight(strings.ReplaceAll(path, `\`, "/"), "/"), "/")
 	name := strings.Map(func(r rune) rune {
 		if r < 32 || strings.ContainsRune(`"/\[]:;|=,+*?<>`, r) {
@@ -81,6 +85,16 @@ func validNativeShareName(id, name string, path ...string) bool {
 
 func validFolderNativeShareName(name, path string) bool {
 	base := folderShareName(path)
+	// Preserve the original drive-root share name (e.g. D_) after binding.
+	if fileshare.IsVolumePath(path) && path == fileshare.VolumeRoot(path) {
+		for drive := 'A'; drive <= 'Z'; drive++ {
+			for n := 1; n <= 100; n++ {
+				if strings.EqualFold(name, numberedShareName(string(drive)+"_", n)) {
+					return true
+				}
+			}
+		}
+	}
 	for i := 1; i <= 100; i++ {
 		if name == numberedShareName(base, i) {
 			return true
@@ -125,4 +139,18 @@ func availableNativeShareName(id, path string, used map[string]string, free func
 		}
 	}
 	return "", fmt.Errorf("NATIVE_SMB_NAME_CONFLICT: 資料夾 %s 的同名共享過多", base)
+}
+
+// A canonical GUID path may expand a short filename or use different casing.
+// Keep the previously validated share name anchored to its original spelling.
+func validNativeSMBShareName(s nativeSMBShare) bool {
+	path := s.Path
+	if s.NamePath != "" {
+		if !fileshare.IsVolumePath(path) || len(s.NamePath) < 3 || len(s.NamePath) > 4096 ||
+			s.NamePath[1:3] != `:\` || strings.ContainsAny(s.NamePath, "\x00\r\n") {
+			return false
+		}
+		path = s.NamePath
+	}
+	return validNativeShareName(s.ID, s.Name, path)
 }

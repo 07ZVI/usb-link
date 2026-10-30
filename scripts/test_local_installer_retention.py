@@ -82,7 +82,7 @@ class LocalRetentionTests(unittest.TestCase):
     def test_build_audit_failure_prevents_cleanup(self):
         import project
         with patch.object(project, 'prepare', return_value='bridge'), patch.object(project, 'write_resource') as resource, \
-             patch.object(project, 'go_build'), patch.object(project, 'verify_release_surface'), patch.object(project, 'verify_manifest'), \
+             patch.object(project, 'go_build'), patch.object(project, 'verify_release_surface'), patch.object(project, 'verify_manifest'), patch.object(project, 'verify_icon'), \
              patch.object(project, 'retain_local_installers') as cleanup, patch.object(project, 'write_checksums'), \
              patch.object(project, 'run') as run:
             def audit_fails(args, *unused):

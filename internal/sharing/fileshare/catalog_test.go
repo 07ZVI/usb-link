@@ -114,3 +114,26 @@ func TestUnavailableFolderDoesNotBreakOtherShares(t *testing.T) {
 		t.Fatal("cannot remove unavailable share", e)
 	}
 }
+
+func TestRelocationRejectsDifferentDirectoryWithoutChangingSelection(t *testing.T) {
+	c := NewCatalog(nil)
+	defer c.Close()
+	folder, err := c.Add("", realTemp(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Relocate(folder.ID, realTemp(t)); err == nil {
+		t.Fatal("different folder accepted")
+	}
+	got := c.List()[0]
+	if got.Path != folder.Path || got.Identity != folder.Identity || !got.Available {
+		t.Fatal("failed relocation changed selection", got)
+	}
+	if err = c.Relocate(folder.ID, folder.Path); err != nil {
+		t.Fatal(err)
+	}
+	c.Refresh()
+	if got = c.List()[0]; !got.Available || got.ID != folder.ID || got.Name != folder.Name {
+		t.Fatal(got)
+	}
+}
