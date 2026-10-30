@@ -16,6 +16,7 @@
  </PropertyGroup>
  <ItemGroup>
   <AvaloniaResource Include="Assets/usb-link.ico" />
+  <AvaloniaResource Include="../design/icons/usb-link-icon-v1.png" Link="Assets/usb-link.png" />
   <Compile Remove="obj/**/*.cs;bin/**/*.cs" />
   <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
   <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />

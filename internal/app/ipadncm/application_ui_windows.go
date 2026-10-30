@@ -531,7 +531,15 @@ func (w *appWindow) addTray() {
 		return
 	}
 	n.Size = uint32(unsafe.Sizeof(n))
-	n.Icon, _, _ = appUser.NewProc("LoadIconW").Call(0, 32512)
+	// Group icon 1 is embedded in the launcher by windows_resource.py.
+	// LR_SHARED keeps ownership with the module across Explorer restarts.
+	instance, _, _ := appKernel.NewProc("GetModuleHandleW").Call(0)
+	width, _, _ := appUser.NewProc("GetSystemMetrics").Call(49)  // SM_CXSMICON
+	height, _, _ := appUser.NewProc("GetSystemMetrics").Call(50) // SM_CYSMICON
+	n.Icon, _, _ = appUser.NewProc("LoadImageW").Call(instance, 1, 1, width, height, 0x8000)
+	if n.Icon == 0 {
+		return
+	}
 	w.trayTip = trayTip
 	if currentExitTip.Load() {
 		w.trayTip = trayExitTip

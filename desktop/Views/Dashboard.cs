@@ -316,11 +316,9 @@ public sealed partial class Dashboard : Window
 
     Control Header()
     {
-        // Two sails, after the app icon.
-        var mark = new Canvas { Width = 28, Height = 28 };
-        mark.Children.Add(new Path { Data = Geometry.Parse("M13 3L13 22L3 22Z") }.Res(Shape.FillProperty, "Accent"));
-        mark.Children.Add(new Path { Data = Geometry.Parse("M15 7L25 22L15 22Z") }.Res(Shape.FillProperty, "Cyan"));
-        mark.Children.Add(new Path { Data = Geometry.Parse("M3 24.5h22"), StrokeThickness = 1.6, StrokeLineCap = PenLineCap.Round }.Res(Shape.StrokeProperty, "Accent"));
+        using var brandStream = Avalonia.Platform.AssetLoader.Open(new Uri("avares://USBLink.Desktop/Assets/usb-link.png"));
+        var mark = new Image { Width = 28, Height = 28, Stretch = Stretch.Uniform,
+            Source = new Avalonia.Media.Imaging.Bitmap(brandStream) };
 
         var version = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2), Child = versionText }
             .Res(Border.BackgroundProperty, "IdleSoft");
