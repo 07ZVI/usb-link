@@ -993,7 +993,7 @@ func readNativeSMBState(path string, v any) error {
 
 func NativeSMBDiagnostics() any {
 	v := NativeSMBStatus()
-	return map[string]any{"provider": "Windows native SMB", "ready": v.Ready, "enabled": v.Enabled, "server_url": NativeSMBServerURL, "connect_url": v.ConnectURL, "owned_share_count": v.Shared, "guest_enabled": NativeSMBGuestEnabled(), "dedicated_account_exists": NativeSMBAccountView(false).Exists, "account_read": nativeSMBAccountReadDiagnostics(), "folder_permission_writes": nativeSMBACLWriteDiagnostics(), "ui_results": nativeSMBUIResultDiagnostics(), "problem": v.Problem, "folders": NativeSMBFolderDiagnostics(), "policy": nativeSMBPolicyDiagnostics(), "readiness_scope": "service and owned shares only; remote authentication, share enumeration and file access require client verification"}
+	return map[string]any{"volume_reconnect": nativeSMBReconnectDiagnostics(), "provider": "Windows native SMB", "ready": v.Ready, "enabled": v.Enabled, "server_url": NativeSMBServerURL, "connect_url": v.ConnectURL, "owned_share_count": v.Shared, "guest_enabled": NativeSMBGuestEnabled(), "dedicated_account_exists": NativeSMBAccountView(false).Exists, "account_read": nativeSMBAccountReadDiagnostics(), "folder_permission_writes": nativeSMBACLWriteDiagnostics(), "ui_results": nativeSMBUIResultDiagnostics(), "problem": v.Problem, "folders": NativeSMBFolderDiagnostics(), "policy": nativeSMBPolicyDiagnostics(), "readiness_scope": "service and owned shares only; remote authentication, share enumeration and file access require client verification"}
 }
 
 // Explicit local consent hands an externally modified share back to Windows.

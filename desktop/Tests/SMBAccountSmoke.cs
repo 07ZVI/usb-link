@@ -41,10 +41,10 @@ public sealed partial class Dashboard
         if(smbPassword.Text!="NewExample!123"||smbAccountName.Text!="Simple")throw new InvalidOperationException("failed save clears edits");
         FailSMBAccountRequest("Example timeout","native-smb-account-save");if(smbAccountBusy||!smbRefresh.IsEnabled||smbCreate.IsEnabled||smbPassword.Text!="NewExample!123")throw new InvalidOperationException("unconfirmed save state");
         ClearNewSMBPassword();smbAccountName.Text="USBLink";smbNameEdited=false;UpdateSMBAccount(existing.RootElement);UpdateSMBControls();
-        using var shares=JsonDocument.Parse("""{"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Media","share_name":"USB-Media","path":"D:\\Media","smb_url":"smb://10.6.9.1/USB-Media","available":true,"native_shared":true,"account_access":"modify","guest_access":"read","guest_enabled":true},{"name":"Archive","share_name":"Archive","path":"E:\\Archive","available":true,"native_shared":true,"external_share":true}]}""");UpdateShareFolders(shares.RootElement);
+        using var shares=JsonDocument.Parse("""{"folders":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":"Media","share_name":"USB-Media","path":"D:\\Media","smb_url":"smb://10.6.9.1/USB-Media","available":true,"native_shared":true,"account_access":"modify","guest_access":"read","guest_enabled":true},{"id":"external:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Archive","share_name":"Archive","path":"E:\\Archive","available":true,"native_shared":true,"external_share":true}]}""");UpdateShareFolders(shares.RootElement);
         if(shareFolderRows.Children.Count!=2)throw new InvalidOperationException("existing published shares");
-        if(shareFolderRows.GetVisualDescendants().OfType<Button>().Count(b=>Avalonia.Automation.AutomationProperties.GetName(b)?.StartsWith("取消共享「")==true)!=1)
-            throw new InvalidOperationException("owned shares need a cancel icon; external shares remain Windows managed");
+        if(shareFolderRows.GetVisualDescendants().OfType<Button>().Count(b=>Avalonia.Automation.AutomationProperties.GetName(b)?.StartsWith("取消共享「")==true)!=2)
+            throw new InvalidOperationException("both managed and external shares need a cancel action");
         var checks=shareFolderRows.GetVisualDescendants().OfType<CheckBox>().ToArray();
         if(checks.Length!=4||checks[0].IsChecked!=true||checks[1].IsChecked!=true||checks[2].IsChecked!=true||checks[3].IsChecked!=false)throw new InvalidOperationException("inline per-principal access");
         checks[0].IsChecked=false;if(checks[1].IsEnabled)throw new InvalidOperationException("modify enabled without access");checks[0].IsChecked=true;

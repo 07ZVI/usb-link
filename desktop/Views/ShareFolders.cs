@@ -45,7 +45,7 @@ public sealed partial class Dashboard
   } catch(Exception) { shareNotice.Show("Warn","無法開啟資料夾選擇器。"); }
  }
  static string ShareAccessLabel(string value)=>value=="read"?"只讀":value=="modify"?"可修改":"禁止存取";
- Control InlineShareAccess(string id,string path,string account,string guest,bool guestEnabled) {
+ Control InlineShareAccess(string id,string path,string account,string guest,bool guestEnabled,bool external=false) {
   var selectedAccount=account;var selectedGuest=guest;
   if(shareAccessDrafts.TryGetValue(id,out var draft)&&draft.Path==path){selectedAccount=draft.Account;selectedGuest=draft.Guest;}
   var accountOn=new CheckBox{Content="啟用帳戶存取",IsChecked=selectedAccount!="none"};
@@ -54,13 +54,18 @@ public sealed partial class Dashboard
   var guestWrite=new CheckBox{Content="允許修改",IsChecked=selectedGuest=="modify"};
   string Value(CheckBox enabled,CheckBox write)=>enabled.IsChecked==true?(write.IsChecked==true?"modify":"read"):"none";
   var state=Hint("");
-  var save=Action("保存權限",()=>RequestShareFolders("native-smb-access-save",id:id,accountAccess:Value(accountOn,accountWrite),guestAccess:Value(guestOn,guestWrite)),primary:true);
+  void Save() {
+   void Submit()=>RequestShareFolders("native-smb-access-save",id:id,accountAccess:Value(accountOn,accountWrite),guestAccess:Value(guestOn,guestWrite),remember:external);
+   if(external)AppWindow.Confirm(shareFoldersWindow,"替換此共享的網路權限？","將以你選擇的專用帳戶及訪客權限替換目前的共享存取名單，其他帳戶原有的共享權限將移除。原配置會先備份；檔案與 NTFS 本地權限保持不變，本地權限仍可能限制實際存取。","替換並保存",Submit,danger:true,detail:path);
+   else Submit();
+  }
+  var save=Action("保存權限",Save,primary:true);
   var revert=Action("還原",()=>{accountOn.IsChecked=account!="none";accountWrite.IsChecked=account=="modify";guestOn.IsChecked=guest!="none";guestWrite.IsChecked=guest=="modify";});
   var choices=Row(8,revert,save);
   void Changed() {
    accountWrite.IsEnabled=accountOn.IsChecked==true;guestWrite.IsEnabled=guestOn.IsChecked==true;
-   var a=Value(accountOn,accountWrite);var g=Value(guestOn,guestWrite);var dirty=a!=account||g!=guest;
-   if(dirty)shareAccessDrafts[id]=new(path,a,g);else shareAccessDrafts.Remove(id);
+   var a=Value(accountOn,accountWrite);var g=Value(guestOn,guestWrite);var dirty=external||a!=account||g!=guest;
+   if(!external){if(dirty)shareAccessDrafts[id]=new(path,a,g);else shareAccessDrafts.Remove(id);}
    choices.IsVisible=dirty;save.IsEnabled=dirty;
    state.Text="帳戶："+ShareAccessLabel(a)+"    訪客："+ShareAccessLabel(g)+(g!="none"&&!guestEnabled?"（全機訪客尚未啟用）":"")+(dirty?" · 尚未保存":"");
   }
@@ -104,15 +109,16 @@ public sealed partial class Dashboard
   var (tone,state)=external?("Idle","由 Windows 管理"):!available?("Warn","目前不可存取"):migrationPending?("Warn","名稱更新待完成"):published?("Ok","已共享"):("Warn","未共享");
   var trailing=Row(8,new StatusPill(state,Scale.Caption),Action("複製地址",()=>Copy(url,"共享地址")));
   ((StatusPill)trailing.Children[0]).Set(tone);
-  if(!external)trailing.Children.Add(IconButton(Icons.Trash,"取消共享「"+name+"」（保留檔案）",()=>AppWindow.Confirm(shareFoldersWindow,"取消共享？","「"+name+"」將不再提供給 Mac 與 iPad。資料夾與檔案會保留，之後可以再次添加。","取消共享",()=>RequestShareFolders("share-folder-remove",id:id),danger:true,detail:path)));
+  if(!external||id!="")trailing.Children.Add(IconButton(Icons.Trash,"取消共享「"+name+"」（保留檔案）",()=>AppWindow.Confirm(shareFoldersWindow,"取消共享？","「"+name+"」將不再提供給 Mac 與 iPad。資料夾與檔案會保留，之後可以再次添加。","取消共享",()=>RequestShareFolders("share-folder-remove",id:id,remember:external),danger:true,detail:path)));
   var body=new List<Control>();
   var recover=Row(8);
   if(external)recover.Children.Add(Action("在 Windows 管理",()=>ShareRequest(new{action="windows-smb-manage"})));
   else if((!published||migrationPending)&&available&&!changed)recover.Children.Add(Action("重試共享",()=>RequestShareFolders("native-smb-retry")));
   if(changed)recover.Children.Add(Action("交由 Windows 管理",()=>ReleaseShareOwnership(id,name)));
   if(recovery)recover.Children.Add(Action("保留目前權限",()=>KeepSharePermissions(id,name,path)));
-  if(external||changed)body.Add(Banner(changed?"權限已由 Windows 修改，請在 Windows 核對。":"此共享的帳戶與訪客權限由 Windows 管理。",changed?"Warn":"Idle"));
-  else { var permissions=InlineShareAccess(id,path,account,guest,guestEnabled); permissions.IsEnabled=!migrationPending; body.Add(permissions); }
+  if(external||changed)body.Add(Banner(changed?"權限已由 Windows 修改，請在 Windows 核對。":"此為 Windows 共享。你可以在此取消共享，或設定新的網路存取權限。",changed?"Warn":"Idle"));
+  if(external&&id!="")body.Add(new Expander { Header="設定新的帳戶與訪客權限", Content=Column(10,Hint("下方是將要套用的新權限；目前的其他帳戶權限會被替換。"),InlineShareAccess(id,path,"modify","none",guestEnabled,true)) });
+  else if(!changed&&!external) { var permissions=InlineShareAccess(id,path,account,guest,guestEnabled); permissions.IsEnabled=!migrationPending; body.Add(permissions); }
   if(Flag(folder,"access_recovery"))body.Add(Banner("上次權限保存尚未完成，請重新核對並保存。","Warn"));
   if(Text(folder,"folder_problem") is {Length:>0} problem)body.Add(Banner(problem,"Warn"));
   if(recovery)body.Add(Banner("權限恢復尚未完成。可先重試關閉共享；若已自行管理權限，可選擇保留目前權限。","Warn"));

@@ -690,6 +690,8 @@ func runApplication(ctx context.Context, cancel context.CancelFunc, service bool
 	defer stopInternet()
 	stopHostTriggers := ipadncm.WatchSharedHostDeviceChanges(ctx)
 	defer stopHostTriggers()
+	stopSMBVolumes := connectioninstall.WatchNativeSMBVolumes(ctx)
+	defer stopSMBVolumes()
 	memorydiag.RecordStage("parent_host_supervisor_started")
 	// Read only once, after the connection owner has started; frequent status
 	// reads return this fixed schema observation rather than requerying WMI.

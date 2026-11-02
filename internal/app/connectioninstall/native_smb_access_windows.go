@@ -332,7 +332,17 @@ func NativeSMBManagerFolders() ([]fileshare.Folder, error) {
 			}
 		}
 		if !found {
-			rows = append(rows, fileshare.Folder{Name: s.Name, ShareName: s.Name, Path: s.Path, SMBURL: "smb://10.6.9.1/" + url.PathEscape(s.Name), Available: true, NativeShared: true, ExternalShare: true})
+			got, free, rc, queryErr := getNativeShare(s.Name)
+			if queryErr != nil || rc != 0 {
+				continue
+			}
+			externalID, snapshotErr := externalSMBSnapshot(got)
+			name, path := windows.UTF16PtrToString(got.Name), windows.UTF16PtrToString(got.Path)
+			free()
+			if snapshotErr != nil {
+				continue
+			}
+			rows = append(rows, fileshare.Folder{ID: externalID, Name: name, ShareName: name, Path: path, SMBURL: "smb://10.6.9.1/" + url.PathEscape(name), Available: true, NativeShared: true, ExternalShare: true, GuestEnabled: NativeSMBGuestEnabled()})
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return strings.ToLower(rows[i].ShareName) < strings.ToLower(rows[j].ShareName) })

@@ -78,6 +78,10 @@ func (u *modernUI) shareFoldersAction(v desktopRequest) bool {
 				err = connectioninstall.SetNativeSMB(true)
 			}
 		case "share-folder-remove":
+			if connectioninstall.IsExternalSMBID(v.ID) {
+				err = connectioninstall.ChangeExternalSMBShare(v.ID, true, "", "", v.Remember)
+				break
+			}
 			err = connectioninstall.RemoveNativeSMBFolder(v.ID)
 			if err == nil {
 				err = connectioninstall.RemoveSharedFolder(v.ID)
@@ -103,6 +107,10 @@ func (u *modernUI) shareFoldersAction(v desktopRequest) bool {
 		case "native-smb-account-save":
 			nameSaved, passwordSaved, err = connectioninstall.SaveNativeSMBAccount(v.Username, v.Password)
 		case "native-smb-access-save":
+			if connectioninstall.IsExternalSMBID(v.ID) {
+				err = connectioninstall.ChangeExternalSMBShare(v.ID, false, v.AccountAccess, v.GuestAccess, v.Remember)
+				break
+			}
 			err = connectioninstall.UpdateNativeSMBAccess(v.ID, v.AccountAccess, v.GuestAccess)
 		case "native-smb-account-rename":
 			err = connectioninstall.RenameSMBAccount(v.Username)
