@@ -29,7 +29,7 @@ public sealed partial class Dashboard
   internetRetry=Action("重試關閉共享",()=>{if(!preview)SendInternet("internet-disable");},primary:true);
   internetNotice.WithAction(Row(8,Action("重新檢查",()=>SendInternet("internet-refresh")),internetRetry));
   var main=Columns("*,Auto",Column(2,Label("共享網際網路",Scale.Body),internetState),internetToggle);main.ColumnSpacing=16;
-  var dependencies=new Expander{Header="所需元件",IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,Content=Column(10,dependencyRows,Action("檢查 / 安裝全部所需元件",()=>{if(!preview)DesktopClient.Send(new{action="dependency-install",id="all"});}))};
+  var dependencies=new Expander{Header="所需元件",IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,Content=Column(12,dependencyRows,Action("檢查 / 安裝全部所需元件",()=>{if(!preview)DesktopClient.Send(new{action="dependency-install",id="all"});}))};
   return internetSection = Section.Make("共享網際網路給 Mac","讓 Mac 透過 USB 使用這台電腦的網路。預設關閉；開啟後請在 Mac 更新 USB 網路的 DHCP 租約，確認有往返流量才會顯示可用。",
    Column(12,main,internetNotice,Field("網路出口",internetUpstream),Row(8,Action("重新檢查出口",()=>SendInternet("internet-refresh"),Icons.Retry)),dependencies));
  }
@@ -63,7 +63,7 @@ public sealed partial class Dashboard
    dependencyRows.Children.Clear();
    foreach(var x in dependencies){
     var pill=new StatusPill(DependencyStateText(x.State),Scale.Caption);pill.Set(DependencyTone(x.State));
-    var line=Columns("*,Auto",Column(1,Label(x.ID,Scale.Body),Hint(x.Features.Count>0?"影響：" + string.Join("、",x.Features):"","Muted",Scale.Caption)),pill);
+    var line=Columns("*,Auto",Column(2,Label(x.ID,Scale.Body),Hint(x.Features.Count>0?"影響：" + string.Join("、",x.Features):"","Muted",Scale.Caption)),pill);
     dependencyRows.Children.Add(line);
     if(x.Problem!=""){var n=new Notice();n.Show("Warn",x.Problem);dependencyRows.Children.Add(n);}
    }

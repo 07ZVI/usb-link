@@ -42,7 +42,7 @@ public sealed partial class Dashboard
     {
         var duplicates = devices.GroupBy(d=>Text(d,"name"),StringComparer.OrdinalIgnoreCase).ToDictionary(g=>g.Key,g=>g.Count(),StringComparer.OrdinalIgnoreCase);
         foreach(var group in devices.OrderBy(USBGroup).ThenBy(d=>Text(d,"name"),StringComparer.CurrentCultureIgnoreCase).GroupBy(USBGroup)){
-            usbRows.Children.Add(new Border{Padding=new Thickness(2,10,2,0),Child=Label(usbGroupTitles[group.Key]+" · "+group.Count(),Scale.Secondary,FontWeight.SemiBold,key:"Muted")});
+            usbRows.Children.Add(new Border{Padding=new Thickness(2, 12, 2, 0),Child=Label(usbGroupTitles[group.Key]+" · "+group.Count(),Scale.Secondary,FontWeight.SemiBold,key:"Muted")});
             foreach(var device in group){
                 var location=Text(device,"location");
                 var metadata=$"VID {Text(device,"vid")} · PID {Text(device,"pid")} · Windows 已偵測";
@@ -57,7 +57,7 @@ public sealed partial class Dashboard
                 metadata+="\n裝置規格："+(specification!=""?specification:"Windows 尚未提供")+"\n目前協商速率："+(speed!=""?speed:"Windows 尚未提供")+"\n接口支援："+(protocols!=""?protocols:"Windows 尚未提供");
                 metadata+="\nUSB 3.x 接口的 3.1／3.2 版本及通道數，Windows 快取資料未提供；協商速率不代表實際傳輸速度。";
                 var info=new SelectableTextBlock{Text=metadata,FontSize=Scale.Secondary,TextWrapping=TextWrapping.Wrap,MaxWidth=380};info.Res(TextBlock.ForegroundProperty,"Muted");
-                var details=IconButton(Icons.Info,"裝置資訊",()=>{});details.Padding=new Thickness(5);details.Width=28;details.Height=28;
+                var details=IconButton(Icons.Info,"裝置資訊",()=>{});details.Padding=new Thickness(6);details.Width=28;details.Height=28;
                 details.Content=Icons.Fixed(Icons.Info,16,"Muted");
                 details.Flyout=new Flyout{Content=Column(8,Label("裝置資訊",14,FontWeight.SemiBold),info)};
                 // Key facts share one line; unknown values are left out ("尚未取得" only when nothing else is known).
@@ -75,7 +75,7 @@ public sealed partial class Dashboard
                     if(Text(disk,"problem") is {Length:>0} diskProblem)diskBodies.Add(Hint(diskProblem,"Warn",Scale.Caption));
                     else if(volumes.Length==0)diskBodies.Add(Hint("沒有已指派磁碟代號的磁碟區（可能未掛載或尚未格式化）。","Muted",Scale.Caption));
                 }
-                if(diskBodies.Count>0){content.Add(WithMargin(Rule(),new Thickness(0,4,0,2)));content.AddRange(diskBodies);}
+                if(diskBodies.Count>0){content.Add(WithMargin(Rule(),new Thickness(0, 4, 0, 2)));content.AddRange(diskBodies);}
                 if(Text(device,"storage_problem") is {Length:>0} storageProblem)content.Add(Hint(storageProblem,"Warn",Scale.Caption));
                 usbRows.Children.Add(ListItem.Compact(Text(device,"name"),USBDisplayKind(device),facts.Count>0?string.Join(" · ",facts):"USB 版本尚未取得",details,content.ToArray()));
             }
@@ -99,6 +99,6 @@ public sealed partial class Dashboard
             AutomationProperties.SetName(bar,$"{mount} {title} 已用 {used:0.#}%，可用 {USBSize(free)}");
             ToolTip.SetTip(bar,$"已用 {USBSize(total-free)} / {USBSize(total)} · 可用 {USBSize(free)}");row.Children.Add(bar);
         }
-        return WithMargin(row,new Thickness(0,2,0,2));
+        return WithMargin(row,new Thickness(0, 2, 0, 2));
     }
 }

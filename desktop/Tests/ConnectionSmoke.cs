@@ -130,7 +130,7 @@ public sealed partial class Dashboard
                     if (internetToggle.IsChecked != (state is "preparing" or "waiting_client" or "ready") || internetToggle.IsEnabled != (state != "preparing"))
                         throw new InvalidOperationException("internet switch must reflect confirmed state: " + state);
                 }
-                if (detailRows.GetVisualRoot() != detailWindow)
+                if (!ReferenceEquals(detailRows.GetVisualRoot(), detailWindow!.Owner) || !detailWindow.IsVisible)
                     throw new InvalidOperationException("diagnostic controls must share the current window");
 #if USBLINK_LOCAL_DIAGNOSTICS
                 var localToggle = detailWindow!.GetVisualDescendants().OfType<ToggleSwitch>().Single(t => AutomationProperties.GetName(t) == "開發者調試");
@@ -364,7 +364,7 @@ public sealed partial class Dashboard
             var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
             if (dashboardTexts.Contains("退出介面") || dashboardTexts.Contains("退出程序") || dashboardTexts.Contains("工作管理員") || !dashboardTexts.Any(t => t?.Contains("托盤圖示選單") == true) || footerControl.GetVisualDescendants().OfType<Button>().Any())
                 throw new InvalidOperationException("the dashboard has no exit button or task manager row; the footer points to the tray menu");
-            if (settingsList.RowDefinitions.Count != 4 || settingsList.Children.OfType<Button>().Count() != 2) throw new InvalidOperationException("settings keep two switches and two links without an empty row");
+            if (settingsList.RowDefinitions.Count != 2 || settingsList.Children.OfType<Button>().Any() || navItems.Count != 5) throw new InvalidOperationException("settings keep only the two switches; the tools live in the page switcher");
             using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) Update(trayExit.RootElement);
             if (programExitID != "" || programExitAwaiting || !notice.Text!.Contains("介面預覽")) throw new InvalidOperationException("tray exit must share the preview-safe program exit path");
             VerifyExitButtonWire();

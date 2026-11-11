@@ -75,7 +75,7 @@ public sealed partial class Dashboard
                 status.Text = (state.DeliveryFailureID != "" ? LocalControlDeliveryFailure + "\n" : "") + state.Message;
             }
         };
-        return Column(10, controls.ToArray());
+        return Column(12, controls.ToArray());
     }
 
     Control TrustExperimentRecoveryStatus()

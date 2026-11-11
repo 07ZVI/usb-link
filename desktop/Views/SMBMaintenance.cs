@@ -10,7 +10,7 @@ public sealed partial class Dashboard
     bool smbGuestEnabled;
     sealed class SMBMaintenanceState
     {
-        public Window? Window;
+        public PageHost? Window;
         public TextBlock Status = Hint("");
         public readonly List<Control> Actions = new();
         public string ID = "", Action = "";
@@ -53,7 +53,7 @@ public sealed partial class Dashboard
         var repair=Action("修復 Windows 元件",()=>ConfirmSMBMaintenance(s,"修復 Windows SMB 元件？","缺少元件時使用 Windows 官方修復，可能連線 Windows Update，耗時較長。不會自動重啟或安裝 SMB1。",()=>RequestSMBMaintenance(s,"native-smb-repair"),"開始修復"));
         s.Actions.AddRange(new Control[]{retry,repair});s.Refresh=null;
         s.View=new Expander{Header="進階：Windows SMB 修復",IsExpanded=false,HorizontalAlignment=Avalonia.Layout.HorizontalAlignment.Stretch,
-            Content=Column(10,Hint("共享不可用時可先重試。僅在 Windows SMB 元件缺失時使用元件修復。"),Row(10,retry,repair),s.Status)};
+            Content=Column(12,Hint("共享不可用時可先重試。僅在 Windows SMB 元件缺失時使用元件修復。"),Row(12,retry,repair),s.Status)};
         return s.View;
     }
     void CloseSMBMaintenance(SMBMaintenanceState s)

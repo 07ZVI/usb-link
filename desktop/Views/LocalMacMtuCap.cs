@@ -52,7 +52,7 @@ public sealed partial class Dashboard
             combo.IsEnabled = localDiagnosticsEnabled && macMtuCapAvailable && macMtuCapPendingID == "";
             status.Text = (macMtuCapDeliveryFailureID != "" ? LocalControlDeliveryFailure + "\n" : "") + macMtuCapMessage;
         };
-        return Column(10,
+        return Column(12,
             Columns("*,Auto", Label("Mac 連線 MTU 上限（實驗）", Scale.Body), combo),
             Hint("下次 Mac 連線生效；用於測試大封包是否造成上傳變慢或斷線。"),
             status);

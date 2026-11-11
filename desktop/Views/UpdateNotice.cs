@@ -23,7 +23,7 @@ public sealed partial class Dashboard
         var title = installing ? "即將開始升級" : "已收到 USB 升級";
         var text = installing ? "USB 連線將短暫中斷。程式會正常結束並安裝新版。" : "新版已通過發布者簽章與檔案完整性驗證。";
         updateNoticeWindow?.Close();
-        var noticeWindow = AppWindow.Dialog("升級通知", 470, Column(10, Label(title, Scale.Page, FontWeight.SemiBold),
+        var noticeWindow = AppWindow.Dialog("升級通知", 470, Column(12, Label(title, Scale.Page, FontWeight.SemiBold),
             Label("USB Link " + version, Scale.Section), Hint(text, "Muted", Scale.Body)), topmost: true);
         noticeWindow.ShowInTaskbar = true; noticeWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         updateNoticeWindow = noticeWindow;

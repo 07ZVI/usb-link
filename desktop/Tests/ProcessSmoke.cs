@@ -76,7 +76,7 @@ public sealed partial class Dashboard
             var folder = Environment.GetEnvironmentVariable("USB_LINK_PROCESS_EVIDENCE") ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "usb-link-process-preview");
             Directory.CreateDirectory(folder);
             var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
-            Require(dashboardTexts.Contains("安全管理") && !dashboardTexts.Contains("工作管理員") && !dashboardTexts.Contains("退出程序"), "the dashboard has the security row but neither a task manager row nor an exit button");
+            Require(dashboardTexts.Contains("安全") && !dashboardTexts.Contains("工作管理員") && !dashboardTexts.Contains("退出程序"), "the dashboard switches to security but has neither a task manager row nor an exit button");
             Require(this.GetVisualDescendants().OfType<Button>().All(b => (AutomationProperties.GetName(b) ?? "") is not ("工作管理員" or "退出程序")), "no dashboard button for the task manager or exit");
             ProgramIcons.Clear();
             var sampleIcon = TaskManagerView.PreviewIcon(0xFF000000, 0xFFFFFFFF);
@@ -87,7 +87,7 @@ public sealed partial class Dashboard
             await Task.Delay(100); await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
             Require(missing.IsGeneric && unnamed.IsGeneric && missing.Child is not Image, "programs without an icon keep the generic program icon");
             for (var attempt = 0; attempt < 3; attempt++) {
-                OpenSecurity(); var tm = taskManager!; var window = securityWindow!;
+                OpenSecurity(); var tm = taskManager!; var window = securityWindow!; var frame = window.Owner;
                 Require(securityTabs!.SelectedIndex == TasksTab && ((TabItem)securityTabs.Items[0]!).Header as string == "工作管理員", "the task manager is the first security tab");
                 Require(tm.Inventory == null && !tm.IsSampling, "preview must not inspect host processes");
                 Require(Enumerable.Range(0, 5).Select(i => ((TabItem)securityTabs.Items[i]!).Header as string).SequenceEqual(new[] { "工作管理員", "USB 網關", "全機手動規則", "目前連線", "USB 裝置" }), "tab order");
@@ -133,21 +133,21 @@ public sealed partial class Dashboard
                     var red = window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "簽章無效");
                     Require(red.Foreground is SolidColorBrush b && b.Color == Color.Parse(Program.DarkPreview ? "#FF99A4" : "#C42B1C"), "visible invalid signature color");
                     CaptureProcessPreview(folder, "security-tasks-light.png");
-                    window.RequestedThemeVariant = ThemeVariant.Dark;
+                    frame.RequestedThemeVariant = ThemeVariant.Dark;
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
                     window.UpdateLayout();
                     CaptureProcessPreview(folder, "security-tasks-dark.png");
-                    window.RequestedThemeVariant = ThemeVariant.Light;
-                    window.Width = 900; window.Height = 640;
+                    frame.RequestedThemeVariant = ThemeVariant.Light;
+                    frame.Width = 900; frame.Height = 640;
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
                     window.UpdateLayout(); CaptureProcessPreview(folder, "security-tasks-compact.png");
                     Require(tm.Reverify.IsEffectivelyVisible && tm.Search.IsEffectivelyVisible, "compact table controls");
-                    window.Width = window.MinWidth; window.Height = window.MinHeight;
+                    frame.Width = frame.MinWidth; frame.Height = frame.MinHeight;
                     tm.List.SelectedItem = invalid;
                     await Task.Delay(300);
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
                     window.UpdateLayout(); CaptureProcessPreview(folder, "security-tasks-min.png");
-                    Require(window.Bounds.Height <= window.MinHeight + 1, $"minimum window height applied ({window.Bounds.Height})");
+                    Require(frame.Bounds.Height <= frame.MinHeight + 1, $"minimum window height applied ({frame.Bounds.Height})");
                     var fullRows = tm.List.GetVisualDescendants().OfType<ListBoxItem>().Count(r => r.Bounds.Height > 0 && r.TranslatePoint(new Point(0, r.Bounds.Height), tm.List) is { } bottom && bottom.Y <= tm.List.Bounds.Height + 1);
                     Require(fullRows >= 8, $"table keeps at least 8 rows at the minimum window size (got {fullRows})");
                     Require(tm.DetailScroll.Bounds.Height <= tm.List.Bounds.Height, "detail panel must not outgrow the table");
@@ -157,7 +157,7 @@ public sealed partial class Dashboard
                     window.UpdateLayout(); CaptureProcessPreview(folder, "security-tasks-min-details.png");
                     Require(tm.DetailText.IsEffectivelyVisible && tm.DetailScroll.Bounds.Height <= tm.DetailScroll.MaxHeight + 1 && tm.DetailScroll.MaxHeight <= tm.List.Bounds.Height, "expanded details scroll inside their share instead of squeezing the table");
                     detailToggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-                    window.Width = 1220; window.Height = 800;
+                    frame.Width = 1220; frame.Height = 800;
                     var fixture = tm.Programs[0];
                     tm.Programs = Enumerable.Range(0, 1500).Select(i => fixture with { Pid = 10000 + i, Started = i, Name = "Program " + i }).ToArray();
                     tm.Render(); window.UpdateLayout();
@@ -174,7 +174,7 @@ public sealed partial class Dashboard
         }
     }
     void CaptureProcessPreview(string folder, string name) {
-        var window = securityWindow!;
+        var window = securityWindow!.Owner;
         using var bitmap = new RenderTargetBitmap(new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height), new Vector(96, 96));
         bitmap.Render(window); bitmap.Save(System.IO.Path.Combine(folder, name));
     }

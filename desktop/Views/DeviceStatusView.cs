@@ -15,7 +15,7 @@ internal sealed class DeviceStatusView
     readonly string kind;
     readonly StatusPill pill = new("等候 USB 接線");
     TextBlock title => pill.Label;
-    readonly TextBlock traffic = Label("—", Scale.Title, FontWeight.SemiBold),
+    readonly TextBlock traffic = Label("—", Scale.LargeTitle, FontWeight.Bold),
         peerAddress = Label("裝置地址 · 尚未分配", Scale.Secondary, key: "Muted"),
         peak = Label("", Scale.Caption, key: "Subtle"),
         speed = Label("USB 協商速率尚未取得", Scale.Caption, key: "Muted"), latency = Label("延遲 · 未測得", Scale.Caption, key: "Muted"),
@@ -25,7 +25,7 @@ internal sealed class DeviceStatusView
     readonly Sparkline chart = new() { MinHeight = 48 };
     readonly ProgressBar progress = new() { Minimum = 0, Maximum = 100, Height = 3, IsVisible = false };
     readonly Button benchmark, reconnect;
-    readonly TextBlock benchmarkLabel = Label("開始測速", 12);
+    readonly TextBlock benchmarkLabel = Label("開始測速", Scale.Callout, FontWeight.Medium);
     readonly Control health;
     readonly Control deviceGlyph;
     readonly Border deviceTile;
@@ -51,13 +51,13 @@ internal sealed class DeviceStatusView
             if (kind == "Mac" && busy) send("benchmark-cancel");
             else if (url != "") copy(url, kind + " 測速網址（請在 " + kind + " 瀏覽器開啟）");
         });
-        benchmark.Content = benchmarkLabel; benchmark.Padding = new Thickness(10, 3); benchmark.MinHeight = 28;
+        benchmark.Content = benchmarkLabel; benchmark.Padding = new Thickness(Scale.Medium, 0); benchmark.Height = Scale.SmallControl; benchmark.CornerRadius = new CornerRadius(Scale.SmallControl / 2);
         reconnect = IconButton(Icons.Retry, "重新連線 " + kind, () => send(kind == "Mac" ? "retry-mac" : "retry-ipad"));
-        reconnect.Content = Icons.Fixed(Icons.Retry, 18, "Muted");
-        reconnect.Width = reconnect.Height = 30; reconnect.Padding = new Thickness(0);
+        reconnect.Content = Icons.Fixed(Icons.Retry, Scale.IconControl, "Muted");
+        reconnect.Width = reconnect.Height = Scale.SmallControl; reconnect.Padding = new Thickness(0);
         reconnect.HorizontalContentAlignment = HorizontalAlignment.Center; reconnect.VerticalContentAlignment = VerticalAlignment.Center;
         reconnect.Template = new FuncControlTemplate<Button>((host, _) => {
-            var content = new ContentPresenter { HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(4) };
+            var content = new ContentPresenter { HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(Scale.SmallControl / 2) };
             content.Bind(ContentPresenter.ContentProperty, new Binding(nameof(Button.Content)) { Source = host });
             content.Bind(ContentPresenter.BackgroundProperty, new Binding(nameof(Button.Background)) { Source = host });
             return content;
@@ -68,20 +68,22 @@ internal sealed class DeviceStatusView
             else reconnect.Background = Brushes.Transparent;
         }
         reconnect.PropertyChanged += (_,e) => { if(e.Property==Button.IsPressedProperty||e.Property==Control.IsPointerOverProperty||e.Property==Control.IsEnabledProperty||e.Property==Control.IsKeyboardFocusWithinProperty)RetryAppearance(); };
-        deviceGlyph = Icons.Fixed(kind == "Mac" ? Icons.Laptop : Icons.Tablet, 24, "Idle");
-        deviceTile = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(Scale.TileRadius), Child = deviceGlyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty,"IdleSoft");
+        deviceGlyph = Icons.Fixed(kind == "Mac" ? Icons.Laptop : Icons.Tablet, Scale.IconLead, "Idle");
+        deviceTile = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(Scale.CardRadius - 2), Child = deviceGlyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty,"IdleSoft");
         var identity = Columns("Auto,12,*", deviceTile, Gap(),
-            Column(1, Row(6, Label(kind, Scale.Title, FontWeight.SemiBold), health), peerAddress));
+            Column(2, Row(6, Label(kind, Scale.Title, FontWeight.SemiBold), health), peerAddress));
         var head = Columns("*,Auto", identity, WithMargin(Row(6, benchmark, reconnect), new Thickness(8, 0, 0, 0)));
-        var status = Columns("*,12,Auto", pill, Gap(), traffic);
+        // Side-by-side device tiles are narrow: the state pill sits over the traffic number instead of beside it.
+        traffic.HorizontalAlignment = HorizontalAlignment.Left;
+        var status = Rows("Auto,8,Auto", pill, Gap(), traffic);
         // Peak sits over the chart's corner; the empty-state hint takes the chart's place offline.
         peak.HorizontalAlignment = HorizontalAlignment.Right; peak.VerticalAlignment = VerticalAlignment.Top; peak.IsHitTestVisible = false;
         plot = new Grid { MinHeight = 48 };
         plot.Children.Add(chart); plot.Children.Add(idleHint); plot.Children.Add(peak);
         notes = Columns("*,Auto", speed, latency);
-        extras = Column(3, progress, summary, benchmarkAddress);
+        extras = Column(4, progress, summary, benchmarkAddress);
         layout = Rows("Auto,12,Auto,8,*,8,Auto,0,Auto", head, Gap(), status, Gap(), plot, Gap(), notes, Gap(), extras);
-        View = card = Card(layout, new Thickness(Scale.Inset + 2, Scale.Inset - 2));
+        View = card = Card(layout, new Thickness(Scale.Inset));
         benchmarkAddress.Res(TextBlock.ForegroundProperty,"Muted");
         Update(DeviceStatus.Missing);
         SetDensity(0);
@@ -93,11 +95,11 @@ internal sealed class DeviceStatusView
     public void SetDensity(int level)
     {
         density = level;
-        card.Padding = level switch { 0 => new Thickness(Scale.Inset + 2, Scale.Inset - 2), 1 => new Thickness(Scale.Inset, 10), _ => new Thickness(Scale.Inset - 2, 8) };
+        card.Padding = level switch { 0 => new Thickness(Scale.Inset), 1 => new Thickness(Scale.Inset, Scale.Medium), _ => new Thickness(Scale.Medium, Scale.Small) };
         layout.RowDefinitions = new RowDefinitions(level switch { 0 => "Auto,12,Auto,8,*,8,Auto,0,Auto", 1 => "Auto,8,Auto,6,*,6,Auto,0,Auto", _ => "Auto,6,Auto,0,Auto,0,Auto,0,Auto" });
         plot.MinHeight = chart.MinHeight = level == 0 ? 48 : 36;
         plot.IsVisible = notes.IsVisible = level < 2;
-        deviceTile.Width = deviceTile.Height = level == 2 ? 34 : 40;
+        deviceTile.Width = deviceTile.Height = level == 2 ? 32 : 36;
         RefreshExtras();
     }
 

@@ -10,7 +10,7 @@ namespace Suhang.Desktop;
 public sealed partial class Dashboard
 {
     const string SMBServerAddress = "smb://10.6.9.1/";
-    Window? smbAccountWindow;
+    PageHost? smbAccountWindow;
     TextBox smbAccountName = null!, smbPassword = null!, smbNewPassword = null!, smbConfirmPassword = null!;
     Notice smbAccountProblem = null!;
     TextBlock smbAccountStatus = null!, smbPasswordHint = null!;
@@ -25,14 +25,27 @@ public sealed partial class Dashboard
     void OpenSMBManager()
     {
         if (smbAccountWindow != null) { smbAccountWindow.Activate(); return; }
-        smbAccountWindow = AppWindow.Create("SMB 共享", 900, 780, 600, 420);
+        smbAccountWindow = NewPage("share", "SMB 共享", 600, 480);
         shareFoldersWindow = smbAccountWindow;
         var account = BuildSMBAccountPanel(); var guest = BuildSMBGuestPanel(); var folders = BuildShareFoldersPanel(); var repair = BuildSMBRepairPanel();
-        smbAccountWindow.Content = AppWindow.Page(AppWindow.Header("SMB 共享", "讓 Mac 與 iPad 透過網路讀取這台電腦上的資料夾。", smbRefresh),
-            new ScrollViewer { Content = Column(16, BuildSMBAddressCard(), folders, account, guest, repair), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
+        // Address banner across the top; the folders are the page's main column, account and guest a side column.
+        var side = Column(Scale.Gutter, account, guest, repair);
+        folders.VerticalAlignment = VerticalAlignment.Top; side.VerticalAlignment = VerticalAlignment.Top;
+        var columns = new Grid { ColumnSpacing = Scale.Gutter, RowSpacing = Scale.Gutter };
+        columns.Children.Add(folders); columns.Children.Add(side);
+        void Arrange(double width)
+        {
+            var wide = width >= 820;
+            columns.ColumnDefinitions = new ColumnDefinitions(wide ? "*,340" : "*");
+            columns.RowDefinitions = new RowDefinitions(wide ? "Auto" : "Auto,Auto");
+            Grid.SetColumn(side, wide ? 1 : 0); Grid.SetRow(side, wide ? 0 : 1);
+        }
+        var scroll = new ScrollViewer { Content = Column(Scale.Gutter, BuildSMBAddressCard(), columns), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        Arrange(0); scroll.SizeChanged += (_, e) => { if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > .5) Arrange(e.NewSize.Width); };
+        smbAccountWindow.Content = AppWindow.Page(AppWindow.Hero("OrbShare", "SMB 共享", "讓 Mac 與 iPad 透過網路讀取這台電腦上的資料夾。", smbRefresh), scroll);
         smbAccountWindow.Closed += (_, _) => {
             smbAccountTimer?.Stop(); smbAccountTimer = null; smbPendingID = smbPendingAction = smbPasswordPurpose = ""; smbAccountBusy = false;
-            ClearNewSMBPassword(); smbAccountWindow!.Content = null; smbAccountWindow = null; smbAccountActions.Clear();
+            ClearNewSMBPassword(); smbAccountWindow!.Content = null; Detach(shareToggle); Detach(shareStatus); smbAccountWindow = null; smbAccountActions.Clear();
             shareFolderTimer?.Stop(); sharePendingID = ""; shareBusy = false; shareFoldersWindow = null;
             shareRefreshQueued = false; shareAccessDrafts.Clear();
             CloseSMBMaintenance(smbGuestState); CloseSMBMaintenance(smbRepairState);
@@ -42,11 +55,27 @@ public sealed partial class Dashboard
     /// The one address every device connects to; the steps below only decide what it shows.
     Control BuildSMBAddressCard()
     {
-        var address = Label(ShareUrl, Scale.Title, FontWeight.SemiBold);
-        var row = Columns("Auto,*,Auto", IconTile.Make(Icons.Link, "Accent", "AccentSoft", 36), Column(2, Label("連線位址", Scale.Secondary, key: "Muted"), address), Action("複製位址", () => Copy(ShareUrl, "共享地址"), Icons.Copy));
-        row.ColumnSpacing = 12; foreach (var c in row.Children) c.VerticalAlignment = VerticalAlignment.Center;
-        return Card(Column(8, row, Hint("在 Mac 的 Finder 或 iPad 的「檔案」連線到這個位址，再以下方的專用帳戶登入；也可讓訪客免密碼連線。")), new Thickness(Scale.Inset + 2));
+        var address = Label(ShareUrl, Scale.Title1, FontWeight.Bold);
+        address.LetterSpacing = -.5;
+        Control Step(string device, string how) => new Border
+        {
+            CornerRadius = new CornerRadius(Scale.PillRadius), Padding = new Thickness(Scale.Small + 2, 3),
+            Child = Row(Scale.Snug, Label(device, Scale.Callout, FontWeight.SemiBold), Label(how, Scale.Callout, key: "Muted")),
+        }.Res(Border.BackgroundProperty, "IdleSoft");
+        var steps = Row(Scale.Small, Step("Mac", "Finder ⌘K"), Step("iPad", "檔案 › 連接伺服器"));
+        var text = Column(Scale.Snug, Label("連線位址", Scale.Callout, FontWeight.Medium, "Muted"), address, WithMargin(steps, new Thickness(0, Scale.Tight, 0, 0)));
+        ToolTip.SetTip(text, "在 Mac 的 Finder 或 iPad 的「檔案」連線到這個位址，再以專用帳戶登入；也可讓訪客免密碼連線。");
+        var copy = Action("複製位址", () => Copy(ShareUrl, "共享地址"), Icons.Copy, primary: true);
+        // The on/off switch moved here from the overview: the banner states whether sharing runs and where to dial.
+        Detach(shareToggle); Detach(shareStatus);
+        var power = Column(Scale.Tight, shareToggle, shareStatus);
+        shareToggle.HorizontalAlignment = HorizontalAlignment.Right; shareStatus.HorizontalAlignment = HorizontalAlignment.Right;
+        var actions = Row(Scale.Large, power, copy);
+        var row = Columns("Auto,*,Auto", IconTile.Solid(Icons.Link, "Accent", 44), text, actions);
+        row.ColumnSpacing = Scale.Regular; foreach (var c in row.Children) c.VerticalAlignment = VerticalAlignment.Center;
+        return Card(row, new Thickness(Scale.XLarge, Scale.Large));
     }
+    static void Detach(Control c) { if (c.Parent is Panel panel) panel.Children.Remove(c); else if (c.Parent is Decorator d) d.Child = null; }
     Control BuildSMBAccountPanel()
     {
         smbAccountExists = smbAccountLoaded = smbAccountBusy = smbNameEdited = false;
@@ -70,10 +99,10 @@ public sealed partial class Dashboard
         var generate = AccountAction("生成密碼", () => { var password = "Usb!" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant(); smbPassword.Text = smbConfirmPassword.Text = password; });
         smbCreate = AccountAction("保存帳戶", SaveSMBAccountForm, primary: true);
         smbConfirmationRow = Field("確認新密碼", smbConfirmPassword);
-        var names = Columns("*,*", Field("使用者名稱", smbAccountName), Field("密碼", smbPassword)); names.ColumnSpacing = 16;
-        smbPasswordEditor = Column(10, names, smbConfirmationRow, Row(12, smbShowNewPassword, generate), smbPasswordHint);
+        var names = Column(12, Field("使用者名稱", smbAccountName), Field("密碼", smbPassword));
+        smbPasswordEditor = Column(12, names, smbConfirmationRow, Row(12, smbShowNewPassword, generate), smbPasswordHint);
         smbAccountActions.AddRange(new Control[] { smbAccountName, smbPassword, smbConfirmPassword, smbShowNewPassword });
-        var save = Columns("*,Auto", smbAccountProblem, smbCreate); save.ColumnSpacing = 12;
+        var save = Column(8, smbAccountProblem, smbCreate); smbCreate.HorizontalAlignment = HorizontalAlignment.Right;
         return Section.Make("帳戶與密碼", "Mac 與 iPad 以這個專用帳戶登入。名稱與密碼會一起保存。", Column(12, smbPasswordEditor, save), status: smbAccountStatus);
     }
     static void TextCopyMenu(TextBox box)
@@ -94,7 +123,7 @@ public sealed partial class Dashboard
         smbPasswordEditor.IsVisible = smbAccountLoaded;
         smbConfirmationRow.IsVisible = !smbAccountExists || SMBPasswordChanged;
         smbPassword.Watermark = smbAccountExists ? "已保存 · 留空保留，勾選顯示可查看" : "至少 8 個字元";
-        smbCreate.Content = Label(smbAccountExists ? "保存帳戶" : "建立並保存", 13, FontWeight.SemiBold, "Window");
+        smbCreate.Content = Label(smbAccountExists ? "保存帳戶" : "建立並保存", 13, FontWeight.SemiBold, "PrimaryInk");
         var password = smbPassword.Text ?? ""; var confirmation = smbConfirmPassword.Text ?? "";
         var passwordValid = smbAccountExists && !SMBPasswordChanged || ValidSMBPassword(password) && password == confirmation;
         smbCreate.IsEnabled = smbAccountLoaded && !smbAccountBusy && ValidSMBName(smbAccountName.Text ?? "") && passwordValid && (!smbAccountExists || smbAccountName.Text != smbSavedAccountName || SMBPasswordChanged);
