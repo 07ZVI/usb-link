@@ -11,15 +11,16 @@ The switcher holds five pages; each has one job, and nothing appears on two page
 
 | Page | Content |
 | --- | --- |
-| 總覽 | The host address card (state pill, 40-pt address, copy button, orb), then the Mac and iPad cards side by side. Nothing else. |
+| 總覽 | No cards. A hero line (「Windows 主機地址」 with the state pill, the 40-pt address with a copy button, who is connected, the warm planet), one shared traffic chart (Mac in `Accent`, iPad in `Olive`, 60 s with value and time axes), then one borderless row per device split by hairlines: tile, name and address, state pill, ↑ / ↓ numbers with link speed and latency, speed-test and reconnect. |
 | 共享 | A full-width address banner (SMB address, Mac and iPad how-to chips, the sharing switch and its state, copy), then the shared folders as the main column and a 340-pt side column with account, guest access and repair. Below 820 pt the side column moves under the folders. |
 | 安全 | Security center tabs and the task manager. |
 | 磁碟 | Disk space map (treemap, sunburst, list) with its inspector. |
 | 設定 | 「一般」 switches (start at login, network-only), then 「連線診斷」: internet sharing and the folded detailed diagnostics. |
 
-The overview is sized by its content and never stretched to the window: a column of at most 1000 pt, centered both
-ways. The default window is 1040 × 640. When the window is short, the overview steps down through the density levels
-before it scrolls.
+The overview is a column of at most 1120 pt, centered. Only the chart flexes: it takes the height the window leaves
+(140–400 pt) so nothing else stretches. The default window is 1040 × 700. When the window is short, the overview
+steps down through the density levels before it scrolls.
+Device rows wrap identity, traffic and actions onto separate lines below 900 pt of available row width.
 
 ## Type (macOS text styles)
 
@@ -92,7 +93,8 @@ segmented control). Hairline `Stroke` is only for separators and input fields.
   always under a white (`OnFill`) glyph.
 - Text: `Ink` (primary label), `Muted` (secondary), `Subtle` (tertiary). Status: `Ok`, `Busy`, `Warn`, `Error` with
   `…Soft` fills.
-- The overview orb (`Orb`) shows the connection state; the other pages have no illustration.
+- The overview orb (`Orb`) is a warm planet (`OrbWarm`) when connected and takes the status hue otherwise (amber while
+  connecting, red on error, gray when idle); the other pages have no illustration.
 
 ## Disk space map
 

@@ -33,6 +33,9 @@ internal static class Palette
         ("Accent", "#A8711C", "#E8B556"),
         ("AccentSoft", "#F3E4C4", "#3D3220"),
         ("Cyan", "#5F7F8C", "#9DB7C2"),
+        // The second chart series (iPad) beside the gold accent (Mac).
+        ("Olive", "#7E9F57", "#A6C47F"),
+        ("OrbWarm", "#E09A5F", "#E6A56C"),
         ("Ok", "#2F7D4F", "#8FD8A8"),
         ("OkSoft", "#D8EBD9", "#25352A"),
         ("Busy", "#A8711C", "#E8B556"),

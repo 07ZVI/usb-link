@@ -33,7 +33,7 @@ public sealed partial class Dashboard
             var snapshot = LocalDiagnosticsText();
             try
             {
-                var clipboard = (detailWindow ?? this).Clipboard;
+                var clipboard = Clipboard;
                 if (clipboard == null) { status.Text = "目前無法使用剪貼簿。"; return; }
                 await clipboard.SetTextAsync(snapshot);
                 status.Text = "已複製目前診斷內容。";
@@ -45,7 +45,7 @@ public sealed partial class Dashboard
             var snapshot = LocalDiagnosticsText();
             try
             {
-                var storage = (detailWindow ?? this).StorageProvider;
+                var storage = StorageProvider;
                 if (!storage.CanSave) { status.Text = "目前無法開啟儲存視窗。"; return; }
                 var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
                 {

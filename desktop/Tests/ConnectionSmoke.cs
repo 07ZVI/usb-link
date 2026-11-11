@@ -343,6 +343,15 @@ public sealed partial class Dashboard
                 throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
             CaptureConnectionPreview(this, "compact");
             ResizeAndSettle(520, 420); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
+            foreach (var device in new[] { macStatus, ipadStatus })
+            {
+                foreach (var control in device.View.GetVisualDescendants().OfType<Control>().Where(c => c.IsEffectivelyVisible && (c is Button || c is TextBlock)))
+                {
+                    var origin = control.TranslatePoint(default, device.View);
+                    if (origin is not { } p || p.X < -1 || p.X + control.Bounds.Width > device.View.Bounds.Width + 1)
+                        throw new InvalidOperationException("small device row must keep text and actions inside its width");
+                }
+            }
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");

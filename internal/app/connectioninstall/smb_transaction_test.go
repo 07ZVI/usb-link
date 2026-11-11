@@ -254,3 +254,76 @@ func TestGuestDisablesSharesBeforeRestoringOriginallyEnabledIdentity(t *testing.
 		t.Fatal("offline folder prevented restoring global Guest policy", restored, e)
 	}
 }
+
+func TestCancelSelectedSMBFolderKeepsRevocationWhenOfflineCleanupFails(t *testing.T) {
+	selected, published, receipt, aclPending := true, true, true, true
+	offline := errors.New("disk detached during permission recovery")
+	err := cancelSelectedSMBFolder(func() error { selected = false; return nil }, func() error { published = false; receipt = false; return nil }, func() error { return offline })
+	if !errors.Is(err, offline) || selected || published || receipt || !aclPending {
+		t.Fatal("failed cleanup retained publication intent", selected, published, receipt, err)
+	}
+	// A later enable/restart must use selected membership, not the ACL journal.
+	if selected {
+		published = true
+	}
+	if published {
+		t.Fatal("cancelled disk was automatically reshared")
+	}
+	err = cancelSelectedSMBFolder(func() error { return nil }, func() error { return nil }, func() error { aclPending = false; return nil })
+	if err != nil || aclPending {
+		t.Fatal("cleanup retry could not finish", err)
+	}
+}
+
+func TestCancelSelectedSMBFolderRetainsReceiptWhenRetirementFails(t *testing.T) {
+	selected, receipt, cleaned := true, true, false
+	changed := errors.New("Windows share changed or removal readback failed")
+	err := cancelSelectedSMBFolder(func() error { selected = false; return nil }, func() error { return changed }, func() error { cleaned = true; return nil })
+	if !errors.Is(err, changed) || selected || !receipt || cleaned {
+		t.Fatal("retirement failure lost recovery evidence or restored live ACL", err)
+	}
+}
+
+func TestCancelSelectedSMBFolderDoesNotDeleteWithoutDurableRevocation(t *testing.T) {
+	full := errors.New("membership save failed")
+	changed := false
+	err := cancelSelectedSMBFolder(func() error { return full }, func() error { changed = true; return nil }, func() error { changed = true; return nil })
+	if !errors.Is(err, full) || changed {
+		t.Fatal("changed Windows before revocation was durable", err)
+	}
+}
+
+func TestCancelSelectedSMBFolderInterruptionCannotReselectDrive(t *testing.T) {
+	selected, published, receipt := true, true, true
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("missing simulated interruption")
+			}
+		}()
+		_ = cancelSelectedSMBFolder(func() error { selected = false; return nil }, func() error { published = false; panic("process stopped before receipt save") }, func() error { t.Fatal("cleanup ran before receipt save"); return nil })
+	}()
+	if selected || published || !receipt {
+		t.Fatal("interrupted cancellation lost correct recovery state")
+	}
+	// The retained receipt permits retry, but selected membership is revoked.
+	if selected {
+		t.Fatal("startup would reselect cancelled drive")
+	}
+}
+
+func TestCancelledSMBFolderForgetsOnlyItsPublicationSettings(t *testing.T) {
+	c := nativeSMBConfiguration{
+		Shares: []nativeSMBShare{{ID: "disk"}, {ID: "other"}},
+		Access: []nativeSMBAccessSetting{{ID: "disk"}, {ID: "other"}},
+		Names:  []nativeSMBNameBinding{{ID: "disk"}, {ID: "other"}},
+	}
+	forgetNativeSMBFolder(&c, "disk")
+	if len(c.Shares) != 1 || c.Shares[0].ID != "other" || len(c.Access) != 1 || c.Access[0].ID != "other" || len(c.Names) != 1 || c.Names[0].ID != "other" {
+		t.Fatal("cancelled disk retained settings or damaged another share", c)
+	}
+	forgetNativeSMBFolder(&c, "disk")
+	if len(c.Shares) != 1 || len(c.Access) != 1 || len(c.Names) != 1 {
+		t.Fatal("cleanup retry damaged remaining shares", c)
+	}
+}

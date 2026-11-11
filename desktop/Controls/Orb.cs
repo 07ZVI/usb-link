@@ -38,7 +38,8 @@ internal sealed class Orb : Control
     public override void Render(DrawingContext cx)
     {
         var c = new Point(Bounds.Width / 2, Bounds.Height / 2); var outer = Math.Min(Bounds.Width, Bounds.Height) / 2;
-        var r = outer * .72; var hue = C(tone == "Idle" ? "Subtle" : tone); var dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        // Connected reads as a warm planet; the state pill beside it names the state.
+        var r = outer * .72; var hue = C(tone switch { "Idle" => "Subtle", "Ok" => "OrbWarm", _ => tone }); var dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
         var breathe = tone == "Busy" ? .5 + .5 * Math.Sin(phase) : 1;
         // Halo.
         cx.DrawEllipse(new RadialGradientBrush { GradientStops = { new GradientStop(A(hue, (dark ? .34 : .24) * (.6 + .4 * breathe)), .55), new GradientStop(A(hue, 0), 1) } }, null, c, outer, outer);
@@ -50,7 +51,12 @@ internal sealed class Orb : Control
         cx.DrawEllipse(body, null, c, r, r);
         // A faint band, like a planet's atmosphere line.
         using (cx.PushClip(new RoundedRect(new Rect(c.X - r, c.Y - r, r * 2, r * 2), r)))
-            cx.DrawEllipse(null, new Pen(new SolidColorBrush(A(Colors.White, .14)), r * .1), new Point(c.X - r * .1, c.Y + r * .15), r * 1.25, r * .42);
+        {
+            // Soft cloud bands, like a gas giant: lighter and darker streaks across the lit face.
+            cx.DrawEllipse(null, new Pen(new SolidColorBrush(A(Colors.White, .12)), r * .1), new Point(c.X - r * .1, c.Y + r * .15), r * 1.25, r * .42);
+            cx.DrawEllipse(null, new Pen(new SolidColorBrush(A(Over(Colors.Black, hue, .3), .14)), r * .08), new Point(c.X + r * .05, c.Y - r * .28), r * 1.1, r * .3);
+            cx.DrawEllipse(null, new Pen(new SolidColorBrush(A(Colors.White, .07)), r * .05), new Point(c.X - r * .2, c.Y + r * .55), r * 1.0, r * .28);
+        }
         cx.DrawEllipse(null, new Pen(new SolidColorBrush(A(Colors.White, dark ? .16 : .3)), 1), c, r - .5, r - .5);
     }
 }

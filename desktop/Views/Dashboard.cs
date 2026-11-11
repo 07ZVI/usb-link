@@ -73,7 +73,7 @@ public sealed partial class Dashboard : Window
 
     public Dashboard()
     {
-        Title = "USB Link"; Width = 1040; Height = 640; MinWidth = 520; MinHeight = 420;
+        Title = "USB Link"; Width = 1040; Height = 700; MinWidth = 520; MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         WindowFit.Attach(this, 520, 420, customChrome: UsesCustomTitleBar, placeOnOpen: false);
         ConfigureWindowChrome();
@@ -102,9 +102,9 @@ public sealed partial class Dashboard : Window
         backendFailureBanner = new Border { CornerRadius = new CornerRadius(Scale.CardRadius), Padding = new Thickness(Scale.Inset, Scale.Medium), Child = Columns("Auto,12,*", Icons.Make(Icons.Info, Scale.IconControl, "Warn"), Gap(), backendFailure) };
         backendFailureBanner.IsVisible = false;
         bodyScroll.Content = bodyHost = Column(Scale.Gutter, backendFailureBanner, hero, body);
-        // The overview is sized by its content (Mole's status board), never stretched to the window: a wide window
-        // centers a column of at most BodyMaxWidth instead of spreading the same few numbers across the screen.
-        bodyHost.MaxWidth = BodyMaxWidth; bodyHost.HorizontalAlignment = HorizontalAlignment.Center; bodyHost.VerticalAlignment = VerticalAlignment.Center;
+        // Fill the available width up to BodyMaxWidth so responsive device rows
+        // measure against the viewport rather than their own compact content.
+        bodyHost.MaxWidth = BodyMaxWidth; bodyHost.HorizontalAlignment = HorizontalAlignment.Stretch; bodyHost.VerticalAlignment = VerticalAlignment.Center;
         // A wide window shows both columns at full height instead of leaving a gap above the footer.
         bodyScroll.PropertyChanged += (_, e) => { if (e.Property == ScrollViewer.ViewportProperty) ScheduleFit(); };
         backendFailureBanner.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) ScheduleFit(); };
@@ -174,7 +174,7 @@ public sealed partial class Dashboard : Window
         Dispatcher.UIThread.Post(() => { fitScheduled = false; FitBodyToViewport(); }, DispatcherPriority.Loaded);
     }
 
-    const double BodyMaxWidth = 1000;
+    const double BodyMaxWidth = 1120, ChartMin = 140, ChartMax = 400, ChartCompact = 200;
 
     /// Settles the layout for the current viewport: synchronous, so smoke tests can call it after resizing.
     /// Every section keeps its natural height; the roomiest density whose total fits the window wins.
@@ -189,13 +189,18 @@ public sealed partial class Dashboard : Window
             var available = Math.Max(0, bodyScroll.Viewport.Height - banner);
             if (compactLayout == false && available > 0 && bodyScroll.Viewport.Width > 0)
             {
+                // Measure each density with the chart at its minimum; the chart then takes whatever height is left.
+                trafficChart.Height = ChartMin;
+                var natural = 0.0;
                 for (var level = 0; level <= 2; level++)
                 {
                     ApplyLeft(level); ApplyRight(level, false); UpdateLayout();
-                    if (hero.DesiredSize.Height + Scale.Pad(level, Scale.Gutter) + body.DesiredSize.Height <= available + .5) break;
+                    natural = hero.DesiredSize.Height + bodyHost.Spacing + body.DesiredSize.Height;
+                    if (natural <= available + .5) break;
                 }
+                trafficChart.Height = Math.Floor(Math.Clamp(ChartMin + available - natural - 1, ChartMin, ChartMax));
             }
-            else { ApplyLeft(0); ApplyRight(0, false); }
+            else { ApplyLeft(0); ApplyRight(0, false); trafficChart.Height = ChartCompact; }
         }
         finally { fitting = false; }
     }
@@ -205,7 +210,7 @@ public sealed partial class Dashboard : Window
     {
         if (compactLayout != false || (leftDensity >= 2 && rightDensity >= 2)) return;
         var banner = backendFailureBanner.IsVisible ? backendFailureBanner.Bounds.Height + Scale.Gutter : 0;
-        if (hero.DesiredSize.Height + Scale.Gutter + body.DesiredSize.Height > bodyScroll.Viewport.Height - banner + .5) FitBodyToViewport();
+        if (hero.DesiredSize.Height + bodyHost.Spacing + body.DesiredSize.Height > bodyScroll.Viewport.Height - banner + .5) FitBodyToViewport();
     }
 
     /// Outer margins and row gaps follow the window height alone, so they cannot feed back into the measuring.
@@ -224,12 +229,10 @@ public sealed partial class Dashboard : Window
     {
         if (leftDensity == level) return;
         leftDensity = level;
-        var gap = Scale.Pad(level, Scale.Gutter);
-        if (compactLayout == true) connectionColumn.RowDefinitions = new RowDefinitions($"Auto,{gap},Auto");
-        else connectionColumn.ColumnDefinitions = new ColumnDefinitions($"*,{gap},*");
-        hostCard.Padding = new Thickness(Scale.XLarge, Scale.Pad(level, Scale.Large), Scale.XLarge, Scale.Pad(level, Scale.Large));
-        bodyHost.Spacing = gap;
-        heroOrb.Width = heroOrb.Height = level switch { 0 => 96, 1 => 80, _ => 56 };
+        bodyHost.Spacing = level switch { 0 => Scale.XLarge, 1 => Scale.Large, _ => Scale.Medium };
+        hostCard.Padding = new Thickness(Scale.Tight, level == 0 ? Scale.Medium : Scale.Tight, Scale.Tight, 0);
+        heroOrb.Width = heroOrb.Height = level switch { 0 => 128, 1 => 104, _ => 72 };
+        heroDevices.IsVisible = level < 2;
         macStatus.SetDensity(level); ipadStatus.SetDensity(level);
     }
 
@@ -245,10 +248,6 @@ public sealed partial class Dashboard : Window
         var compact = ClientSize.Width < 880;
         if (compactLayout == compact) { if (ClientSize.Height > 0) ApplyChromeIfChanged(); return; }
         compactLayout = compact;
-        // Wide: the two devices side by side, then sharing beside settings. Narrow: one column.
-        connectionColumn.RowDefinitions = new RowDefinitions(compact ? "Auto,12,Auto" : "Auto");
-        connectionColumn.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "*,12,*");
-        Grid.SetRow(ipadStatus.View, compact ? 2 : 0); Grid.SetColumn(ipadStatus.View, compact ? 0 : 2);
         leftDensity = rightDensity = -1;
         RebuildBodyGrid();
         ScheduleFit();
@@ -323,36 +322,53 @@ public sealed partial class Dashboard : Window
         return WithWindowChrome(new Panel { Children = { brand, nav } });
     }
 
-    /// The overview's hero (Mole's planet and one big number): the connection state as a lit orb, the host address
-    /// every device dials, and the state pill.
+    /// The overview has no cards: a hero line (the host address every device dials, who is connected, the planet),
+    /// one shared traffic chart, and one borderless row per device.
     Control HeroCard()
     {
         chip.ToneChanged += t => heroOrb.Tone = t;
         heroOrb.Tone = chip.Tone;
-        // Status board hero: state pill, the address as the page's one big number, a caption, the primary action;
-        // the overview's only illustration sits on the right.
-        var copyAddress = Action("複製主機地址", () => Copy(WindowsHostIp, "主機地址"), Icons.Copy, primary: true);
-        copyAddress.HorizontalAlignment = HorizontalAlignment.Left;
-        var caption = Row(Scale.Snug, Label("Windows 主機地址", Scale.Body, key: "Muted"), Label("·", Scale.Body, key: "Subtle"), Label("Mac 與 iPad 經 USB 連到這裡", Scale.Body, key: "Subtle"));
+        var copyAddress = IconButton(Icons.Copy, "複製主機地址", () => Copy(WindowsHostIp, "主機地址"));
+        copyAddress.Res(Button.BackgroundProperty, "IdleSoft"); copyAddress.VerticalAlignment = VerticalAlignment.Center;
         addressValue.FontWeight = FontWeight.Bold; addressValue.LetterSpacing = -1;
-        var text = Column(Scale.Snug, chip, addressValue, caption);
+        var caption = Row(Scale.Medium, Label("Windows 主機地址", Scale.Callout, FontWeight.Medium, "Muted"), chip);
+        var address = Row(Scale.Medium, addressValue, copyAddress);
+        heroDevices.TextTrimming = TextTrimming.CharacterEllipsis;
+        var text = Column(Scale.Snug, caption, address, heroDevices);
         text.VerticalAlignment = VerticalAlignment.Center;
-        copyAddress.VerticalAlignment = VerticalAlignment.Center;
-        heroOrb.Width = heroOrb.Height = 96;
-        var grid = Columns("*,Auto,Auto", text, copyAddress, heroOrb);
+        heroOrb.Width = heroOrb.Height = 128;
+        heroOrb.VerticalAlignment = VerticalAlignment.Center; heroOrb.Margin = new Thickness(0, -12, 0, -12);
+        var grid = Columns("*,Auto", text, heroOrb);
         grid.ColumnSpacing = Scale.Large;
-        heroOrb.VerticalAlignment = VerticalAlignment.Center;
-        return hostCard = Card(grid, new Thickness(Scale.XLarge, Scale.Large));
+        return hostCard = new Border { Child = grid, Padding = new Thickness(Scale.Tight, 0) };
     }
 
-    // Left column: host address, then one card per device.
+    readonly TextBlock heroDevices = Label("尚未連接裝置", Scale.Body, key: "Muted");
+    readonly TrafficChart trafficChart = new() { Height = ChartMin };
+
+    void UpdateHeroDevices(DeviceStatusSnapshot d)
+    {
+        var parts = new List<string>();
+        if (d.Mac.Connected) parts.Add("Mac " + d.Mac.PeerIPv4);
+        if (d.IPad.Connected) parts.Add("iPad " + d.IPad.PeerIPv4);
+        heroDevices.Text = parts.Count > 0 ? "已連線：" + string.Join("　·　", parts.Select(p => p.Trim())) : "Mac 與 iPad 經 USB 連到這個地址";
+    }
+
+    // The chart with its title and legend, then the device rows split by hairlines.
     Control ConnectionCard()
     {
-        macStatus = new DeviceStatusView("Mac", Send, Copy);
-        ipadStatus = new DeviceStatusView("iPad", Send, Copy);
-        connectionColumn = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
-        connectionColumn.Children.Add(macStatus.View);
-        Grid.SetColumn(ipadStatus.View, 2); connectionColumn.Children.Add(ipadStatus.View);
+        macStatus = new DeviceStatusView("Mac", Send, Copy, "Accent");
+        ipadStatus = new DeviceStatusView("iPad", Send, Copy, "Olive");
+        trafficChart.Add(macStatus.History, "Accent"); trafficChart.Add(ipadStatus.History, "Olive");
+        Control Key(string name, string tone) => Row(Scale.Snug,
+            new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty, tone),
+            Label(name, Scale.Callout, key: "Muted"));
+        var legend = Row(Scale.Regular, Key("Mac", "Accent"), Key("iPad", "Olive"));
+        legend.VerticalAlignment = VerticalAlignment.Center;
+        var title = Row(Scale.Small, Label("傳輸速率", Scale.Title3, FontWeight.SemiBold), Label("MB/s · 傳送與接收合計", Scale.Callout, key: "Subtle"));
+        var head = Columns("*,Auto", title, legend);
+        Control Rule() => new Border { Height = 1 }.Res(Border.BackgroundProperty, "Stroke");
+        connectionColumn = Rows("Auto,12,Auto,16,Auto,Auto,Auto,Auto", head, Gap(), trafficChart, Gap(), Rule(), macStatus.View, Rule(), ipadStatus.View);
         return connectionColumn;
     }
 
@@ -670,7 +686,7 @@ public sealed partial class Dashboard : Window
 
         if (S("windows_ipv4") != "") { WindowsHostIp = S("windows_ipv4"); ShareUrl = S("share_url") != "" ? S("share_url") : "smb://" + WindowsHostIp; addressValue.Text = WindowsHostIp; shareUrlValue.Text = ShareUrl; }
         var devices = DeviceStatusSnapshot.Parse(d);
-        macStatus.Update(devices.Mac); ipadStatus.Update(devices.IPad);
+        macStatus.Update(devices.Mac); ipadStatus.Update(devices.IPad); UpdateHeroDevices(devices);
         ApplyConnectionSummary(devices.ConnectedCount, devices.ConnectingCount, devices.HasError);
         Dispatcher.UIThread.Post(RefitIfOverflow, DispatcherPriority.Loaded);
 
