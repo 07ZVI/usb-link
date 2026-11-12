@@ -50,6 +50,14 @@ internal sealed class TreemapView : Control
     public IReadOnlySet<string> Scanning { get => scanning; set { scanning = value; RequestFrame(); } }
     IReadOnlySet<string> scanning = new HashSet<string>();
     public bool ColorByAge { get => byAge; set { byAge = value; RequestFrame(); } }
+    /// Paths waiting in the 待清理 collector: drawn struck through with a red hatch until removed or recycled.
+    public IReadOnlySet<string> Marked { get => marked; set { marked = value; RequestFrame(); } }
+    IReadOnlySet<string> marked = new HashSet<string>();
+    Color error; IBrush hatchMarked = Brushes.Transparent;
+    bool IsMarked(DiskNode n) { if (marked.Count == 0) return false; for (var x = n; x != null; x = x.Parent) if (marked.Contains(x.FullPath)) return true; return false; }
+    /// Lights the item for `node` as if hovered, so the inspector's list can point into the map.
+    public void Highlight(DiskNode? node) { hover = node == null ? null : order.FirstOrDefault(i => i.Cell.Node.FullPath == node.FullPath && !i.Cell.HasHeader) ?? order.FirstOrDefault(i => i.Cell.Node.FullPath == node?.FullPath); RequestFrame(); }
+
     public DiskNode? Root => root;
     public DiskNode? Selected { get; private set; }
     internal int CellCount => order.Count;
@@ -96,6 +104,7 @@ internal sealed class TreemapView : Control
         for (var i = 0; i < category.Length; i++) category[i] = C("Cat" + (FileCategory)i);
         gradients.Clear();
         hatchLight = Hatch(A(ink, .065)); hatchFree = Hatch(A(ink, .07));
+        error = C("Error"); hatchMarked = Hatch(A(error, .55));
         var family = new FontFamily(Palette.FontStack);
         regular = new Typeface(family); semibold = new Typeface(family, FontStyle.Normal, FontWeight.SemiBold);
         themeReady = true;
@@ -171,10 +180,13 @@ internal sealed class TreemapView : Control
         var name = DiskText.Name(n);
         if (cell.HasHeader)
         {
-            item.Right = Text(DiskText.Size(n.Size), 11, regular, muted, 90);
-            item.Title = Text(name, 12, semibold, ink, w - 28 - item.Right.Width);
+            item.Right = Text(DiskText.Size(n.Size), 10.5, regular, muted, 90);
+            var room = w - 26 - item.Right.Width;
+            // Too narrow for a name: keep the size alone rather than an ellipsis that collides with it.
+            item.Title = room >= 22 ? Text(name, 11.5, semibold, ink, room) : null;
+            if (item.Title == null && w - 24 < item.Right.Width) item.Right = null;
         }
-        else if (w >= 62 && h >= 32)
+        else if (w >= 40 && h >= 18)
         {
             var onFill = n.Kind is NodeKind.File or NodeKind.Directory;
             var fill = onFill ? FillColor(n) : surface;
@@ -194,8 +206,9 @@ internal sealed class TreemapView : Control
             }
             else
             {
-                item.Title = Text(name, 12, semibold, main, w - 14);
-                item.Detail = Text(size + (h >= 62 && pct != "" ? " · " + pct : ""), 11, regular, soft, w - 14);
+                // Like SpaceSniffer, every tile that can hold a word is named; the size joins once there is a second line.
+                item.Title = Text(name, h < 30 ? 11 : 12, semibold, main, w - 12);
+                if (h >= 32) item.Detail = Text(size + (h >= 62 && pct != "" ? " · " + pct : ""), 11, regular, soft, w - 12);
             }
         }
     }
@@ -267,8 +280,9 @@ internal sealed class TreemapView : Control
                 cx.DrawRectangle(hatchFree, null, rect.Deflate(1), radius, radius);
                 break;
             case NodeKind.Aggregate:
-                cx.DrawRectangle(new SolidColorBrush(Over(CategoryColor(node), surface, .14)), new Pen(new SolidColorBrush(stroke), 1), rect, radius, radius);
-                cx.DrawRectangle(hatchLight, null, rect.Deflate(1), radius, radius);
+                // Items too small to draw: SpaceSniffer leaves them as the folder's own ground. A flat, quiet tile keeps
+                // the space honest without a stripe pattern competing with real files.
+                cx.DrawRectangle(new SolidColorBrush(A(ink, .045)), null, rect, radius, radius);
                 break;
             default:
                 var c = byAge ? AgeColor(node) : CategoryColor(node);
@@ -277,7 +291,7 @@ internal sealed class TreemapView : Control
                     var tint = byAge ? Over(ink, surface, .06) : Over(c, surface, .15);
                     var rim = byAge ? strokeStrong : A(c, .38);
                     cx.DrawRectangle(new SolidColorBrush(tint), new Pen(new SolidColorBrush(rim), 1), rect, radius, radius);
-                    cx.DrawRectangle(new SolidColorBrush(c), null, new Rect(rect.X + 8, rect.Y + 7, 8, 8), 3, 3);
+                    cx.DrawRectangle(new SolidColorBrush(c), null, new Rect(rect.X + 7, rect.Y + 5, 8, 8), 3, 3);
                 }
                 else
                 {
@@ -287,6 +301,11 @@ internal sealed class TreemapView : Control
                 break;
         }
 
+        if (IsMarked(node) && node.Kind is NodeKind.File or NodeKind.Directory)
+        {
+            cx.DrawRectangle(new SolidColorBrush(A(surface, .45)), null, rect, radius, radius);
+            cx.DrawRectangle(hatchMarked, new Pen(new SolidColorBrush(error), 1.5), rect.Deflate(.75), radius, radius);
+        }
         if (item.Hover > .01)
         {
             if (!item.Cell.HasHeader && node.Kind != NodeKind.FreeSpace) cx.DrawRectangle(new SolidColorBrush(A(Colors.White, .15 * item.Hover)), null, rect, radius, radius);
@@ -295,7 +314,7 @@ internal sealed class TreemapView : Control
         if (pulse > 0) cx.DrawRectangle(null, new Pen(new SolidColorBrush(A(accent, .25 + .6 * pulse)), 1.5), rect, radius, radius);
         if (isSelected) cx.DrawRectangle(null, new Pen(new SolidColorBrush(accent), 2), rect.Deflate(1), radius, radius);
 
-        if (item.Title is { } title && !item.Gone)
+        if (item.Title is { } title && !item.Gone && !(node.Kind == NodeKind.Aggregate && rect.Width * rect.Height < 9000))
         {
             if (item.Big && item.Detail is { } number)
             {
@@ -305,11 +324,11 @@ internal sealed class TreemapView : Control
                 cx.DrawText(title, new Point(rect.X + pad, nameY));
                 return;
             }
-            var origin = item.Cell.HasHeader ? new Point(rect.X + 22, rect.Y + 3) : new Point(rect.X + 7, rect.Y + 6);
-            if (item.Cell.HasHeader || rect.Width >= 56 && rect.Height >= 28) cx.DrawText(title, origin);
+            var origin = item.Cell.HasHeader ? new Point(rect.X + 20, rect.Y + 1) : new Point(rect.X + 7, rect.Y + 6);
+            if (item.Cell.HasHeader || rect.Width >= 40 && rect.Height >= 18) cx.DrawText(title, origin.Y + title.Height > rect.Bottom - 2 ? new Point(origin.X, rect.Y + (rect.Height - title.Height) / 2) : origin);
             if (item.Detail is { } detail && !item.Cell.HasHeader) cx.DrawText(detail, new Point(rect.X + 7, rect.Y + 6 + 16));
-            if (item.Right is { } right) cx.DrawText(right, new Point(rect.Right - 8 - right.Width, rect.Y + 4));
         }
+        if (item.Right is { } right && !item.Gone) cx.DrawText(right, new Point(rect.Right - 7 - right.Width, rect.Y + 2));
     }
 
     // ---------- pointer ----------
@@ -347,8 +366,10 @@ internal sealed class TreemapView : Control
             e.Handled = true; return;
         }
         if (!point.Properties.IsLeftButtonPressed) return;
-        if (e.ClickCount >= 2 && hit is { Kind: NodeKind.Directory }) { Opened?.Invoke(hit); e.Handled = true; return; }
-        Select(hit);
+        // A folder (its header, or a folder tile) zooms in on one click; a file is selected for the inspector.
+        if (hit is { Kind: NodeKind.Directory } && !ReferenceEquals(hit, root)) { Opened?.Invoke(hit); e.Handled = true; return; }
+        // The current folder is the page itself (the inspector already shows it); clicking its ground clears the selection.
+        Select(ReferenceEquals(hit, root) || hit is { Kind: NodeKind.Aggregate or NodeKind.FreeSpace } ? null : hit);
     }
 
 }

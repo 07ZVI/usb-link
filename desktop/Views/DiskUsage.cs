@@ -40,10 +40,16 @@ internal sealed class DiskUsageView : IDisposable
     readonly Button back, forward, up, rescan;
     readonly Slider detail = new() { Minimum = 1, Maximum = 5, Value = 3, Width = 96, TickFrequency = 1, IsSnapToTickEnabled = true, VerticalAlignment = VerticalAlignment.Center };
     readonly Border inspectorHost = new();
-    Control detailBox = null!, listModeBox = null!;
+    Control detailBox = null!, listModeBox = null!, colors = null!, ringColors = null!;
     readonly HashSet<FileCategory> categories = new();
-    readonly List<string> backStack = new(), forwardStack = new();
-    static readonly (double MinArea, int Depth)[] Detail = [(3400, 3), (1900, 4), (950, 6), (480, 8), (230, 10)];
+    /// One step of history is a whole screen — folder, view mode, list mode and selection — so 上一個位置 brings back
+    /// exactly what was on screen before, not merely a folder.
+    sealed record Place(string Path, Mode Mode, bool LargestFiles, string? Selected);
+    readonly List<Place> backStack = new(), forwardStack = new();
+    bool restoring;
+    Place Here() => new(viewPath, mode, largestFiles, selected?.FullPath);
+    void Remember() { if (restoring || view == null) return; backStack.Add(Here()); forwardStack.Clear(); }
+    static readonly (double MinArea, int Depth)[] Detail = [(1600, 4), (900, 6), (420, 9), (220, 12), (120, 16)];
     /// Sunburst rings and the narrowest slice (degrees) per detail step.
     static readonly (int Rings, double MinDegrees)[] RingDetail = [(3, 1.6), (4, 1.1), (5, .8), (6, .55), (7, .4)];
     internal enum Mode { Treemap, Sunburst, List }
@@ -83,6 +89,9 @@ internal sealed class DiskUsageView : IDisposable
         map.MenuRequested += ShowMenu;
         sun.SelectionChanged += n => { selected = n; RenderInspector(); };
         sun.Opened += n => Go(n);
+        // The side list shows the ring colours; refresh it once the rings exist (they are built only when visible).
+        var ringKey = "";
+        sun.LaidOut += () => { var k = (view?.FullPath ?? "") + "|" + sun.CellCount; if (mode == Mode.Sunburst && selected == null && k != ringKey) { ringKey = k; RenderInspector(); } };
         sun.HoverChanged += ShowTip;
         sun.MenuRequested += ShowMenu;
         list.SelectionChanged += n => { selected = n; RenderInspector(); };
@@ -90,11 +99,17 @@ internal sealed class DiskUsageView : IDisposable
         list.MenuRequested += ShowMenu;
         search.TextChanged += (_, _) => { searchTimer?.Stop(); searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) }; searchTimer.Tick += (_, _) => { searchTimer!.Stop(); ApplyFilter(); }; searchTimer.Start(); };
         detail.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) Render(true); };
+        workPage.AddHandler(InputElement.PointerPressedEvent, (_, e) => {
+            var p = e.GetCurrentPoint(workPage).Properties;
+            if (p.IsXButton1Pressed) { Step(backStack, forwardStack); e.Handled = true; }
+            else if (p.IsXButton2Pressed) { Step(forwardStack, backStack); e.Handled = true; }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         workPage.KeyDown += (_, e) => {
             if (e.Source is Control input && (input is TextBox || input.GetLogicalAncestors().OfType<TextBox>().Any())) return;
             if (e.Key == Key.Back || e.KeyModifiers == KeyModifiers.Alt && e.Key == Key.Up) { if (view?.Parent is { } p) Go(p); e.Handled = true; }
             else if (e.KeyModifiers == KeyModifiers.Alt && e.Key == Key.Left) { Step(backStack, forwardStack); e.Handled = true; }
             else if (e.KeyModifiers == KeyModifiers.Alt && e.Key == Key.Right) { Step(forwardStack, backStack); e.Handled = true; }
+            else if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.Control && selected is { } c) { Collect(c); e.Handled = true; }
             else if (e.Key == Key.Delete && selected is { } n) { AskDelete(n); e.Handled = true; }
             else if (e.Key == Key.Escape && selected != null) { Active(null); e.Handled = true; }
         };
@@ -207,11 +222,16 @@ internal sealed class DiskUsageView : IDisposable
         foreach (var c in top.Children) c.VerticalAlignment = VerticalAlignment.Center;
 
         var views = Segmented([("方塊", TreemapIcon), ("環狀", SunburstIcon), ("清單", ListIcon)], 82, 0, i => SetMode((Mode)i), out setMode, "顯示方式");
-        var colors = Segmented([("類型", null), ("修改時間", null)], 74, 0, i => { map.ColorByAge = sun.ColorByAge = list.ColorByAge = i == 1; }, out _, "著色方式");
-        listModeBox = Segmented([("資料夾內容", null), ("最大檔案", null)], 88, 0, i => { largestFiles = i == 1; Render(false); }, out setListMode, "清單內容");
+        Action<int> setColors = _ => { }, setRingColors = _ => { };
+        void Colorize(int i) { map.ColorByAge = sun.ColorByAge = list.ColorByAge = i == 1; setColors(i); setRingColors(i); RenderInspector(); }
+        // The rings colour by branch (which folder a slice belongs to); the other views by file type.
+        colors = Segmented([("類型", null), ("修改時間", null)], 74, 0, Colorize, out setColors, "著色方式");
+        ringColors = Segmented([("資料夾", null), ("修改時間", null)], 74, 0, Colorize, out setRingColors, "環狀著色方式");
+        ringColors.IsVisible = false;
+        listModeBox = Segmented([("資料夾內容", null), ("最大檔案", null)], 88, 0, i => { Remember(); largestFiles = i == 1; Render(false); }, out setListMode, "清單內容");
         listModeBox.IsVisible = false;
         detailBox = Row(8, Label("細節", Scale.Secondary, key: "Muted"), detail);
-        var right = Row(16, listModeBox, Row(8, Label("著色", Scale.Secondary, key: "Muted"), colors), detailBox);
+        var right = Row(16, listModeBox, Row(8, Label("著色", Scale.Secondary, key: "Muted"), colors, ringColors), detailBox);
         var second = Columns("Auto,*,Auto", views, WithMargin(hint, new Thickness(16, 0, 12, 0)), right);
         foreach (var c in second.Children) c.VerticalAlignment = VerticalAlignment.Center;
         var toolbar = Column(12, top, second);
@@ -244,7 +264,15 @@ internal sealed class DiskUsageView : IDisposable
         status.ColumnSpacing = 20;
         foreach (var c in status.Children) c.VerticalAlignment = VerticalAlignment.Center;
         hint.TextWrapping = TextWrapping.NoWrap;
-        var page = Rows("Auto,Auto,*,Auto,Auto", toolbar, WithMargin(progressTrack, new Thickness(0, 12, 0, 0)), body, WithMargin(problem, new Thickness(0, 8, 0, 0)), WithMargin(status, new Thickness(2, 12, 2, 0)));
+        // DaisyDisk's collector / Space Lens's "review selected": items gather here and are recycled together after one review.
+        collectorText.VerticalAlignment = VerticalAlignment.Center;
+        var review = Action("檢視並清理", () => { reviewing = true; RenderInspector(); }, Icons.Trash, primary: true);
+        var empty = Action("清空", () => { collector.Clear(); reviewing = false; SyncCollector(); RenderInspector(); });
+        collectorBar.Child = Columns("Auto,*,Auto,Auto", Icons.Make(Icons.Trash, Scale.IconControl, "Error"), WithMargin(collectorText, new Thickness(10, 0, 0, 0)), empty, WithMargin(review, new Thickness(8, 0, 0, 0)));
+        foreach (var c in ((Grid)collectorBar.Child).Children) c.VerticalAlignment = VerticalAlignment.Center;
+        collectorBar.Padding = new Thickness(Scale.Regular, 6, 6, 6); collectorBar.CornerRadius = new CornerRadius(Scale.CardRadius);
+        collectorBar.Res(Border.BackgroundProperty, "ErrorSoft"); collectorBar.IsVisible = false;
+        var page = Rows("Auto,Auto,*,Auto,Auto,Auto", toolbar, WithMargin(progressTrack, new Thickness(0, 12, 0, 0)), body, WithMargin(problem, new Thickness(0, 8, 0, 0)), WithMargin(collectorBar, new Thickness(0, 10, 0, 0)), WithMargin(status, new Thickness(2, 12, 2, 0)));
         page.Margin = new Thickness(0, 4, 0, 0);
         workPage.Children.Add(page);
     }
@@ -288,9 +316,11 @@ internal sealed class DiskUsageView : IDisposable
     internal void SetMode(Mode next)
     {
         if (next == mode) return;
+        Remember();
         mode = next; setMode((int)next); tip.Opacity = 0;
         map.IsVisible = mode == Mode.Treemap; sun.IsVisible = mode == Mode.Sunburst; list.IsVisible = mode == Mode.List;
         detailBox.IsVisible = mode != Mode.List; listModeBox.IsVisible = mode == Mode.List;
+        colors.IsVisible = mode != Mode.Sunburst; ringColors.IsVisible = mode == Mode.Sunburst;
         Render(true);
         Active(selected);
     }
@@ -314,6 +344,7 @@ internal sealed class DiskUsageView : IDisposable
         cts?.Cancel(); snapshotTimer?.Stop(); session++;
         var mine = session; var source = cts = new CancellationTokenSource();
         scanner = next; scanRoot = path; space = known ?? DriveCatalog.Find(path); tree = null; top = view = selected = null; viewPath = path;
+        collector.Clear(); reviewing = false; SyncCollector();
         backStack.Clear(); forwardStack.Clear(); categories.Clear(); search.Text = ""; filter = null; filterError = ""; map.Dimmed = sun.Dimmed = list.Dimmed = null;
         homePage.IsVisible = false; workPage.IsVisible = true; scanning = true; last = last with { Files = 0, Bytes = 0, Elapsed = TimeSpan.Zero };
         progressFill.Opacity = 1; ApplyProgress(); UpdateChrome(); UpdateStatus();
@@ -381,7 +412,8 @@ internal sealed class DiskUsageView : IDisposable
     {
         var (min, depth) = Detail[(int)Math.Round(detail.Value) - 1];
         var free = view != null && top != null && ReferenceEquals(view, top) && space is { TotalBytes: > 0 } && Same(space.Name, scanRoot) ? space.FreeBytes : 0;
-        return new LayoutOptions(depth, min, 22, 3, 84, null, free);
+        // SpaceSniffer-like frames: a slim title strip on any folder at least 48 wide and tall, a 2-pt inset.
+        return new LayoutOptions(depth, min, 18, 2, 48, null, free);
     }
 
     void Render(bool animate)
@@ -401,17 +433,26 @@ internal sealed class DiskUsageView : IDisposable
     void Go(DiskNode node, bool history = true)
     {
         if (view == null || node.Kind != NodeKind.Directory || ReferenceEquals(node, view)) return;
-        if (history) { backStack.Add(viewPath); forwardStack.Clear(); }
+        if (history) Remember();
         view = node; viewPath = node.FullPath; selected = null; Active(null); Render(true);
     }
 
-    void Step(List<string> from, List<string> to)
+    void Step(List<Place> from, List<Place> to)
     {
         if (from.Count == 0 || top == null) return;
-        var path = from[^1]; from.RemoveAt(from.Count - 1);
-        var target = Resolve(top, path);
-        if (target == null) return;
-        to.Add(viewPath); Go(target, false);
+        var place = from[^1]; from.RemoveAt(from.Count - 1);
+        if (Resolve(top, place.Path) is not { Kind: NodeKind.Directory } target) { UpdateChrome(); return; }
+        to.Add(Here());
+        restoring = true;
+        try
+        {
+            if (place.Mode != mode) SetMode(place.Mode);
+            if (place.LargestFiles != largestFiles) SetLargestFiles(place.LargestFiles);
+            if (!ReferenceEquals(target, view)) { view = target; viewPath = target.FullPath; selected = null; Active(null); Render(true); }
+            var pick = place.Selected is { } path ? Resolve(top, path) : null;
+            Active(pick);
+        }
+        finally { restoring = false; UpdateChrome(); }
     }
 
     void UpdateChrome()
@@ -473,9 +514,9 @@ internal sealed class DiskUsageView : IDisposable
         hint.Res(TextBlock.ForegroundProperty, "Muted");
         if (filter != null && view != null) { var m = filter.MatchedSize(view); hint.Text = "符合 " + DiskText.Size(m) + " · 占 " + view.Name + " 的 " + DiskText.Percent(m, view.Size); }
         else hint.Text = mode switch {
-            Mode.Sunburst => "雙擊資料夾放大 · 點中央回上一層 · 越外圈越深層，扇形越寬占用越多",
+            Mode.Sunburst => "點資料夾放大 · 點中央回上一層 · 同色屬同一資料夾",
             Mode.List => largestFiles ? "此資料夾之下最大的檔案 · 右鍵開啟更多動作" : "雙擊資料夾進入 · 點欄位標題排序 · 右鍵開啟更多動作",
-            _ => "雙擊資料夾放大 · 右鍵開啟更多動作 · 方塊越大，占用越多" };
+            _ => "點資料夾放大 · 右鍵開啟更多動作 · 方塊越大，占用越多" };
     }
 
     // ---------- tooltip and menu ----------
@@ -508,7 +549,8 @@ internal sealed class DiskUsageView : IDisposable
         MenuItem Item(string text, string icon, Action run, bool danger = false)
         {
             var item = new MenuItem { Header = text, Icon = Icons.Make(icon, 15, danger ? "Error" : "Muted") };
-            if (danger) item.Foreground = (IBrush?)owner.FindResource("Error") ?? Brushes.Red;
+            // Bind the theme token: a plain FindResource lookup returns UnsetValue for themed keys and the cast crashed.
+            if (danger) item.Res(MenuItem.ForegroundProperty, "Error");
             item.Click += (_, _) => run(); return item;
         }
         flyout.Items.Add(Item("在檔案總管顯示", Icons.Folder, () => Report(FileActions.Reveal(node.FullPath, scanRoot), "")));
@@ -519,7 +561,9 @@ internal sealed class DiskUsageView : IDisposable
         }
         flyout.Items.Add(Item("複製路徑", Icons.Copy, async () => { if (TopLevel.GetTopLevel(map)?.Clipboard is { } c) await c.SetTextAsync(node.FullPath); problem.Show("Ok", "已複製路徑。"); }));
         flyout.Items.Add(new Separator());
-        flyout.Items.Add(Item("移到資源回收筒…", Icons.Trash, () => AskDelete(node), danger: true));
+        if (node.Kind is NodeKind.File or NodeKind.Directory && node.Parent != null)
+            flyout.Items.Add(InCollector(node) ? Item("從待清理移除", Icons.Trash, () => Uncollect(node)) : Item("加入待清理（Ctrl+Delete）", Icons.Plus, () => Collect(node)));
+        flyout.Items.Add(Item("立即移到資源回收筒…", Icons.Trash, () => AskDelete(node), danger: true));
         flyout.ShowAt(ActiveView, true);
     }
 
@@ -578,9 +622,89 @@ internal sealed class DiskUsageView : IDisposable
         Walk(n); return sizes;
     }
 
+    // ---------- 待清理 collector ----------
+
+    readonly List<DiskNode> collector = new();
+    readonly Border collectorBar = new();
+    readonly TextBlock collectorText = Label("", Scale.Body, FontWeight.Medium);
+    bool reviewing;
+
+    bool InCollector(DiskNode n) { for (var x = n; x != null; x = x.Parent) if (collector.Any(c => ReferenceEquals(c, x))) return true; return false; }
+
+    void Collect(DiskNode n)
+    {
+        if (scanning || n.Kind is not (NodeKind.File or NodeKind.Directory) || n.Parent == null || InCollector(n)) return;
+        // A folder replaces anything already collected inside it.
+        collector.RemoveAll(c => { for (var x = c.Parent; x != null; x = x.Parent) if (ReferenceEquals(x, n)) return true; return false; });
+        collector.Add(n); SyncCollector(); RenderInspector();
+    }
+
+    void Uncollect(DiskNode n) { collector.Remove(n); if (collector.Count == 0) reviewing = false; SyncCollector(); RenderInspector(); }
+
+    void SyncCollector()
+    {
+        var paths = collector.Select(c => c.FullPath).ToHashSet();
+        map.Marked = paths; sun.Marked = paths;
+        collectorBar.IsVisible = collector.Count > 0;
+        collectorText.Text = "待清理 " + collector.Count + " 項 · 可釋放 " + DiskText.Size(collector.Sum(c => c.Size));
+    }
+
+    /// Lights the hovered side-list row's item in the visible chart (Space Lens links both views).
+    void Point(DiskNode? n) { if (mode == Mode.Sunburst) sun.Highlight(n); else if (mode == Mode.Treemap) map.Highlight(n); }
+    void Linked(Button b, DiskNode n) { b.PointerEntered += (_, _) => Point(n); b.PointerExited += (_, _) => Point(null); }
+
+    void RenderReview()
+    {
+        var total = collector.Sum(c => c.Size);
+        var head = Column(6, Label("待清理", Scale.Caption, FontWeight.SemiBold, "Subtle"),
+            Label(DiskText.Size(total), Scale.LargeTitle + 4, FontWeight.Bold),
+            Label(collector.Count + " 個項目 · 移到資源回收筒後可還原", Scale.Secondary, key: "Muted"));
+        inspector.Children.Add(head);
+        var rows = Column(2);
+        foreach (var c in collector.OrderByDescending(c => c.Size).ToArray())
+        {
+            var name = Label(DiskText.Name(c), Scale.Body, FontWeight.Medium); name.TextTrimming = TextTrimming.CharacterEllipsis;
+            var path = Label(c.Parent?.FullPath ?? "", Scale.Caption, key: "Subtle"); path.TextTrimming = TextTrimming.CharacterEllipsis;
+            var remove = IconButton(Icons.Close, "從待清理移除「" + DiskText.Name(c) + "」", () => Uncollect(c));
+            var line = Columns("*,Auto,Auto", Column(1, name, path), Label(DiskText.Size(c.Size), Scale.Secondary, key: "Muted"), remove);
+            line.ColumnSpacing = 8; foreach (var x in line.Children) x.VerticalAlignment = VerticalAlignment.Center;
+            rows.Children.Add(new Border { Child = line, Padding = new Thickness(8, 4, 2, 4) });
+        }
+        inspector.Children.Add(rows);
+        var recycle = Action("全部移到資源回收筒", RecycleCollected, Icons.Trash, danger: true); recycle.IsEnabled = !scanning;
+        var back = Action("返回", () => { reviewing = false; RenderInspector(); });
+        var actions = new WrapPanel { ItemSpacing = 8, LineSpacing = 8 }; actions.Children.Add(recycle); actions.Children.Add(back);
+        inspector.Children.Add(actions);
+    }
+
+    void RecycleCollected()
+    {
+        if (scanning || tree == null || collector.Count == 0) return;
+        var items = collector.ToArray(); var total = items.Sum(c => c.Size);
+        var detailText = string.Join("\n", items.Take(8).Select(c => c.FullPath)) + (items.Length > 8 ? "\n… 另 " + (items.Length - 8) + " 項" : "");
+        AppWindow.Confirm(owner, "移到資源回收筒？", items.Length + " 個項目，共 " + DiskText.Size(total) + "。可以從資源回收筒還原，不會永久刪除。", "全部移到資源回收筒", () => {
+            if (disposed || scanning || tree == null) return;
+            var done = 0; var failed = new List<string>();
+            foreach (var n in items)
+            {
+                if (tree.Find(n.FullPath) is not { } live || !ReferenceEquals(live, n)) { failed.Add(DiskText.Name(n)); continue; }
+                var result = FileActions.MoveToRecycleBin(n.FullPath, scanRoot);
+                if (result.Status != ActionStatus.Done) { failed.Add(DiskText.Name(n)); continue; }
+                for (var x = view; x != null; x = x.Parent) if (ReferenceEquals(x, n)) { view = n.Parent; viewPath = view!.FullPath; break; }
+                tree.Remove(n); collector.Remove(n); done++;
+            }
+            space = DriveCatalog.Find(scanRoot);
+            if (collector.Count == 0) reviewing = false;
+            selected = null; SyncCollector(); Active(null); Render(true); UpdateStatus();
+            if (failed.Count == 0) problem.Show("Ok", "已將 " + done + " 個項目移到資源回收筒，釋放約 " + DiskText.Size(total) + "。");
+            else problem.Show("Warn", "已移除 " + done + " 個項目；" + failed.Count + " 個沒有完成（" + string.Join("、", failed.Take(3)) + (failed.Count > 3 ? "…" : "") + "），仍留在待清理。");
+        }, danger: true, detail: detailText);
+    }
+
     void RenderInspector()
     {
         inspector.Children.Clear();
+        if (reviewing && collector.Count > 0) { RenderReview(); return; }
         var n = selected ?? view; if (n == null) return;
         var isView = selected == null; var color = "Cat" + n.Category;
         var head = Column(6,
@@ -599,6 +723,35 @@ internal sealed class DiskUsageView : IDisposable
         Pair("最近修改", DiskText.Ago(n.LastWriteUtc));
         head.Children.Add(WithMargin(kv, new Thickness(0, 6, 0, 0)));
         inspector.Children.Add(head);
+
+        // Rings: the side list is the key to the colours — every first-ring slice, ranked, in its own hue (Mole's
+        // analyzer list with DaisyDisk's colours). Click a folder to zoom in.
+        if (mode == Mode.Sunburst && isView && !sun.ColorByAge && n.Kind == NodeKind.Directory && n.Children.Count > 0)
+        {
+            var kids = n.Children.Where(c => c.Size > 0).Take(14).ToList();
+            var listed = kids.Sum(c => c.Size);
+            var key = Column(2);
+            foreach (var c in kids)
+            {
+                var hue = sun.BranchColor(c);
+                IBrush Brush() => hue is { } h ? new SolidColorBrush(h) : sun.TryFindResource("StrokeStrong", sun.ActualThemeVariant, out var v) && v is IBrush br ? br : Brushes.Gray;
+                var swatch = new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(3), Background = Brush() };
+                var name = Label((c.Kind == NodeKind.Directory ? "▸ " : "") + DiskText.Name(c), Scale.Body); name.TextTrimming = TextTrimming.CharacterEllipsis;
+                var line = Columns("Auto,*,Auto,Auto", swatch, name, Label(DiskText.Size(c.Size), Scale.Secondary, key: "Muted"), Label(DiskText.Percent(c.Size, n.Size), Scale.Secondary, FontWeight.SemiBold));
+                line.ColumnSpacing = 10; ((Control)line.Children[3]).MinWidth = 40; ((TextBlock)line.Children[3]).TextAlignment = TextAlignment.Right;
+                foreach (var x in line.Children) x.VerticalAlignment = VerticalAlignment.Center;
+                var bar = MeterBrush(c.Size / (double)Math.Max(1, kids[0].Size), Brush(), 4); bar.Margin = new Thickness(20, 0, 0, 0);
+                var b = new Button { Content = Column(4, line, bar), Padding = new Thickness(8, 6), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.ControlRadius) };
+                ToolTip.SetTip(b, c.Kind == NodeKind.Directory ? "放大「" + DiskText.Name(c) + "」" : DiskText.Name(c));
+                b.Click += (_, _) => { if (c.Kind == NodeKind.Directory) Go(c); else if (c.Kind == NodeKind.File) Active(c); };
+                Linked(b, c);
+                key.Children.Add(b);
+            }
+            if (n.Size > listed && n.Children.Count > kids.Count)
+                key.Children.Add(WithMargin(Label("其餘 " + DiskText.Count(n.Children.Count - kids.Count) + " 項 · " + DiskText.Size(n.Size - listed), Scale.Secondary, key: "Subtle"), new Thickness(8, 4, 0, 0)));
+            inspector.Children.Add(Column(6, Label("內容（依大小）", Scale.Caption, FontWeight.SemiBold, "Subtle"), key));
+            return;
+        }
 
         var sizes = Breakdown(n); var total = Math.Max(1, sizes.Sum());
         var order = Enumerable.Range(0, sizes.Length).Where(i => sizes[i] > 0).OrderByDescending(i => sizes[i]).ToArray();
@@ -637,6 +790,7 @@ internal sealed class DiskUsageView : IDisposable
                     var row = Column(4, line, Meter(c.Size / (double)Math.Max(1, biggest[0].Size), c.Kind == NodeKind.Aggregate ? "StrokeStrong" : "Cat" + c.Category, 4));
                     var b = new Button { Content = row, Padding = new Thickness(8, 6), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.ControlRadius) };
                     b.Click += (_, _) => { if (c.Kind is NodeKind.File or NodeKind.Directory) Active(c); };
+                    Linked(b, c);
                     list.Children.Add(b);
                 }
                 inspector.Children.Add(Column(6, Label("最大的項目", Scale.Caption, FontWeight.SemiBold, "Subtle"), list));
@@ -648,10 +802,20 @@ internal sealed class DiskUsageView : IDisposable
             var actions = new WrapPanel { ItemSpacing = 8, LineSpacing = 8 };
             actions.Children.Add(Action("在檔案總管顯示", () => Report(FileActions.Reveal(n.FullPath, scanRoot), ""), Icons.Folder));
             if (n.Kind == NodeKind.Directory) actions.Children.Add(Action("放大", () => Go(n), Icons.Plus));
+            if (n.Parent != null) actions.Children.Add(InCollector(n) ? Action("從待清理移除", () => Uncollect(n)) : Action("加入待清理", () => Collect(n), Icons.Plus, primary: true));
             var del = Action("移到資源回收筒", () => AskDelete(n), Icons.Trash, danger: true); del.IsEnabled = !scanning;
             actions.Children.Add(del);
             inspector.Children.Add(actions);
         }
+    }
+
+    static Control MeterBrush(double fraction, IBrush brush, double height)
+    {
+        fraction = Math.Clamp(fraction, .01, 1);
+        var grid = new Grid { Height = height, ColumnDefinitions = new ColumnDefinitions(), HorizontalAlignment = HorizontalAlignment.Stretch };
+        grid.ColumnDefinitions.Add(new ColumnDefinition(fraction, GridUnitType.Star)); grid.ColumnDefinitions.Add(new ColumnDefinition(1 - fraction + .0001, GridUnitType.Star));
+        grid.Children.Add(new Border { CornerRadius = new CornerRadius(height / 2), Background = brush });
+        return new Border { Child = grid, CornerRadius = new CornerRadius(height / 2), ClipToBounds = true }.Res(Border.BackgroundProperty, "IdleSoft");
     }
 
     static Control Meter(double fraction, string brush, double height)
@@ -674,5 +838,27 @@ internal sealed class DiskUsageView : IDisposable
     internal string FilterError => filterError;
     internal void GoTop() { if (top != null) Go(top); }
     internal void SetLargestFiles(bool on) { largestFiles = on; setListMode(on ? 1 : 0); Render(false); }
+    internal void CollectLargestForShot() { if (view != null) foreach (var c in view.Children.Where(c => c.Kind is NodeKind.File or NodeKind.Directory).Take(2)) Collect(c); }
+    internal void ReviewForShot() { reviewing = true; RenderInspector(); }
+    internal int CollectorCount => collector.Count;
+    /// Design-build check of the history contract: back restores folder, view mode and selection; never climbs.
+    internal string HistoryCheck()
+    {
+        if (top == null || top.Children.FirstOrDefault(c => c.Kind == NodeKind.Directory && c.Children.Any(k => k.Kind == NodeKind.Directory)) is not { } a) return "no nested folder";
+        Go(top, false); SetMode(Mode.Treemap); backStack.Clear(); forwardStack.Clear();
+        Go(a); var b = a.Children.First(k => k.Kind == NodeKind.Directory); Go(b); SetMode(Mode.Sunburst);
+        Step(backStack, forwardStack);
+        if (mode != Mode.Treemap || !ReferenceEquals(view, b)) return $"back after mode switch: {mode} {view?.Name}";
+        Step(backStack, forwardStack);
+        if (!ReferenceEquals(view, a)) return "back went to " + view?.Name;
+        Step(backStack, forwardStack);
+        if (!ReferenceEquals(view, top)) return "second back went to " + view?.Name;
+        Step(forwardStack, backStack);
+        if (!ReferenceEquals(view, a)) return "forward went to " + view?.Name;
+        Go(top, false); backStack.Clear(); forwardStack.Clear(); UpdateChrome();
+        return "";
+    }
+    internal void MenuForShot() { if (view?.Children.FirstOrDefault(c => c.Kind == NodeKind.Directory) is { } d) { ActiveSelect(d); ShowMenu(d, new Point(100, 100)); } }
+    void ActiveSelect(DiskNode d) { if (mode == Mode.Sunburst) sun.Select(d); else map.Select(d); }
     internal void ZoomTo(string path) { if (top != null && Resolve(top, path) is { Kind: NodeKind.Directory } n) Go(n); }
 }

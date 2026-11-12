@@ -230,6 +230,29 @@ the page stays alive while you visit other pages); `--preview --open=disk [--dis
 - Filtering uses `DiskFilter` only (query box plus the category legend, which appends `type:…`). Misses are dimmed, never removed, so layout does not jump while typing.
 - Interface prototype with all states: `design/disk-space/prototype.html` (open in a browser; uses invented data).
 - Color tokens (`Cat*`, `MapBg`, `Surface`, `Age*`) live in `desktop/Theme/Palette.cs` for both themes.
+- One click on a folder (a treemap header or folder tile, a sunburst slice) zooms into it; one click on a file selects
+  it for the inspector; right-click opens the menu. The list keeps double-click to enter, since one click selects a row.
+- Sunburst colours follow the branch, not the file type (DaisyDisk): each first-ring slice takes the next hue of a fixed
+  sequence of `Cat*` tokens, its descendants keep that hue and pale outward, and siblings alternate slightly lighter
+  and darker. The 著色 control reads 資料夾 / 修改時間 in this view. The inspector's 「內容（依大小）」 list is the colour
+  key: every first-ring item, ranked, with its hue, size, share and a bar (Mole's analyzer list); clicking a folder zooms.
+- 待清理 collector (DaisyDisk's collector, Space Lens's Review Selected): 「加入待清理」 from the context menu, the
+  inspector or Ctrl+Delete gathers items without touching them; a folder absorbs anything already collected inside it.
+  Collected items are hatched red in the treemap and sunburst. A bar above the status line shows the count and the
+  space to free; 「檢視並清理」 turns the inspector into the review list (remove any item with ×), and one confirmation
+  moves them all to the Recycle Bin. Items that fail stay collected and are named. A new scan empties the collector.
+  Delete alone still recycles the selected item right away after a confirmation.
+- History (← / →, Alt+←/→, the mouse's back and forward buttons) records whole screens: folder, view mode, list mode
+  and selection. Back returns to exactly the previous screen; switching views is a step too. ↑ is the only control
+  that climbs to the parent folder.
+- Treemap framing follows SpaceSniffer: folders are frames with an 18-pt title strip (name, size) once they are 48 pt
+  in both directions, nested down to 6–16 levels by the 細節 slider (default 9 levels, 420 pt² minimum tile). Every
+  tile of at least 40 × 18 is named; tiles too small to draw stay as a flat, unlabeled ground of their folder, labeled
+  「N 個小項目」 only when large. The current folder is never selectable: clicking its ground clears the selection.
+- Rows in the inspector's lists light the matching tile or slice while hovered, so the list and the chart read as one.
+- Sunburst labels are horizontal and placed only where the whole box fits inside the slice: several spots along the
+  slice are tried, the name is trimmed before it is dropped, and the size line is added when there is room. Text is
+  espresso on light fills and white on dark ones.
 
 ## Not in this version
 

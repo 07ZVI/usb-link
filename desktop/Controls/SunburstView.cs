@@ -20,6 +20,7 @@ internal sealed class SunburstView : Control
         public double Start, Appear = 1, Hover, Dim;
         public bool Gone;
         public FormattedText? Title, Detail;
+        public double LabelAt = .5; // where along the slice (0..1 of its sweep) the label sits
     }
     record struct Arc(double Start, double Sweep, double Inner, double Outer)
     {
@@ -30,6 +31,8 @@ internal sealed class SunburstView : Control
     public event Action<DiskNode>? Opened;
     public event Action<DiskNode, Point>? MenuRequested;
     public event Action<DiskNode?, Point>? HoverChanged;
+    /// Raised after the rings are rebuilt, so the side list can pick up the new branch colours.
+    public event Action? LaidOut;
 
     const double Glide = 560, Fade = 300, HoleShare = .27, Gap = 1.4;
     DiskNode? root;
@@ -47,6 +50,14 @@ internal sealed class SunburstView : Control
     public IReadOnlySet<string> Scanning { get => scanning; set { scanning = value; RequestFrame(); } }
     IReadOnlySet<string> scanning = new HashSet<string>();
     public bool ColorByAge { get => byAge; set { byAge = value; RequestFrame(); } }
+    /// Paths waiting in the 待清理 collector: drawn struck through with a red hatch until removed or recycled.
+    public IReadOnlySet<string> Marked { get => marked; set { marked = value; RequestFrame(); } }
+    IReadOnlySet<string> marked = new HashSet<string>();
+    Color error; IBrush hatchMarked = Brushes.Transparent;
+    bool IsMarked(DiskNode n) { if (marked.Count == 0) return false; for (var x = n; x != null; x = x.Parent) if (marked.Contains(x.FullPath)) return true; return false; }
+    /// Lights the slice for `node` as if hovered, so the inspector's list can point into the rings.
+    public void Highlight(DiskNode? node) { hover = node == null ? null : order.FirstOrDefault(i => i.Cell.Node.FullPath == node.FullPath && i.Cell.Node.Kind == node.Kind); RequestFrame(); }
+
     public DiskNode? Selected { get; private set; }
     internal int CellCount => order.Count;
     internal IReadOnlyList<SunburstCell> Cells => order.Select(i => i.Cell).ToArray();
@@ -88,6 +99,7 @@ internal sealed class SunburstView : Control
             (C("MapBg"), C("Surface"), C("Stroke"), C("StrokeStrong"), C("Ink"), C("Muted"), C("Subtle"), C("Accent"), C("AgeNew"), C("AgeOld"));
         for (var i = 0; i < category.Length; i++) category[i] = C("Cat" + (FileCategory)i);
         hatch = Hatch(A(ink, .09));
+        error = C("Error"); hatchMarked = Hatch(A(error, .6));
         var family = new FontFamily(Palette.FontStack);
         regular = new Typeface(family); semibold = new Typeface(family, FontStyle.Normal, FontWeight.SemiBold);
         themeReady = true;
@@ -104,6 +116,15 @@ internal sealed class SunburstView : Control
         radius = Math.Max(30, Math.Min(Bounds.Width, Bounds.Height) / 2 - 18);
         hole = radius * HoleShare; ring = (radius - hole) / depth;
         var cells = SunburstLayout.Build(root, depth, minSweep);
+        branch.Clear(); sibling.Clear();
+        var counters = new Dictionary<string, int>();
+        foreach (var cell in cells)
+        {
+            if (cell.Node.Kind == NodeKind.Aggregate) continue;
+            if (cell.Depth == 1) branch[cell.Node.FullPath] = branch.Count;
+            var parent = cell.Node.Parent?.FullPath ?? "";
+            counters.TryGetValue(parent, out var k); counters[parent] = k + 1; sibling[cell.Key] = k;
+        }
         var now = Now(); var next = new Dictionary<string, Item>(cells.Count);
         order.Clear();
         foreach (var cell in cells)
@@ -121,22 +142,54 @@ internal sealed class SunburstView : Control
         if (hover != null && !items.ContainsValue(hover)) hover = null;
         if (!animate) foreach (var i in order) i.Current = i.To;
         RequestFrame();
+        LaidOut?.Invoke();
     }
 
     void BuildLabels(Item item)
     {
-        item.Title = item.Detail = null;
+        item.Title = item.Detail = null; item.LabelAt = .5;
         var a = item.To; var n = item.Cell.Node;
-        if (n.Kind == NodeKind.Aggregate || item.Cell.Depth > 2) return;
         var mid = (a.Inner + a.Outer) / 2; var arc = 2 * mid * Math.Sin(Math.Min(Math.PI / 2, a.Sweep * Math.PI));
         var thick = a.Outer - a.Inner;
-        if (thick < 18 || arc < 54) return;
+        // Labels are horizontal, so the room they get depends on where along the slice they sit: near the top and bottom
+        // of the rings the arc runs left-right, at the sides only the ring's thickness does. Try several spots along the
+        // slice and keep the one that fits the longest text, so big slices are always named.
+        if (thick < 14 || arc < 30) return;
+        var fill = n.Kind == NodeKind.Aggregate ? Over(muted, surface, .14) : Fill(n, item.Cell.Depth, sibling.TryGetValue(item.Cell.Key, out var k) ? k : 0);
+        var ink = Luma(fill) > .62 ? Color.FromRgb(0x2B, 0x21, 0x16) : Colors.White;
         FormattedText Text(string text, double size, Typeface face, Color color, double width) =>
             new(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, face, size, new SolidColorBrush(color)) { MaxTextWidth = Math.Max(1, width), MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
-        var width = Math.Min(arc - 12, 150);
-        item.Title = Text(DiskText.Name(n), 11.5, semibold, Colors.White, width);
-        if (thick >= 34) item.Detail = Text(DiskText.Size(n.Size), 10.5, regular, A(Colors.White, .85), width);
+        bool Inside(Point p)
+        {
+            var dx = p.X - center.X; var dy = p.Y - center.Y; var r = Math.Sqrt(dx * dx + dy * dy);
+            var t = Math.Atan2(dx, -dy) / (2 * Math.PI); if (t < 0) t += 1;
+            if (t < a.Start - 1e-6) t += 1;
+            return r >= a.Inner + 1.5 && r <= a.Outer - 1.5 && t >= a.Start && t <= a.Start + a.Sweep;
+        }
+        bool Fits(Point at, double w, double h) =>
+            Inside(new Point(at.X - w / 2, at.Y - h / 2)) && Inside(new Point(at.X + w / 2, at.Y - h / 2)) &&
+            Inside(new Point(at.X - w / 2, at.Y + h / 2)) && Inside(new Point(at.X + w / 2, at.Y + h / 2));
+        var name = DiskText.Name(n); var size = DiskText.Size(n.Size);
+        var spots = a.Sweep > .04 ? new[] { .5, .35, .65, .2, .8, .1, .9 } : new[] { .5 };
+        var bestWidth = 0.0; var full = Text(name, 11.5, semibold, ink, 1000).Width + 2;
+        foreach (var f in spots)
+        {
+            var at = Polar(center, mid, a.Start + a.Sweep * f);
+            for (var width = 150.0; width >= 30 && width > bestWidth; width *= .82)
+            {
+                var title = Text(name, width < 60 ? 10.5 : 11.5, semibold, ink, width);
+                var detail = Text(size, 10.5, regular, A(ink, .8), width);
+                var fit = Fits(at, Math.Max(title.Width, detail.Width), title.Height + detail.Height) ? 2 : Fits(at, title.Width, title.Height) ? 1 : 0;
+                if (fit == 0) continue;
+                // Prefer a full name over a longer box; a name that fits untrimmed ends the search.
+                bestWidth = width; item.LabelAt = f; item.Title = title; item.Detail = fit == 2 ? detail : null;
+                break;
+            }
+            if (item.Title != null && bestWidth >= full) break;
+        }
     }
+
+    static double Luma(Color c) => (.299 * c.R + .587 * c.G + .114 * c.B) / 255;
 
     void RequestFrame()
     {
@@ -196,11 +249,30 @@ internal sealed class SunburstView : Control
         return g;
     }
 
-    Color Fill(DiskNode n, int level)
+    // Branch hues in a fixed order, picked so neighbours differ in hue rather than only in shade (DaisyDisk's rings).
+    static readonly FileCategory[] BranchOrder = { FileCategory.Application, FileCategory.Video, FileCategory.Document, FileCategory.Archive,
+        FileCategory.Image, FileCategory.DiskImage, FileCategory.Code, FileCategory.Audio, FileCategory.System, FileCategory.Other };
+    readonly Dictionary<string, int> branch = new();
+    readonly Dictionary<string, int> sibling = new();
+
+    /// The hue of the first-ring slice that holds `node` (or the node itself), so the side list can match the rings.
+    public Color? BranchColor(DiskNode node)
     {
-        var c = byAge ? Mix(ageNew, ageOld, Math.Clamp((DateTime.UtcNow - n.LastWriteUtc).TotalDays / 540, 0, 1)) : category[(int)n.Category];
-        // Folders are a lighter tint of their dominant category and lighten further outward; files keep the full hue.
-        return n.Kind == NodeKind.Directory ? Over(c, surface, Math.Max(.55, .86 - level * .06)) : c;
+        ResolveTheme();
+        if (byAge || node.Kind == NodeKind.Aggregate) return null;
+        return branch.TryGetValue(node.FullPath, out var i) ? category[(int)BranchOrder[i % BranchOrder.Length]] : null;
+    }
+
+    Color Fill(DiskNode n, int level, int sibling)
+    {
+        if (byAge) return Mix(ageNew, ageOld, Math.Clamp((DateTime.UtcNow - n.LastWriteUtc).TotalDays / 540, 0, 1));
+        // Each first-ring slice owns a hue; its descendants keep it and pale outward, alternating siblings a little
+        // lighter and darker so neighbouring slices in the same branch still separate.
+        var top = n; while (top.Parent != null && !ReferenceEquals(top.Parent, root)) top = top.Parent;
+        var hue = category[(int)BranchOrder[(branch.TryGetValue(top.FullPath, out var i) ? i : 0) % BranchOrder.Length]];
+        var pale = Math.Min(.6, (level - 1) * .17) + (sibling % 2 == 1 ? .07 : 0);
+        var c = Over(surface, hue, pale);
+        return n.Kind == NodeKind.File ? Over(Colors.Black, c, .06) : c;
     }
 
     public override void Render(DrawingContext context)
@@ -227,10 +299,15 @@ internal sealed class SunburstView : Control
         using var _ = cx.PushOpacity(opacity);
         if (node.Kind == NodeKind.Aggregate)
         {
-            cx.DrawGeometry(new SolidColorBrush(Over(category[(int)node.Category], surface, .12)), gap, geometry);
+            cx.DrawGeometry(new SolidColorBrush(Over(muted, surface, .14)), gap, geometry);
             cx.DrawGeometry(hatch, null, geometry);
         }
-        else cx.DrawGeometry(new SolidColorBrush(Fill(node, item.Cell.Depth)), gap, geometry);
+        else cx.DrawGeometry(new SolidColorBrush(Fill(node, item.Cell.Depth, sibling.TryGetValue(item.Cell.Key, out var k) ? k : 0)), gap, geometry);
+        if (node.Kind is NodeKind.File or NodeKind.Directory && IsMarked(node))
+        {
+            cx.DrawGeometry(new SolidColorBrush(A(surface, .45)), null, geometry);
+            cx.DrawGeometry(hatchMarked, null, geometry);
+        }
         if (item.Hover > .01) cx.DrawGeometry(new SolidColorBrush(A(Colors.White, .22 * item.Hover)), null, geometry);
         if (scanning.Count > 0 && node.Kind == NodeKind.Directory && scanning.Contains(node.FullPath))
             cx.DrawGeometry(null, new Pen(new SolidColorBrush(A(accent, .3 + .5 * (.5 + .5 * Math.Sin(Now() / 260)))), 1.5), geometry);
@@ -239,7 +316,7 @@ internal sealed class SunburstView : Control
 
         if (item.Title is { } title && !item.Gone && item.Appear > .5)
         {
-            var mid = (a.Inner + a.Outer) / 2; var at = Polar(center, mid, a.Start + a.Sweep / 2);
+            var mid = (a.Inner + a.Outer) / 2; var at = Polar(center, mid, a.Start + a.Sweep * item.LabelAt);
             var h = title.Height + (item.Detail?.Height ?? 0);
             cx.DrawText(title, new Point(at.X - title.Width / 2, at.Y - h / 2));
             if (item.Detail is { } detail) cx.DrawText(detail, new Point(at.X - detail.Width / 2, at.Y - h / 2 + title.Height));
@@ -308,7 +385,8 @@ internal sealed class SunburstView : Control
         }
         if (!point.Properties.IsLeftButtonPressed) return;
         if (inCenter) { if (root?.Parent is { } up) Opened?.Invoke(up); e.Handled = true; return; }
-        if (e.ClickCount >= 2 && hit is { Kind: NodeKind.Directory }) { Opened?.Invoke(hit); e.Handled = true; return; }
+        // One click on a folder zooms into it (DaisyDisk); a file is selected and shown in the inspector.
+        if (hit is { Kind: NodeKind.Directory }) { Opened?.Invoke(hit); e.Handled = true; return; }
         Select(hit);
     }
 

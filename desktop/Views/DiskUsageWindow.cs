@@ -49,6 +49,9 @@ public sealed partial class Dashboard
         await Shot("1-scanning", 450);
         await view.WaitScanAsync(TimeSpan.FromSeconds(60));
         await Shot("2-done", 1400);
+        await Dispatcher.UIThread.InvokeAsync(() => { try { view.MenuForShot(); } catch (Exception ex) { Console.Error.WriteLine("MENU CRASH: " + ex); } });
+        await Shot("2b-menu", 700);
+        await Dispatcher.UIThread.InvokeAsync(() => { var h = view.HistoryCheck(); Console.Error.WriteLine(h == "" ? "HISTORY OK" : "HISTORY FAIL: " + h); });
         await Dispatcher.UIThread.InvokeAsync(() => { if (view.Map.Cells.Where(c => c.Node.Kind == DiskUsage.NodeKind.Directory).OrderByDescending(c => c.Node.Size).FirstOrDefault() is { } c) view.Map.Select(c.Node); });
         await Shot("3-selected", 600);
         await Dispatcher.UIThread.InvokeAsync(() => view.SetQuery(">5MB"));
@@ -61,6 +64,13 @@ public sealed partial class Dashboard
         await Shot("7-sunburst", 1200);
         await Dispatcher.UIThread.InvokeAsync(() => Application.Current!.RequestedThemeVariant = ThemeVariant.Dark);
         await Shot("8-sunburst-dark", 900);
+        await Dispatcher.UIThread.InvokeAsync(() => { Application.Current!.RequestedThemeVariant = ThemeVariant.Light; if (view.ViewNode?.Children.FirstOrDefault(c => c.Kind == DiskUsage.NodeKind.Directory) is { } d) view.ZoomTo(d.FullPath); });
+        await Shot("8b-sunburst-zoom", 1200);
+        await Dispatcher.UIThread.InvokeAsync(() => view.CollectLargestForShot());
+        await Shot("8c-collector", 900);
+        await Dispatcher.UIThread.InvokeAsync(() => view.ReviewForShot());
+        await Shot("8d-review", 900);
+        await Dispatcher.UIThread.InvokeAsync(() => view.GoTop());
         await Dispatcher.UIThread.InvokeAsync(() => { Application.Current!.RequestedThemeVariant = ThemeVariant.Light; view.SetMode(DiskUsageView.Mode.List); });
         await Shot("9-list", 900);
         await Dispatcher.UIThread.InvokeAsync(() => view.SetLargestFiles(true));

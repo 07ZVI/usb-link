@@ -538,9 +538,20 @@ public sealed partial class Dashboard : Window
         var debugDetails = new Expander { Header = "詳細診斷 / 調試資訊", IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch, Content = diagnostics };
         // Settings page: the general switches first, then the connection diagnostics that used to be their own tab.
         var diagnosticsTitle = WithMargin(Label("連線診斷", Scale.Title3, FontWeight.SemiBold), new Thickness(Scale.Tight, Scale.Small, 0, 0));
-        var content = Column(Scale.Gutter, settingsCard, diagnosticsTitle, InternetSection(), debugDetails, Gap(4));
+        // What scale the window really renders at, next to what Windows reports for this screen, so a display-scaling
+        // problem can be read off the page instead of guessed.
+        var scaleNote = Label("", Scale.Callout, key: "Muted");
+        void ShowScale()
+        {
+            var screen = Screens.ScreenFromWindow(this)?.Scaling ?? 0;
+            scaleNote.Text = $"介面縮放：{RenderScaling * 100:0}%　·　此螢幕的 Windows 顯示縮放：{(screen > 0 ? (screen * 100).ToString("0") + "%" : "未知")}";
+            // macOS reports screens in points, so only Windows can disagree meaningfully.
+            scaleNote.Res(TextBlock.ForegroundProperty, OperatingSystem.IsWindows() && screen > 0 && Math.Abs(screen - RenderScaling) > .01 ? "Warn" : "Muted");
+        }
+        ShowScale(); ScalingChanged += (_, _) => ShowScale();
+        var content = Column(Scale.Gutter, settingsCard, WithMargin(scaleNote, new Thickness(Scale.Tight, 0, 0, 0)), diagnosticsTitle, InternetSection(), debugDetails, Gap(4));
 #if USBLINK_LOCAL_DIAGNOSTICS
-        content.Children.Insert(2, LocalDiagnosticsSection());
+        content.Children.Insert(3, LocalDiagnosticsSection());
 #endif
         var scroll = new ScrollViewer { Content = content, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         detailWindow = NewPage("details", "設定", 520, 420);
