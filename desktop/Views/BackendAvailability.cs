@@ -18,6 +18,7 @@ public sealed partial class Dashboard
         if (!backendUnavailable)
         {
             foreach (var window in OwnedWindows.ToArray()) window.Close();
+            CloseAllPages();
             bodyScroll.Offset = default;
         }
         backendUnavailable = true;

@@ -130,7 +130,7 @@ public sealed partial class Dashboard
                     if (internetToggle.IsChecked != (state is "preparing" or "waiting_client" or "ready") || internetToggle.IsEnabled != (state != "preparing"))
                         throw new InvalidOperationException("internet switch must reflect confirmed state: " + state);
                 }
-                if (detailRows.GetVisualRoot() != detailWindow)
+                if (!ReferenceEquals(detailRows.GetVisualRoot(), detailWindow!.Owner) || !detailWindow.IsVisible)
                     throw new InvalidOperationException("diagnostic controls must share the current window");
 #if USBLINK_LOCAL_DIAGNOSTICS
                 var localToggle = detailWindow!.GetVisualDescendants().OfType<ToggleSwitch>().Single(t => AutomationProperties.GetName(t) == "開發者調試");
@@ -343,6 +343,15 @@ public sealed partial class Dashboard
                 throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
             CaptureConnectionPreview(this, "compact");
             ResizeAndSettle(520, 420); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
+            foreach (var device in new[] { macStatus, ipadStatus })
+            {
+                foreach (var control in device.View.GetVisualDescendants().OfType<Control>().Where(c => c.IsEffectivelyVisible && (c is Button || c is TextBlock)))
+                {
+                    var origin = control.TranslatePoint(default, device.View);
+                    if (origin is not { } p || p.X < -1 || p.X + control.Bounds.Width > device.View.Bounds.Width + 1)
+                        throw new InvalidOperationException("small device row must keep text and actions inside its width");
+                }
+            }
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");
@@ -364,7 +373,7 @@ public sealed partial class Dashboard
             var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
             if (dashboardTexts.Contains("退出介面") || dashboardTexts.Contains("退出程序") || dashboardTexts.Contains("工作管理員") || !dashboardTexts.Any(t => t?.Contains("托盤圖示選單") == true) || footerControl.GetVisualDescendants().OfType<Button>().Any())
                 throw new InvalidOperationException("the dashboard has no exit button or task manager row; the footer points to the tray menu");
-            if (settingsList.RowDefinitions.Count != 4 || settingsList.Children.OfType<Button>().Count() != 2) throw new InvalidOperationException("settings keep two switches and two links without an empty row");
+            if (settingsList.RowDefinitions.Count != 2 || settingsList.Children.OfType<Button>().Any() || navItems.Count != 5) throw new InvalidOperationException("settings keep only the two switches; the tools live in the page switcher");
             using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) Update(trayExit.RootElement);
             if (programExitID != "" || programExitAwaiting || !notice.Text!.Contains("介面預覽")) throw new InvalidOperationException("tray exit must share the preview-safe program exit path");
             VerifyExitButtonWire();

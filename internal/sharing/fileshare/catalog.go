@@ -21,6 +21,8 @@ type Folder struct {
 	Available          bool   `json:"available"`
 	NativeShared       bool   `json:"native_shared,omitempty"`
 	PermissionRecovery bool   `json:"permission_recovery,omitempty"`
+	ExternalID         string `json:"external_id,omitempty"`
+	ExternalPath       string `json:"external_path,omitempty"`
 	ManagedConflict    bool   `json:"managed_conflict,omitempty"`
 	ShareName          string `json:"share_name,omitempty"`
 	AccountAccess      string `json:"account_access,omitempty"`

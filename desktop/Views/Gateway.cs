@@ -65,7 +65,7 @@ public sealed partial class Dashboard
   void Decide(string decision){answered=true;GatewayRequest(new{action="gateway-decide",id,decision,remember=remember.IsChecked==true});dialog!.Close();}
   var heading=Label(System.IO.Path.GetFileName(path)+" 想使用 USB 網路",Scale.Title+2,FontWeight.SemiBold);heading.TextWrapping=TextWrapping.Wrap;
   var buttons=Row(8,Action("阻止",()=>Decide("block")),Action("允許",()=>Decide("allow"),primary:true));buttons.HorizontalAlignment=Avalonia.Layout.HorizontalAlignment.Right;
-  dialog=AppWindow.Dialog("USB 網路連線請求",530,Column(14,heading,Column(4,Hint(path,"Ink"),Hint(direction)),signature,
+  dialog=AppWindow.Dialog("USB 網路連線請求",530,Column(16,heading,Column(4,Hint(path,"Ink"),Hint(direction)),signature,
    Hint("連線已被阻止。允許後，程式需要重試連線。授權只作用於 USB 通道，Windows 其他防火牆規則仍會生效；簽章有效也不會自動授權。"),remember,buttons),topmost:true);
   gatewayPrompt=dialog;
   dialog.Closed+=(_,_)=>{signatureCancellation.Cancel();signatureCancellation.Dispose();if(!answered)GatewayRequest(new{action="gateway-decide",id,decision="block",remember=false});gatewayPrompt=null;NextGatewayRequest();};
@@ -76,7 +76,7 @@ public sealed partial class Dashboard
  void RevokeGateway(string path)=>AppWindow.Confirm(securityWindow,"撤銷授權？","「"+System.IO.Path.GetFileName(path)+"」之後要使用 USB 網路時，會再次詢問你是否允許。",
   "撤銷授權",()=>{gatewayRevoked=path;GatewayRequest(new{action="gateway-forget",path});},detail:path);
  Control GatewayPanel(){gatewayRows=new(){Spacing=10};gatewayState=Hint("正在讀取 USB 授權…");
-  var head=Column(6,Hint("尚未授權的程式預設被阻止，有連線請求時由你決定。授權只作用於 USB 網路（TCP、UDP、IPv4、IPv6）；本程式自己的通信會自動放行。"),gatewayState);head.Margin=new Thickness(0,12,0,12);
+  var head=Column(6,Hint("尚未授權的程式預設被阻止，有連線請求時由你決定。授權只作用於 USB 網路（TCP、UDP、IPv4、IPv6）；本程式自己的通信會自動放行。"),gatewayState);head.Margin=new Thickness(0, 12, 0, 12);
   return Rows("Auto,*",head,new ScrollViewer{Content=gatewayRows,HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled});}
  void UpdateGateway(JsonElement d){
   var id=Text(d,"request_id");

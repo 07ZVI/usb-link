@@ -147,8 +147,8 @@ public sealed partial class Dashboard
         """);
         UpdateSecurity(sample.RootElement);
     }
-    Window? securityWindow;
-    StackPanel firewallRows = new() { Spacing = 10 }, connectionRows = new() { Spacing = 10 }, usbRows = new() { Spacing = 10 };
+    PageHost? securityWindow;
+    StackPanel firewallRows = new() { Spacing = 12 }, connectionRows = new() { Spacing = 12 }, usbRows = new() { Spacing = 12 };
     TextBlock securityMode = Hint("手動應用程式規則 · 不變更預設聯網方式");
     Notice securityProblem = new();
     TextBlock securityCount = Label("正在讀取 USB 授權…", Scale.Caption, key: "Subtle");
@@ -188,7 +188,7 @@ public sealed partial class Dashboard
         securityBusy = false; securityPendingID=securityPendingAction=""; securitySnapshot = default; renderedSecurityTabs.Clear();
         // Closed window children retain logical parents. Recreate the controls
         // instead of attaching the same instances to a second window.
-        firewallRows = new() { Spacing = 10 }; connectionRows = new() { Spacing = 10 }; usbRows = new() { Spacing = 10 };
+        firewallRows = new() { Spacing = 12 }; connectionRows = new() { Spacing = 12 }; usbRows = new() { Spacing = 12 };
         securityMode = Hint("USB 網關 · 應用程式授權");
         securityProblem = new();
         securityCount = Label("正在讀取 USB 授權…", Scale.Caption, key: "Subtle");
@@ -202,7 +202,7 @@ public sealed partial class Dashboard
             new TabItem { Header = "目前連線", Content = SecurityList("顯示目前 TCP 連線；不包含 UDP 或已被阻止的嘗試，也不能據此判定出站方向。", connectionRows) },
             new TabItem { Header = "USB 裝置", Content = SecurityList("依實體裝置合併與分組；此頁只顯示資訊，不會停用現有鍵盤或滑鼠。", usbRows, Action("USB Link 連線授權", () => Send("settings"))) }
         }};
-        tabs.Resources["TabItemHeaderFontSize"] = Scale.Section;
+        tabs.Resources["TabItemHeaderFontSize"] = Scale.Body;
         securityTabs = tabs;
         tabs.SelectionChanged += (_, _) => {
             if (tabs.SelectedIndex > GatewayTab && securitySnapshot.ValueKind == JsonValueKind.Undefined && !securityBusy)
@@ -211,11 +211,10 @@ public sealed partial class Dashboard
             RenderSecurityTab();
         };
         foreach (var rows in new[] { firewallRows, connectionRows, usbRows }) rows.Children.Add(EmptyState.Make(Icons.Shield, "正在讀取安全資料…"));
-        var window = securityWindow = AppWindow.Create("安全管理", 1120, 760, 860, 640);
+        var window = securityWindow = NewPage("security", "安全管理", 860, 700);
         securityRefresh=Action("重新整理", () => { if (tabs.SelectedIndex == TasksTab) tasks.Refresh(); else if (tabs.SelectedIndex == GatewayTab) GatewayRequest(new { action = "gateway-refresh" }); else SendSecurity(new { action = "security-refresh" }); }, Icons.Retry);
-        window.Content = AppWindow.Page(AppWindow.Header("安全管理", securityMode, securityRefresh), tabs, securityCount, Column(8, securityProblem, discardPendingButton));
+        window.Content = AppWindow.Page(AppWindow.Hero("OrbSecurity", "安全管理", securityMode, securityRefresh), tabs, securityCount, Column(8, securityProblem, discardPendingButton));
         window.KeyDown += (_, e) => { if (tabs.SelectedIndex == TasksTab && tasks.HandleKey(e)) e.Handled = true; };
-        window.PropertyChanged += (_, e) => { if (e.Property == Window.WindowStateProperty) SyncTaskManager(); };
         window.Closed += (_, _) => { taskManager?.Dispose(); taskManager = null; securityTimer?.Stop();securityPendingID=securityPendingAction="";CloseGatewayPanel();window.Content = null; securityWindow = null; securityTabs = null; securitySnapshot = default; renderedSecurityTabs.Clear(); securityBusy = false; };
         window.Show(this);
         GatewayRequest(new {action="gateway-refresh"});
@@ -227,7 +226,7 @@ public sealed partial class Dashboard
         if (securityTabs == null || taskManager == null) return;
         var onTasks = securityTabs.SelectedIndex == TasksTab;
         securityCount.IsVisible = !onTasks;
-        if (onTasks) taskManager.Activate(); else taskManager.Deactivate();
+        if (onTasks && IsVisible && WindowState != WindowState.Minimized) taskManager.Activate(); else taskManager.Deactivate();
     }
     Control SecurityList(string hint, StackPanel items, Control? extra = null)
     {
@@ -269,7 +268,7 @@ public sealed partial class Dashboard
         var pair = Columns("*,*", Field("方向", direction), Field("協定", protocol)); pair.ColumnSpacing = 12;
         var buttons = Row(8, Action("取消", () => dialog!.Close()), Action("阻止", () => Save("block"), danger: true), Action("允許", () => Save("allow"), primary: true));
         buttons.HorizontalAlignment = HorizontalAlignment.Right;
-        dialog = AppWindow.Dialog("新增應用程式規則", 560, Column(14, Label("新增應用程式規則", Scale.Title + 2, FontWeight.SemiBold), Hint(path, "Ink"),
+        dialog = AppWindow.Dialog("新增應用程式規則", 560, Column(16, Label("新增應用程式規則", Scale.Title + 2, FontWeight.SemiBold), Hint(path, "Ink"),
             pair, Field("遠端位址", remote), Field("連接埠（出站：遠端；入站：本機）", port),
             Hint("規則會立即寫入 Windows 防火牆。程式檔案將核對雜湊；這不是數位簽章驗證。"), problem, buttons));
         _ = dialog.ShowDialog(securityWindow);

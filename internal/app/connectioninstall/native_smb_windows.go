@@ -570,38 +570,56 @@ func setNativeSMB(enabled bool) error {
 
 	return errors.Join(failures...)
 }
+
+// Cancellation revokes selected membership while holding the same operation
+// lock as publication/reconnection. ACL cleanup may fail for an offline disk;
+// that must never leave the folder eligible for future automatic publication.
 func RemoveNativeSMBFolder(id string) error {
+	if !fileshare.ValidFolderID(id) {
+		return fmt.Errorf("SHARE_FOLDER_INVALID")
+	}
 	nativeSMBOperationMu.Lock()
 	defer nativeSMBOperationMu.Unlock()
 	nativeSMBMu.Lock()
 	defer func() { nativeSMBMu.Unlock(); invalidateNativeSMB() }()
-	c, e := loadNativeSMB()
-	if e != nil {
-		return e
+	c, err := loadNativeSMB()
+	if err != nil {
+		return err
 	}
-	for i, s := range c.Shares {
-		if s.ID == id {
-			if e = deleteNativeShare(s); e != nil {
-				return e
+	return cancelSelectedSMBFolder(func() error {
+		err := RemoveSharedFolder(id)
+		if os.IsNotExist(err) {
+			return nil
+		} // Retry an orphan receipt/ACL journal.
+		return err
+	}, func() error {
+		for _, s := range c.Shares {
+			if s.ID != id {
+				continue
 			}
-			c.Shares = append(c.Shares[:i], c.Shares[i+1:]...)
-			forgetSMBShareName(&c, id)
-			for j := len(c.Access) - 1; j >= 0; j-- {
-				if c.Access[j].ID == id {
-					c.Access = append(c.Access[:j], c.Access[j+1:]...)
+			if err := deleteNativeShare(s); err != nil {
+				return err
+			}
+			names := []string{s.Name}
+			if s.MigrationName != "" {
+				names = append(names, s.MigrationName)
+			}
+			for _, name := range names {
+				_, free, rc, err := getNativeShare(name)
+				if free != nil {
+					free()
+				}
+				if err != nil {
+					return err
+				}
+				if rc != 2310 {
+					return fmt.Errorf("NATIVE_SMB_REMOVE_READBACK_FAILED: %d", rc)
 				}
 			}
-			if e = saveNativeSMB(c); e != nil {
-				return e
-			}
-			return restoreSMBRoot(id)
 		}
-	}
-	forgetSMBShareName(&c, id)
-	if e = saveNativeSMB(c); e != nil {
-		return e
-	}
-	return restoreSMBRoot(id)
+		forgetNativeSMBFolder(&c, id)
+		return saveNativeSMB(c)
+	}, func() error { return restoreSMBRoot(id) })
 }
 
 // Only explicit local consent can discard an ACL recovery journal. This does
@@ -849,6 +867,10 @@ func NativeSMBFolders(rows []fileshare.Folder) []fileshare.Folder {
 						}
 					}
 					rows[i].ManagedConflict = !rows[i].NativeShared
+					if rows[i].ManagedConflict && s.MigrationName == "" {
+						rows[i].ExternalID, _ = externalSMBSnapshot(got)
+						rows[i].ExternalPath = windows.UTF16PtrToString(got.Path)
+					}
 					free()
 				} else if rc == 2310 && rows[i].Problem == "" {
 					rows[i].Problem = "尚未成功發布到 Windows，裝置目前看不到此共享。請重試共享。"

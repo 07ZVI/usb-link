@@ -7,37 +7,59 @@ using System.Text.RegularExpressions;
 
 namespace Suhang.Desktop;
 
-/// Spacing, radius and type scale shared by the dashboard's cards and rows.
+/// The design tokens (see docs/DESIGN.md). Type follows the macOS text styles; spacing sits on a 4-pt grid;
+/// radii and control heights come in a few fixed steps. Views use these names, never ad-hoc numbers.
 internal static class Scale
 {
-    public const double Gutter = 16, Inset = 16, CardRadius = 8, ControlRadius = 4, TileRadius = 6;
-    /// Card padding or gap for a density level: 0 roomy, 1 compact (about three quarters), 2 dense (half).
-    public static double Pad(int density, double full) => density switch { 0 => full, 1 => Math.Round(full * .75), _ => Math.Round(full * .5) };
-    public const double Caption = 11, Secondary = 12, Body = 13, Section = 15, Title = 16, Page = 22, Hero = 30;
+    // Type ramp (macOS HIG text styles, 1 pt = 1 DIP).
+    public const double Footnote = 10, Subheadline = 11, Callout = 12, Body = 13, Title3 = 15, Title2 = 17, Title1 = 22, LargeTitle = 26, Display = 40;
+    // Older names, kept as the same steps: Caption = Subheadline, Secondary = Callout, Section = Title3, Title = Title2, Page = Title1, Hero = Display.
+    public const double Caption = Subheadline, Secondary = Callout, Section = Title3, Title = Title2, Page = Title1, Hero = Display;
+
+    // Spacing: 2 4 6 8 12 16 20 24 32.
+    public const double Hair = 2, Tight = 4, Snug = 6, Small = 8, Medium = 12, Regular = 16, Large = 20, XLarge = 24, XXLarge = 32;
+    /// Window content margin, gap between cards, inner padding of a card.
+    public const double Margin = Large, Gutter = Medium, Inset = Regular;
+
+    // Corner radii: marks (dots, bars) 3, controls 8, tiles 8, cards 12, panels 16, capsules = height / 2.
+    public const double MarkRadius = 3, ControlRadius = 8, TileRadius = 8, CardRadius = 16, PanelRadius = 20;
+    // Control heights: regular controls 30 (capsule radius 15), large 36, list rows 44, leading row icons 28.
+    public const double ControlHeight = 30, SmallControl = 26, LargeControl = 36, RowHeight = 44, RowIcon = 28, PillRadius = ControlHeight / 2;
+    // Icon sizes: inline 14, in controls 16, leading in cards 20.
+    public const double IconInline = 14, IconControl = 16, IconLead = 20;
+
+    /// Card padding or gap for a density level: 0 roomy, 1 compact (about three quarters), 2 dense (half), snapped to the grid.
+    public static double Pad(int density, double full) => density switch { 0 => full, 1 => Snap(full * .75), _ => Snap(full * .5) };
+    static double Snap(double v) => v <= 2 ? 2 : v <= 4 ? 4 : v <= 6 ? 6 : v <= 9 ? 8 : v <= 13 ? 12 : v <= 17 ? 16 : v <= 21 ? 20 : v <= 27 ? 24 : 32;
 }
 
 /// A rounded dot-and-label state indicator. Tone is a palette family
 /// (Ok, Busy, Warn, Error, Idle): `<Tone>Soft` fills it and `<Tone>` colours the dot and text.
 internal sealed class StatusPill : Border
 {
-    readonly Border dot = new() { Width = 8, Height = 8, CornerRadius = new CornerRadius(4) };
+    readonly Border dot = new() { Width = 6, Height = 6, CornerRadius = new CornerRadius(3) };
     public TextBlock Label { get; }
 
     public StatusPill(string text = "", double size = Scale.Secondary)
     {
         Label = ViewControls.Label(text, size, FontWeight.SemiBold);
-        CornerRadius = new CornerRadius(12); Padding = new Thickness(10, 4, 12, 4);
+        // A 22-pt capsule: 3 above and below a 12-pt label line (16), dot and text 6 apart.
+        CornerRadius = new CornerRadius(11); Padding = new Thickness(Scale.Small, 3, Scale.Medium - 2, 3);
         HorizontalAlignment = HorizontalAlignment.Left; VerticalAlignment = VerticalAlignment.Center;
-        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 7 };
+        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = Scale.Snug };
         dot.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(Label, 1); content.Children.Add(dot); content.Children.Add(Label);
         Child = content;
         Set("Idle", text);
     }
 
+    public string Tone { get; private set; } = "Idle";
+    public event Action<string>? ToneChanged;
+
     public void Set(string tone, string? text = null)
     {
         if (text != null) Label.Text = text;
+        if (Tone != tone) { Tone = tone; ToneChanged?.Invoke(tone); }
         this.Res(BackgroundProperty, tone + "Soft");
         dot.Res(BackgroundProperty, tone);
         Label.Res(TextBlock.ForegroundProperty, tone == "Idle" ? "Muted" : tone);
@@ -51,7 +73,15 @@ internal static class IconTile
     {
         var glyph = Icons.Make(icon, size * .56, brush);
         glyph.HorizontalAlignment = HorizontalAlignment.Center; glyph.VerticalAlignment = VerticalAlignment.Center;
-        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(Scale.TileRadius), Child = glyph }.Res(Border.BackgroundProperty, background);
+        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size >= 36 ? Scale.CardRadius - 2 : Scale.TileRadius), Child = glyph }.Res(Border.BackgroundProperty, background);
+    }
+
+    /// The System Settings tile: a filled square in `tone` with a white glyph (28 pt, radius 7, glyph 16).
+    public static Control Solid(string icon, string tone, double size = Scale.RowIcon)
+    {
+        var glyph = Icons.Make(icon, size * .58, "OnFill", 2);
+        glyph.HorizontalAlignment = HorizontalAlignment.Center; glyph.VerticalAlignment = VerticalAlignment.Center;
+        return new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 4), Child = glyph }.Res(Border.BackgroundProperty, tone);
     }
 }
 
@@ -67,31 +97,33 @@ internal static class SettingRow
         return info;
     }
 
-    static Grid Layout(string icon, string title, string description, string? tip, Control end, Control? detail)
+    // Row anatomy (System Settings): 12 | 28 tile | 12 | title + description | 12 | control | 12, at least 44 tall.
+    static Grid Layout(string icon, string title, string description, string? tip, Control end, Control? detail, string tone)
     {
-        var heading = tip == null ? (Control)Label(title, Scale.Body) : Row(4, Label(title, Scale.Body), Info(tip));
-        var note = Label(description, Scale.Caption, key: "Subtle"); note.Classes.Add("desc");
-        var lines = Column(1, heading, note);
+        var heading = tip == null ? (Control)Label(title, Scale.Body, FontWeight.Medium) : Row(Scale.Tight, Label(title, Scale.Body, FontWeight.Medium), Info(tip));
+        var note = Label(description, Scale.Subheadline, key: "Muted"); note.Classes.Add("desc");
+        var lines = Column(Scale.Hair, heading, note);
         if (detail != null) lines.Children.Add(detail);
-        lines.VerticalAlignment = VerticalAlignment.Center; lines.Margin = new Thickness(12, 0, 12, 0);
+        lines.VerticalAlignment = VerticalAlignment.Center; lines.Margin = new Thickness(Scale.Medium, 0, Scale.Medium, 0);
         end.VerticalAlignment = VerticalAlignment.Center;
-        var grid = Columns("Auto,*,Auto", IconTile.Make(icon, "Muted", "IdleSoft", 32), lines, end);
+        var grid = Columns("Auto,*,Auto", IconTile.Solid(icon, tone), lines, end);
+        grid.MinHeight = Scale.RowHeight - 2 * Scale.Small;
         grid.VerticalAlignment = VerticalAlignment.Center;
         return grid;
     }
 
     /// A row whose trailing control is a switch; the row itself is not a button.
-    public static Control Toggle(string icon, string title, string description, ToggleSwitch toggle, string? tip = null, Control? detail = null) =>
-        new Border { Padding = new Thickness(8, 10), Child = Layout(icon, title, description, tip, toggle, detail), VerticalAlignment = VerticalAlignment.Stretch, Classes = { "row" } };
+    public static Control Toggle(string icon, string title, string description, ToggleSwitch toggle, string? tip = null, Control? detail = null, string tone = "Accent") =>
+        new Border { Padding = new Thickness(Scale.Medium, Scale.Small), Child = Layout(icon, title, description, tip, toggle, detail, tone), VerticalAlignment = VerticalAlignment.Stretch, Classes = { "row" } };
 
     /// A row that opens another window.
-    public static Control Link(string icon, string title, string description, Action onClick)
+    public static Control Link(string icon, string title, string description, Action onClick, string tone = "Accent")
     {
         var button = new Button
         {
-            Content = Layout(icon, title, description, null, Icons.Make(Icons.Chevron, 14, "Subtle"), null),
+            Content = Layout(icon, title, description, null, Icons.Make(Icons.Chevron, Scale.IconInline, "Subtle"), null, tone),
             HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 10), Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.TileRadius),
+            VerticalAlignment = VerticalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(Scale.Medium, Scale.Small), Background = Brushes.Transparent, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.TileRadius),
         };
         button.Classes.Add("row");
         button.Click += (_, _) => onClick();
@@ -109,7 +141,7 @@ internal static class SettingRow
     /// Dense rows (level 2) drop the description line into a tooltip and tighten their padding.
     public static void SetDensity(Control list, int level)
     {
-        var padding = new Thickness(8, level switch { 0 => 10, 1 => 6, _ => 3 });
+        var padding = new Thickness(Scale.Medium, level switch { 0 => Scale.Small, 1 => Scale.Snug, _ => Scale.Hair });
         foreach (var visual in list.GetVisualDescendants().OfType<Control>().Where(c => c.Classes.Contains("row")).ToArray())
         {
             var description = visual.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(t => t.Classes.Contains("desc"));
@@ -126,7 +158,8 @@ internal static class SettingRow
         {
             Grid.SetRow(rows[i], i); grid.Children.Add(rows[i]);
             if (i == rows.Length - 1) continue;
-            var line = WithMargin(Rule(), new Thickness(52, 0, 8, 0));
+            // Separators start under the text, as in grouped lists: 12 + 28 + 12.
+            var line = WithMargin(Rule(), new Thickness(Scale.Medium + Scale.RowIcon + Scale.Medium, 0, 0, 0));
             line.VerticalAlignment = VerticalAlignment.Bottom;
             Grid.SetRow(line, i); grid.Children.Add(line);
         }
@@ -154,29 +187,53 @@ internal static class AppWindow
         var window = Create(name, width, double.NaN);
         window.SizeToContent = SizeToContent.Height; window.CanResize = false; window.Topmost = topmost;
         window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        window.Content = new Border { Padding = new Thickness(24), Child = content };
+        window.Content = new Border { Padding = new Thickness(Scale.Large), Child = content };
         return window;
     }
 
     /// Page frame: header, optional banner row, body (fills the height) and a quiet footer line.
     public static Control Page(Control header, Control body, Control? footer = null, Control? banner = null)
     {
-        var grid = Rows("Auto,Auto,*,Auto", header, banner ?? Gap(), body, footer ?? Gap());
-        grid.Margin = new Thickness(24, 20, 24, 16); grid.RowSpacing = 12;
+        // Header, 20, optional banner, body, 12, optional footer: empty slots take no space at all.
+        var grid = new Grid { Margin = new Thickness(0, Scale.Tight, 0, 0) };
+        var parts = new List<(Control Part, string Size, double Gap)> { (header, "Auto", 0) };
+        if (banner != null) parts.Add((banner, "Auto", Scale.Medium));
+        parts.Add((body, "*", Scale.Large));
+        if (footer != null) parts.Add((footer, "Auto", Scale.Medium));
+        foreach (var (part, size, gap) in parts)
+        {
+            if (gap > 0) grid.RowDefinitions.Add(new RowDefinition(gap, GridUnitType.Pixel));
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Parse(size)));
+            Grid.SetRow(part, grid.RowDefinitions.Count - 1); grid.Children.Add(part);
+        }
         return grid;
     }
 
     /// Title, one line of explanation and the window-level actions on the right.
     public static Control Header(string title, string? subtitle, params Control[] actions) => Header(title, string.IsNullOrEmpty(subtitle) ? null : Hint(subtitle), actions);
 
+    /// A tool page's header: a large title and its live subtitle on the left, actions on the right. No illustration:
+    /// the page gets its weight from the 26-pt title and the 24-pt air below it. (`orb` is kept for callers; unused.)
+    public static Control Hero(string orb, string title, TextBlock? subtitle, params Control[] actions)
+    {
+        var text = Column(Scale.Tight, Label(title, Scale.LargeTitle, FontWeight.Bold));
+        if (subtitle != null) { subtitle.TextWrapping = TextWrapping.Wrap; subtitle.TextTrimming = TextTrimming.None; subtitle.FontSize = Scale.Body; text.Children.Add(subtitle); }
+        text.VerticalAlignment = VerticalAlignment.Bottom;
+        var row = Row(Scale.Small, actions); row.VerticalAlignment = VerticalAlignment.Bottom;
+        var bar = Columns("*,Auto", text, row);
+        bar.ColumnSpacing = Scale.Regular; bar.Margin = new Thickness(Scale.Tight, Scale.Small, 0, Scale.Tight);
+        return bar;
+    }
+    public static Control Hero(string orb, string title, string? subtitle, params Control[] actions) => Hero(orb, title, string.IsNullOrEmpty(subtitle) ? null : Hint(subtitle), actions);
+
     /// The subtitle may be a live label that the view updates.
     public static Control Header(string title, TextBlock? subtitle, params Control[] actions)
     {
-        var text = Column(4, Label(title, Scale.Page, FontWeight.SemiBold));
+        var text = Column(Scale.Hair, Label(title, Scale.Title1, FontWeight.Bold));
         if (subtitle != null) { subtitle.TextWrapping = TextWrapping.Wrap; subtitle.TextTrimming = TextTrimming.None; text.Children.Add(subtitle); }
         text.VerticalAlignment = VerticalAlignment.Center;
-        var bar = Columns("*,Auto", text, Row(8, actions));
-        bar.ColumnSpacing = 16; return bar;
+        var bar = Columns("*,Auto", text, Row(Scale.Small, actions));
+        bar.ColumnSpacing = Scale.Regular; return bar;
     }
 
     /// Asks before something destructive or irreversible. The caller keeps only the follow-up action.
@@ -184,11 +241,11 @@ internal static class AppWindow
     {
         if (owner == null) return;
         Window? dialog = null;
-        var body = Column(14, Label(title, Scale.Title + 2, FontWeight.SemiBold));
+        var body = Column(Scale.Medium, Label(title, Scale.Title2, FontWeight.SemiBold));
         if (!string.IsNullOrEmpty(detail)) body.Children.Add(Hint(detail, "Subtle"));
         body.Children.Add(Hint(text, "Ink", Scale.Body));
         var buttons = Row(8, Action("取消", () => dialog!.Close()), Action(confirm, () => { dialog!.Close(); apply(); }, primary: true, danger: danger));
-        buttons.HorizontalAlignment = HorizontalAlignment.Right; buttons.Margin = new Thickness(0, 6, 0, 0);
+        buttons.HorizontalAlignment = HorizontalAlignment.Right; buttons.Margin = new Thickness(0, Scale.Small, 0, 0);
         body.Children.Add(buttons);
         dialog = Dialog(title, 480, body);
         dialog.Closed += (_, _) => dialog.Content = null;
@@ -202,10 +259,10 @@ internal static class Section
     public static Border Make(string title, string? description, Control body, Control? action = null, Control? status = null)
     {
         var heading = Column(2, Columns("Auto,*", Label(title, Scale.Section, FontWeight.SemiBold), status ?? Gap()));
-        ((Grid)heading.Children[0]).ColumnSpacing = 10;
+        ((Grid)heading.Children[0]).ColumnSpacing = 12;
         if (!string.IsNullOrEmpty(description)) heading.Children.Add(Hint(description));
         var head = Columns("*,Auto", heading, action ?? Gap()); head.ColumnSpacing = 12;
-        return Card(Column(14, head, body), new Thickness(Scale.Inset + 2));
+        return Card(Column(Scale.Regular, head, body), new Thickness(Scale.Inset));
     }
 }
 
@@ -218,9 +275,9 @@ internal static class ListItem
         if (!string.IsNullOrEmpty(subtitle)) heading.Children.Add(Hint(subtitle, "Muted", Scale.Caption));
         var head = icon == null ? Columns("*,Auto", heading, trailing ?? Gap()) : Columns("Auto,*,Auto", IconTile.Make(icon, tone == "Idle" ? "Muted" : tone, tone + "Soft"), heading, trailing ?? Gap());
         head.ColumnSpacing = 12; foreach (var c in head.Children) c.VerticalAlignment = VerticalAlignment.Center;
-        var content = Column(10, head);
+        var content = Column(12, head);
         foreach (var c in body) content.Children.Add(c);
-        return Card(content, new Thickness(14, 12));
+        return Card(content, new Thickness(16, 12));
     }
     /// A dense row for long inventories: title and kind share one line, one muted line of facts, then body rows.
     public static Border Compact(string title, string kind, string facts, Control? trailing = null, params Control[] body)
@@ -233,7 +290,7 @@ internal static class ListItem
         var content = Column(4, head);
         if (!string.IsNullOrEmpty(facts)) content.Children.Add(Hint(facts, "Muted", Scale.Secondary));
         foreach (var c in body) content.Children.Add(c);
-        return Card(content, new Thickness(14, 8));
+        return Card(content, new Thickness(16, 8));
     }
     static TextBlock WrapLabel(string text, double size, FontWeight weight) { var l = Label(text, size, weight); l.TextWrapping = TextWrapping.Wrap; l.TextTrimming = TextTrimming.None; return l; }
 }
@@ -261,10 +318,10 @@ internal sealed class Notice : Border
     readonly ContentControl action = new() { VerticalAlignment = VerticalAlignment.Center };
     public Notice()
     {
-        CornerRadius = new CornerRadius(Scale.TileRadius); Padding = new Thickness(12, 10); IsVisible = false;
+        CornerRadius = new CornerRadius(Scale.TileRadius); Padding = new Thickness(12, 12); IsVisible = false;
         code.Res(TextBlock.ForegroundProperty, "Subtle");
         var text = Column(2, message, code); text.VerticalAlignment = VerticalAlignment.Center;
-        var layout = Columns("Auto,*,Auto", icon, text, action); layout.ColumnSpacing = 10;
+        var layout = Columns("Auto,*,Auto", icon, text, action); layout.ColumnSpacing = 12;
         Child = layout;
     }
     /// Message plus the technical code, as a view would read it back.

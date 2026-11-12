@@ -30,18 +30,24 @@ public sealed partial class Dashboard
                 try
                 {
                     var work = new Size(area.Width / scaling, area.Height / scaling);
-                    OpenSecurity(); OpenSMBManager(); OpenDetails();
+                    // Every tool is a page of this window now: each page's minimum must still fit the work area.
+                    foreach (var open in new Action[] { () => OpenSecurity(), OpenSMBManager, OpenDetails, OpenDiskUsage })
+                    {
+                        open(); Pump(150);
+                        if (current == null) throw new InvalidOperationException("the tool did not open as a page");
+                        AssertWindowFits(this, work, area, scaling);
+                    }
                     AppWindow.Confirm(this, "取消共享？", "資料夾與檔案會保留，之後可以再次添加。", "取消共享", () => { }, danger: true);
                     Pump(300);
                     var windows = OwnedWindows.ToArray();
-                    if (windows.Length < 4) throw new InvalidOperationException("expected security, SMB, diagnostics and confirm windows, got " + windows.Length);
-                    foreach (var window in windows) AssertWindowFits(window, work, area, scaling);
+                    if (windows.Length != 1) throw new InvalidOperationException("expected only the confirm window, got " + windows.Length);
+                    AssertWindowFits(windows[0], work, area, scaling);
                     // A window dropped half off the screen's corner is brought back by the next re-check.
-                    var task = windows.First(w => w.Title!.Contains("安全管理"));
-                    task.Position = new PixelPoint(area.Right - 40, area.Bottom - 20); Pump(150);
-                    WindowFit.Refit(task); Pump(150);
-                    AssertWindowFits(task, work, area, scaling);
+                    Position = new PixelPoint(area.Right - 40, area.Bottom - 20); Pump(150);
+                    WindowFit.Refit(this); Pump(150);
+                    AssertWindowFits(this, work, area, scaling);
                     foreach (var window in windows) window.Close();
+                    CloseAllPages(); Position = new PixelPoint(area.X + 20, area.Y + 20);
                     Pump(100);
                 }
                 finally { WindowFit.TestWorkArea = null; WindowFit.TestScaling = 1; }
@@ -77,7 +83,11 @@ public sealed partial class Dashboard
         if (frame.Width * scaling > area.Width + 1 || frame.Height * scaling > area.Height + 1)
             throw new InvalidOperationException($"{name}: frame {frame} exceeds the work area {work}");
         var position = window.Position;
-        if (position.X < area.X || position.Y < area.Y || position.X + frame.Width * scaling > area.Right + 1 || position.Y + frame.Height * scaling > area.Bottom + 1)
+        // macOS never lets a window above its menu bar, so a simulated work area starting at y=0 cannot be honored
+        // vertically there; the size checks above still hold, and Windows (the shipping target) checks both axes.
+        var checkY = !OperatingSystem.IsMacOS();
+        if (position.X < area.X || position.X + frame.Width * scaling > area.Right + 1 ||
+            checkY && (position.Y < area.Y || position.Y + frame.Height * scaling > area.Bottom + 1))
             throw new InvalidOperationException($"{name}: frame at {position} size {frame} leaves the work area {area}");
     }
 }

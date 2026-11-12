@@ -121,6 +121,7 @@ def check_desktop_contract():
  run([DOTNET,'build','desktop/Suhang.Desktop.csproj','-c','Release','-p:RuntimeIdentifiers=win-x64','-p:USBLinkDesignTools=true','-p:RestoreLockedMode=true','-p:NuGetAudit=false','-o',output])
  fixtures=ROOT/'internal/contracts/desktopipc/testdata'
  run([DOTNET,output/'USBLink.Desktop.dll','--device-status-smoke',fixtures/'device-status.json',fixtures/'producer-status.json'])
+ run([DOTNET,output/'USBLink.Desktop.dll','--disk-usage-smoke'])
 def check():
  run([sys.executable,'scripts/test_publication.py'])
  run([sys.executable,'scripts/test_windows_resource.py'])

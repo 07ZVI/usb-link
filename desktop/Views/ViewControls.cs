@@ -16,8 +16,9 @@ internal static class ViewControls
     internal static ToggleSwitch Switch() => new() { OnContent = "", OffContent = "", MinWidth = 0, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
     internal static Border Card(Control child, Thickness? padding = null) => new Border
     {
-        Child = child, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = padding ?? new Thickness(20),
-    }.Res(Border.BackgroundProperty, "Card").Res(Border.BorderBrushProperty, "Stroke");
+        // Borderless tile: a translucent fill on the window's gradient, no outline.
+        Child = child, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.CardRadius), Padding = padding ?? new Thickness(Scale.Inset),
+    }.Res(Border.BackgroundProperty, "Card");
     internal static Border Rule() => new Border { Height = 1 }.Res(Border.BackgroundProperty, "Stroke");
     internal static Grid Columns(string defs, params Control[] children)
     {
@@ -48,11 +49,13 @@ internal static class ViewControls
     /// (red text, or a red fill together with `primary` on a confirmation).
     internal static Button Action(string text, Action onClick, string? icon = null, bool primary = false, bool danger = false)
     {
-        var fill = primary ? danger ? "Error" : "Accent" : null;
-        var ink = primary ? "Window" : danger ? "Error" : "Ink";
-        var label = Label(text, 13, primary ? FontWeight.SemiBold : FontWeight.Normal, ink);
-        Control content = icon is null ? label : Row(8, Icons.Make(icon, 16, ink), label);
-        var b = new Button { Content = content, Padding = new Thickness(14, 7), CornerRadius = new CornerRadius(4), MinHeight = 34 };
+        var fill = primary ? danger ? "Error" : "PrimaryFill" : null;
+        var ink = primary ? "PrimaryInk" : danger ? "Error" : "Ink";
+        // Capsule push button: 30 tall, 14 side padding, 14-pt symbol 6 from a 13-pt label.
+        var label = Label(text, Scale.Body, primary ? FontWeight.SemiBold : FontWeight.Medium, ink);
+        Control content = icon is null ? label : Row(Scale.Snug, Icons.Make(icon, Scale.IconInline, ink), label);
+        var b = new Button { Content = content, Padding = new Thickness(14, 0), CornerRadius = new CornerRadius(Scale.PillRadius), Height = Scale.ControlHeight,
+            VerticalContentAlignment = VerticalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         if (icon != null && text != "") Avalonia.Automation.AutomationProperties.SetName(b, text);
         b.BorderThickness = new Thickness(1);
         if (fill != null) b.Res(Button.BackgroundProperty, fill).Res(Button.BorderBrushProperty, fill);
@@ -65,7 +68,8 @@ internal static class ViewControls
     }
     internal static Button IconButton(string icon, string tip, Action onClick)
     {
-        var b = new Button { Content = Icons.Make(icon, 16, "Muted"), Padding = new Thickness(8), CornerRadius = new CornerRadius(4), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
+        var b = new Button { Content = Icons.Make(icon, Scale.IconControl, "Muted"), Width = Scale.ControlHeight, Height = Scale.ControlHeight, Padding = new Thickness(0), CornerRadius = new CornerRadius(Scale.PillRadius), Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
         ToolTip.SetTip(b, tip);
         Avalonia.Automation.AutomationProperties.SetName(b, tip);
         b.Click += (_, _) => onClick();
@@ -77,7 +81,7 @@ internal static class ViewControls
         var label = Label(text, size, key: key); label.TextWrapping = TextWrapping.Wrap; label.TextTrimming = TextTrimming.None; return label;
     }
     /// A caption above a form field.
-    internal static Control Field(string caption, Control input) => Column(5, Label(caption, Scale.Secondary, key: "Muted"), input);
+    internal static Control Field(string caption, Control input) => Column(6, Label(caption, Scale.Secondary, key: "Muted"), input);
     internal static T WithAlign<T>(T c, HorizontalAlignment a) where T : Control { c.HorizontalAlignment = a; return c; }
     internal static T WithMargin<T>(T c, Thickness m) where T : Control { c.Margin = m; return c; }
 }
