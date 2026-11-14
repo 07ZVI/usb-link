@@ -149,7 +149,7 @@ func TestConcurrentChunksRaceFree(t *testing.T) {
 	s, h, c := fixture(t)
 	id := startTest(t, s, h, c)
 	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
+	for i := 0; i < Streams; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -170,12 +170,12 @@ func TestConcurrentChunksRaceFree(t *testing.T) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.run.downBytes != 4*ChunkBytes || s.run.active != 0 {
+	if s.run.downBytes != Streams*ChunkBytes || s.run.active != 0 {
 		t.Fatal(s.run.downBytes, s.run.active)
 	}
 }
 
-// Simulate four completed TCP responses whose handlers have not yet retired.
+// Simulate every stream's completed TCP response whose handler has not yet retired.
 // A browser's replacement request should wait, not fail with a spurious 409.
 func TestReplacementStreamWaitsForRetiringHandler(t *testing.T) {
 	s, h, c := fixture(t)
@@ -320,4 +320,241 @@ func TestConcurrentDeviceTestsDoNotReplaceOrCancelEachOther(t *testing.T) {
 		t.Fatal("iPad disconnection stopped Mac test")
 	}
 	mac.CancelNative()
+}
+
+// Exercise real blocked network reads/writes: changing report status alone must
+// not leave a transfer occupying a slot until its inactivity timer runs out.
+func TestInFlightTransfersStopOnCancelExpiryAndClose(t *testing.T) {
+	for _, direction := range []string{"download", "upload"} {
+		for _, reason := range []string{"native cancel", "HTTP cancel", "expiry", "close"} {
+			t.Run(direction+"/"+reason, func(t *testing.T) {
+				s, h, c := fixture(t)
+				id := startTest(t, s, h, c)
+				s.mu.Lock()
+				run := s.run
+				if direction == "upload" {
+					run.report.Status = "upload"
+				}
+				if reason == "expiry" {
+					run.cancel()
+					run.expires = time.Now().Add(time.Second)
+					run.ctx, run.cancel = context.WithDeadline(s.ctx, run.expires)
+				}
+				s.mu.Unlock()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				var uploadWriter *io.PipeWriter
+				var response *http.Response
+				var uploaded chan error
+				if direction == "upload" {
+					reader, writer := io.Pipe()
+					uploadWriter = writer
+					defer reader.Close()
+					defer writer.Close()
+					q, _ := http.NewRequestWithContext(ctx, "POST", h.URL+"/speed/up", reader)
+					q.ContentLength = ChunkBytes
+					q.Header.Set("X-Suhang-Test", s.token)
+					q.Header.Set("X-Suhang-Run", id)
+					uploaded = make(chan error, 1)
+					go func() {
+						r, err := c.Do(q)
+						if err == nil {
+							io.Copy(io.Discard, r.Body)
+							r.Body.Close()
+						}
+						uploaded <- err
+					}()
+					if _, err := uploadWriter.Write(make([]byte, 65536)); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					q, _ := http.NewRequestWithContext(ctx, "GET", h.URL+"/speed/down", nil)
+					q.Header.Set("X-Suhang-Test", s.token)
+					q.Header.Set("X-Suhang-Run", id)
+					var err error
+					response, err = c.Do(q)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer response.Body.Close()
+					if _, err = io.ReadFull(response.Body, make([]byte, 1)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// Upload writes may reach the socket before the handler is scheduled.
+				waitFor := func(done func() bool) {
+					t.Helper()
+					deadline := time.Now().Add(2 * time.Second)
+					for !done() {
+						if time.Now().After(deadline) {
+							t.Fatal("transfer did not reach expected state")
+						}
+						time.Sleep(time.Millisecond)
+					}
+				}
+				waitFor(func() bool { s.mu.Lock(); defer s.mu.Unlock(); return run.active == 1 })
+				switch reason {
+				case "native cancel":
+					s.CancelNative()
+				case "HTTP cancel":
+					r := request(t, s, c, h.URL, "POST", "/speed/cancel", id, nil)
+					r.Body.Close()
+					if r.StatusCode != 200 {
+						t.Fatal(r.Status)
+					}
+				case "close":
+					s.Close()
+				}
+				waitFor(func() bool { s.mu.Lock(); defer s.mu.Unlock(); return run.active == 0 })
+				if direction == "upload" {
+					uploadWriter.Close()
+					select {
+					case <-uploaded:
+					case <-ctx.Done():
+						t.Fatal("upload client did not stop")
+					}
+				} else {
+					n, err := io.Copy(io.Discard, response.Body)
+					if err == nil || n+1 >= ChunkBytes {
+						t.Fatal("download unexpectedly completed", n, err)
+					}
+				}
+				s.mu.Lock()
+				report := run.report
+				s.mu.Unlock()
+				if report.Status != "failed" {
+					t.Fatal(report)
+				}
+				if (reason == "native cancel" || reason == "HTTP cancel") && report.Error != "使用者取消測試" {
+					t.Fatal("cancellation reason overwritten", report)
+				}
+			})
+		}
+	}
+}
+
+func TestSlowMeasurementUsesSessionBudget(t *testing.T) {
+	s, h, c := fixture(t)
+	id := startTest(t, s, h, c)
+	s.mu.Lock()
+	s.run.downBytes = ChunkBytes
+	s.mu.Unlock()
+	// A slow in-flight chunk may finish after the former 60s report limit.
+	// RTT sampling continues for that whole time, not just the 10s window.
+	samples := make([]float64, 340)
+	for i := range samples {
+		samples[i] = 1
+	}
+	body, _ := json.Marshal(finishRequest{Direction: "download", Bytes: ChunkBytes, Seconds: 61, RTT: samples})
+	r := request(t, s, c, h.URL, "POST", "/speed/finish", id, bytes.NewReader(body))
+	defer r.Body.Close()
+	if r.StatusCode != 200 {
+		b, _ := io.ReadAll(r.Body)
+		t.Fatal(r.Status, string(b))
+	}
+	var report Report
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Download.Seconds != 61 || report.Download.RTTSamples != 340 {
+		t.Fatal(report)
+	}
+}
+
+func TestMeasurementCannotExceedSessionBudget(t *testing.T) {
+	s, h, c := fixture(t)
+	id := startTest(t, s, h, c)
+	s.mu.Lock()
+	s.run.downBytes = ChunkBytes
+	s.mu.Unlock()
+	body, _ := json.Marshal(finishRequest{Direction: "download", Bytes: ChunkBytes, Seconds: sessionLifetime.Seconds() + 1})
+	r := request(t, s, c, h.URL, "POST", "/speed/finish", id, bytes.NewReader(body))
+	defer r.Body.Close()
+	if r.StatusCode != 400 {
+		t.Fatal(r.Status)
+	}
+}
+
+func TestProgressReaderRenewsOnlyWhenDataMoves(t *testing.T) {
+	renewals := 0
+	reader := progressReader{Reader: strings.NewReader("payload"), renew: func() error { renewals++; return nil }}
+	if _, err := io.Copy(uploadSink{}, reader); err != nil {
+		t.Fatal(err)
+	}
+	if renewals != 1 {
+		t.Fatal(renewals)
+	}
+}
+
+// Pace by bytes rather than calls: net/http may request less than a full block.
+type pacedPayloadReader struct{ remaining int }
+
+func (r *pacedPayloadReader) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := min(len(p), r.remaining)
+	time.Sleep(time.Duration(n) * 750 * time.Millisecond / IOBlockBytes)
+	clear(p[:n])
+	r.remaining -= n
+	return n, nil
+}
+
+func TestUploadCanProgressBeyondInactivityTimeout(t *testing.T) {
+	t.Parallel()
+	s, h, c := fixture(t)
+	id := startTest(t, s, h, c)
+	s.mu.Lock()
+	s.run.report.Status = "upload"
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	q, _ := http.NewRequestWithContext(ctx, "POST", h.URL+"/speed/up", &pacedPayloadReader{remaining: ChunkBytes})
+	q.ContentLength = ChunkBytes
+	q.Header.Set("X-Suhang-Test", s.token)
+	q.Header.Set("X-Suhang-Run", id)
+	began := time.Now()
+	r, err := c.Do(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var reply struct {
+		Bytes int64 `json:"bytes"`
+	}
+	if err = json.NewDecoder(r.Body).Decode(&reply); err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != 200 || reply.Bytes != ChunkBytes || time.Since(began) <= StallTimeout {
+		t.Fatal(r.Status, reply, time.Since(began))
+	}
+}
+
+func TestUploadInactivityStillTimesOut(t *testing.T) {
+	t.Parallel()
+	s, h, c := fixture(t)
+	id := startTest(t, s, h, c)
+	s.mu.Lock()
+	s.run.report.Status = "upload"
+	s.mu.Unlock()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	go func() { writer.Write(make([]byte, 65536)) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	q, _ := http.NewRequestWithContext(ctx, "POST", h.URL+"/speed/up", reader)
+	q.ContentLength = ChunkBytes
+	q.Header.Set("X-Suhang-Test", s.token)
+	q.Header.Set("X-Suhang-Run", id)
+	began := time.Now()
+	r, err := c.Do(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	io.Copy(io.Discard, r.Body)
+	if r.StatusCode != 422 || time.Since(began) < StallTimeout {
+		t.Fatal(r.Status, time.Since(began))
+	}
 }

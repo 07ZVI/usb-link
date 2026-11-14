@@ -91,7 +91,9 @@ func (s *Server) startTest(browser bool) error {
 		s.mu.Unlock()
 		return e
 	}
-	s.run = &session{id: hex.EncodeToString(nonce[:]), expires: time.Now().Add(sessionLifetime), report: Report{Status: "download", StartedUTC: time.Now().UTC().Format(time.RFC3339), Method: "native HTTP/TCP payload; peer receiver download timing; server receiver upload timing; application RTT, no UDP loss measurement", Streams: Streams}}
+	expires := time.Now().Add(sessionLifetime)
+	runCtx, cancel := context.WithDeadline(s.ctx, expires)
+	s.run = &session{ctx: runCtx, cancel: cancel, id: hex.EncodeToString(nonce[:]), expires: expires, report: Report{Status: "download", StartedUTC: time.Now().UTC().Format(time.RFC3339), Method: "native HTTP/TCP payload; peer receiver download timing; server receiver upload timing; application RTT, no UDP loss measurement", Streams: Streams}}
 	if browser {
 		s.run.report.Method = "browser HTTP/TCP payload; peer receiver download timing; server receiver upload timing; includes browser overhead, no UDP loss measurement"
 	}
@@ -112,6 +114,7 @@ func (s *Server) CancelNative() {
 	}
 	s.run.report.Status = "failed"
 	s.run.report.Error = "使用者取消測試"
+	s.run.cancel()
 	r := s.run.report
 	s.mu.Unlock()
 	s.notify(r)

@@ -13,6 +13,8 @@ async function request(path,method='GET',body=null,signal=controller?.signal){
  const r=await fetch('/speed/'+path,{method,body,signal,cache:'no-store',credentials:'omit',headers:{'X-Suhang-Test':cfg.token,'X-Suhang-Run':run}});
  if(!r.ok){const e=new Error(r.status===403?'USB 連線驗證失敗，請重新連接後重新整理。':r.status===409?'測試已結束或取消，請重新開始。':'傳輸未完成，請確認 USB 連線。');e.status=r.status;throw e;}return r;
 }
+// Count a download as it arrives and drop each piece, so five 16 MiB responses never sit in memory at once.
+async function drain(r){if(!r.body)return (await r.arrayBuffer()).byteLength;const reader=r.body.getReader();let n=0;for(;;){const {done,value}=await reader.read();if(done)return n;n+=value.byteLength;}}
 async function ping(signal=controller?.signal){const start=performance.now();await (await request('ping','GET',null,signal)).text();return performance.now()-start;}
 async function phase(direction,idle){
  const upload=direction==='upload', start=performance.now(), end=start+cfg.Seconds*1000;
@@ -25,7 +27,7 @@ async function phase(direction,idle){
   while(performance.now()<end&&!controller.signal.aborted&&reserved+cfg.Chunk<=cfg.MaxBytes){
    reserved+=cfg.Chunk;
    const r=await request(upload?'up':'down',upload?'POST':'GET',upload?payload:null);
-   const n=upload?(await r.json()).bytes:(await r.arrayBuffer()).byteLength;
+   const n=upload?(await r.json()).bytes:await drain(r);
    if(n!==cfg.Chunk)throw new Error('資料不完整，本次結果未採用。');bytes+=n;
    el(upload?'up':'down').textContent=(bytes/((performance.now()-start)/1000)/1e6).toFixed(1);
   }

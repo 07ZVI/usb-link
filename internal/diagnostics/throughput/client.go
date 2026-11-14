@@ -72,7 +72,7 @@ func (c NativeClient) ping(ctx context.Context, v NativeCommand) (float64, error
 	return float64(time.Since(t)) / float64(time.Millisecond), e
 }
 func (c NativeClient) Run(ctx context.Context, v NativeCommand) (report Report, err error) {
-	ctx, cancel := context.WithTimeout(ctx, 65*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, sessionLifetime)
 	defer cancel()
 	defer func() {
 		if err != nil {
@@ -146,7 +146,7 @@ func (c NativeClient) Run(ctx context.Context, v NativeCommand) (report Report, 
 					}
 					var n int64
 					if direction == "download" {
-						n, e = io.CopyBuffer(io.Discard, r.Body, make([]byte, 64*1024))
+						n, e = discardPayload(r.Body)
 					} else {
 						var reply struct {
 							Bytes int64 `json:"bytes"`
