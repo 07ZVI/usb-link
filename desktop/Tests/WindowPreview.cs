@@ -17,6 +17,7 @@ public sealed partial class Dashboard
             "tasks" => () => OpenSecurity(TasksTab),
             "smb" => OpenSMBManager,
             "disk" => OpenDiskUsage,
+            "files" => OpenFileTools,
             "details" => OpenDetails,
             "dialog" => () => AppWindow.Confirm(this, "取消共享？", "資料夾與檔案會保留，之後可以再次添加。", "取消共享", () => { }, danger: true),
             _ => null,

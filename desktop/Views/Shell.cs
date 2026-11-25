@@ -41,7 +41,7 @@ public sealed partial class Dashboard
 {
     /// The switcher's pages in order: key, label and the window tint token while it is shown.
     static readonly (string Key, string Label, string Tint)[] Pages =
-        [("home", "總覽", "PageHome"), ("share", "共享", "PageShare"), ("security", "安全", "PageSecurity"), ("disk", "磁碟", "PageDisk"), ("details", "設定", "PageDetails")];
+        [("home", "總覽", "PageHome"), ("share", "共享", "PageShare"), ("security", "安全", "PageSecurity"), ("disk", "磁碟", "PageDisk"), ("files", "檔案", "PageDisk"), ("details", "設定", "PageDetails")];
     readonly Grid pages = new();
     readonly List<PageHost> hosted = new();
     PageHost? current;
@@ -97,6 +97,7 @@ public sealed partial class Dashboard
             case "share": OpenSMBManager(); break;
             case "security": OpenSecurity(); break;
             case "disk": OpenDiskUsage(); break;
+            case "files": OpenFileTools(); break;
             case "details": OpenDetails(); break;
             default: ShowOverview(); break;
         }
@@ -139,7 +140,7 @@ public sealed partial class Dashboard
             {
                 Child = text, Height = 28, Padding = new Thickness(Scale.Small, 0, Scale.Small, 4),
                 CornerRadius = new CornerRadius(0), BorderThickness = new Thickness(0, 0, 0, 2),
-                BorderBrush = Brushes.Transparent, MinWidth = 52, Cursor = new Cursor(StandardCursorType.Hand),
+                BorderBrush = Brushes.Transparent, MinWidth = 44, Cursor = new Cursor(StandardCursorType.Hand),
                 Background = Brushes.Transparent
             };
             pill.Transitions = [new BrushTransition { Property = Border.BackgroundProperty, Duration = TimeSpan.FromMilliseconds(160) }];
