@@ -30,6 +30,9 @@ func localControlFailureEvent(action, id string) (localControlFailure, bool) {
 }
 
 func serviceAdditionalAction(action string) bool {
+	if opensshDesktopAction(action) {
+		return true
+	}
 	// Exact existing command names only; no shell/SCM/filename endpoint.
 	switch action {
 	case "local-usb-update-on", "local-usb-update-off":

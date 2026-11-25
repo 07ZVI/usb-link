@@ -13,6 +13,7 @@ public sealed partial class Dashboard
         Action? open = Program.OpenPreview switch
         {
             "security" => () => OpenSecurity(GatewayTab),
+            "openssh" => () => { OpenSecurity(OpenSSHTab); SeedOpenSSHPreview(); },
             "tasks" => () => OpenSecurity(TasksTab),
             "smb" => OpenSMBManager,
             "disk" => OpenDiskUsage,

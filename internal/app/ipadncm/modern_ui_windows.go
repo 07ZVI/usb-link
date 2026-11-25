@@ -189,7 +189,7 @@ func (u *modernUI) show(reason string) bool {
 					acknowledgeUpdateNotice(u, cmd.Process.Pid, v.ID)
 					continue
 				}
-				if !u.proxyAction(v) && !u.shareFoldersAction(v) && !u.gatewayAction(v) && !u.securityAction(v) {
+				if !u.proxyAction(v) && !u.shareFoldersAction(v) && !u.gatewayAction(v) && !u.securityAction(v) && !u.opensshAction(v) {
 					if handleLocalRemoteAction(u, v) {
 						continue
 					}

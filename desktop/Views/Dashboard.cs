@@ -825,6 +825,7 @@ public sealed partial class Dashboard : Window
         if (S("event") == "share-folders") { UpdateShareFolders(d); return; }
         if (S("event") == "gateway-request") { ShowGatewayRequest(d); return; }
         if (S("event") == "gateway") { UpdateGateway(d); return; }
+        if (S("event") == "openssh") { UpdateOpenSSH(d); return; }
         if (S("event") == "security") { UpdateSecurity(d); return; }
         if (d.TryGetProperty("network_only", out var networkOnlyState) && networkOnlyState.ValueKind == JsonValueKind.Object) UpdateNetworkOnly(networkOnlyState, B("stopping"));
         UpdateProgramLifecycle(d);
