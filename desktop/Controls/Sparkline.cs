@@ -27,15 +27,19 @@ internal sealed class Sparkline : Control
     readonly List<double> tx = new(), rx = new();
     bool firstDrawRecorded;
     public double Peak { get; private set; }
+    public IReadOnlyList<double> Tx => tx;
+    public IReadOnlyList<double> Rx => rx;
+    /// Raised after every push or clear, so a shared chart can redraw from this history.
+    public event Action? Changed;
 
-    public void Clear() { tx.Clear(); rx.Clear(); Peak = 0; InvalidateVisual(); }
+    public void Clear() { tx.Clear(); rx.Clear(); Peak = 0; InvalidateVisual(); Changed?.Invoke(); }
 
     public void Push(double t, double r)
     {
         tx.Add(Math.Max(0, t)); rx.Add(Math.Max(0, r));
         if (tx.Count > Capacity) { tx.RemoveAt(0); rx.RemoveAt(0); }
         Peak = Math.Max(tx.DefaultIfEmpty().Max(), rx.DefaultIfEmpty().Max());
-        InvalidateVisual();
+        InvalidateVisual(); Changed?.Invoke();
     }
 
     public override void Render(DrawingContext context)

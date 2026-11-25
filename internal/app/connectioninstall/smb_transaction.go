@@ -1,6 +1,9 @@
 package connectioninstall
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Retire each share independently. Persist its removal before restoring the
 // separate ACL journal, so an unavailable/changed folder cannot resurrect a
@@ -122,4 +125,38 @@ func handoffSMBItem(revoke, retainPermissions, relinquish func() error) error {
 func disableSMBGuest(revokeShares, restoreIdentity func() error) error {
 	shareError := revokeShares()
 	return errors.Join(shareError, restoreIdentity())
+}
+
+// Revoke publication intent first. An interrupted retire retains its ownership
+// receipt for retry, while an interrupted ACL cleanup retains only recovery
+// evidence. Neither failure is allowed to select the folder again.
+func cancelSelectedSMBFolder(revoke, retire, restore func() error) error {
+	if err := revoke(); err != nil {
+		return err
+	}
+	if err := retire(); err != nil {
+		return fmt.Errorf("已取消自動共享；Windows 共享移除待完成，請重試：%w", err)
+	}
+	if err := restore(); err != nil {
+		return fmt.Errorf("共享已取消；資料夾權限恢復待完成，請重試或保留目前權限：%w", err)
+	}
+	return nil
+}
+
+func forgetNativeSMBFolder(c *nativeSMBConfiguration, id string) {
+	shares := c.Shares[:0]
+	for _, s := range c.Shares {
+		if s.ID != id {
+			shares = append(shares, s)
+		}
+	}
+	c.Shares = shares
+	forgetSMBShareName(c, id)
+	access := c.Access[:0]
+	for _, a := range c.Access {
+		if a.ID != id {
+			access = append(access, a)
+		}
+	}
+	c.Access = access
 }

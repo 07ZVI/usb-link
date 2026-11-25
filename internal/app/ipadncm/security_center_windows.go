@@ -22,6 +22,7 @@ type desktopRequest struct {
 	Action        string `json:"action"`
 	Upstream      uint32 `json:"upstream,omitempty"`
 	Password      string `json:"password,omitempty"`
+	PublicKey     string `json:"public_key,omitempty"`
 	Username      string `json:"username,omitempty"`
 	Remember      bool   `json:"remember,omitempty"`
 	ID            string `json:"id,omitempty"`
@@ -100,6 +101,9 @@ func securityDesktopAction(action string) bool {
 	return false
 }
 func desktopRequestResultEvent(action string) string {
+	if opensshDesktopAction(action) {
+		return "openssh"
+	}
 	if securityDesktopAction(action) {
 		return "security"
 	}

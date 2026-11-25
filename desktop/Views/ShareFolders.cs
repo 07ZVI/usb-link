@@ -7,8 +7,8 @@ using Avalonia.Threading;
 namespace Suhang.Desktop;
 public sealed partial class Dashboard
 {
- Window? shareFoldersWindow;
- StackPanel shareFolderRows = new() { Spacing = 10 };
+ PageHost? shareFoldersWindow;
+ StackPanel shareFolderRows = new() { Spacing = 12 };
  Notice shareNotice = new();
  string shareFolderIssue = "";
  Button shareAdd = null!;
@@ -20,7 +20,7 @@ public sealed partial class Dashboard
  readonly Dictionary<string,ShareAccessDraft> shareAccessDrafts = new();
  void ShareRequest(object value) { if (preview) return; DesktopClient.SendRaw(JsonSerializer.Serialize(value));  }
  Control BuildShareFoldersPanel() {
-  shareFolderRows = new() { Spacing = 10 }; shareNotice = new(); shareFolderIssue = "";
+  shareFolderRows = new() { Spacing = 12 }; shareNotice = new(); shareFolderIssue = "";
   shareBusy = false; sharePendingID = ""; shareRefreshQueued = false;
   shareAccessDrafts.Clear();
   shareAdd = Action("添加共享",PickShareFolders,Icons.Plus,primary:true);
@@ -71,8 +71,8 @@ public sealed partial class Dashboard
   }
   foreach(var box in new[]{accountOn,accountWrite,guestOn,guestWrite}) box.IsCheckedChanged+=(_,_)=>Changed();
   Changed();
-  var grid=Columns("*,*",Field("專用帳戶",Row(14,accountOn,accountWrite)),Field("訪客",Row(14,guestOn,guestWrite)));grid.ColumnSpacing=16;
-  return Column(10,grid,Columns("*,Auto",state,choices));
+  var grid=Columns("*,*",Field("專用帳戶",Row(16,accountOn,accountWrite)),Field("訪客",Row(16,guestOn,guestWrite)));grid.ColumnSpacing=16;
+  return Column(12,grid,Columns("*,Auto",state,choices));
  }
  void UpdateShareFolders(JsonElement value) {
   if(shareFoldersWindow==null)return;
@@ -109,15 +109,19 @@ public sealed partial class Dashboard
   var (tone,state)=external?("Idle","由 Windows 管理"):!available?("Warn","目前不可存取"):migrationPending?("Warn","名稱更新待完成"):published?("Ok","已共享"):("Warn","未共享");
   var trailing=Row(8,new StatusPill(state,Scale.Caption),Action("複製地址",()=>Copy(url,"共享地址")));
   ((StatusPill)trailing.Children[0]).Set(tone);
-  if(!external||id!="")trailing.Children.Add(IconButton(Icons.Trash,"取消共享「"+name+"」（保留檔案）",()=>AppWindow.Confirm(shareFoldersWindow,"取消共享？","「"+name+"」將不再提供給 Mac 與 iPad。資料夾與檔案會保留，之後可以再次添加。","取消共享",()=>RequestShareFolders("share-folder-remove",id:id,remember:external),danger:true,detail:path)));
+  var cancelSnapshot=Text(folder,"external_id");
+  var useSnapshot=changed&&cancelSnapshot!="";
+  var cancelID=useSnapshot?cancelSnapshot:id;
+  var cancelPath=useSnapshot?Text(folder,"external_path"):path;
+  if(!external||id!="")trailing.Children.Add(IconButton(Icons.Trash,"取消共享「"+name+"」（保留檔案）",()=>AppWindow.Confirm(shareFoldersWindow,"取消共享？","「"+name+"」將不再提供給 Mac 與 iPad。資料夾與檔案會保留，之後可以再次添加。","取消共享",()=>RequestShareFolders("share-folder-remove",id:cancelID,remember:external||useSnapshot),danger:true,detail:cancelPath)));
   var body=new List<Control>();
   var recover=Row(8);
   if(external)recover.Children.Add(Action("在 Windows 管理",()=>ShareRequest(new{action="windows-smb-manage"})));
   else if((!published||migrationPending)&&available&&!changed)recover.Children.Add(Action("重試共享",()=>RequestShareFolders("native-smb-retry")));
   if(changed)recover.Children.Add(Action("交由 Windows 管理",()=>ReleaseShareOwnership(id,name)));
   if(recovery)recover.Children.Add(Action("保留目前權限",()=>KeepSharePermissions(id,name,path)));
-  if(external||changed)body.Add(Banner(changed?"權限已由 Windows 修改，請在 Windows 核對。":"此為 Windows 共享。你可以在此取消共享，或設定新的網路存取權限。",changed?"Warn":"Idle"));
-  if(external&&id!="")body.Add(new Expander { Header="設定新的帳戶與訪客權限", Content=Column(10,Hint("下方是將要套用的新權限；目前的其他帳戶權限會被替換。"),InlineShareAccess(id,path,"modify","none",guestEnabled,true)) });
+  if(external||changed)body.Add(Banner(changed?"此共享已在 Windows 修改；仍可按垃圾桶確認取消，會先核對目前的 Windows 共享。":"此為 Windows 共享。你可以在此取消共享，或設定新的網路存取權限。",changed?"Warn":"Idle"));
+  if(external&&id!="")body.Add(new Expander { Header="設定新的帳戶與訪客權限", Content=Column(12,Hint("下方是將要套用的新權限；目前的其他帳戶權限會被替換。"),InlineShareAccess(id,path,"modify","none",guestEnabled,true)) });
   else if(!changed&&!external) { var permissions=InlineShareAccess(id,path,account,guest,guestEnabled); permissions.IsEnabled=!migrationPending; body.Add(permissions); }
   if(Flag(folder,"access_recovery"))body.Add(Banner("上次權限保存尚未完成，請重新核對並保存。","Warn"));
   if(Text(folder,"folder_problem") is {Length:>0} problem)body.Add(Banner(problem,"Warn"));

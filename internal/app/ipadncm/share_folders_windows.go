@@ -83,12 +83,6 @@ func (u *modernUI) shareFoldersAction(v desktopRequest) bool {
 				break
 			}
 			err = connectioninstall.RemoveNativeSMBFolder(v.ID)
-			if err == nil {
-				err = connectioninstall.RemoveSharedFolder(v.ID)
-				if os.IsNotExist(err) {
-					err = nil
-				}
-			}
 
 		case "native-smb-release":
 			err = connectioninstall.ReleaseNativeSMBOwnership(v.ID, v.Remember)

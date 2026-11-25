@@ -135,7 +135,7 @@ func ServiceDesktopAction(ctx context.Context, payload json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if !u.shareFoldersAction(request) && !u.gatewayAction(request) && !u.securityAction(request) {
+	if !u.shareFoldersAction(request) && !u.gatewayAction(request) && !u.securityAction(request) && !u.opensshAction(request) {
 		if handleLocalRemoteAction(u, request) {
 			return nil
 		}
@@ -165,7 +165,7 @@ func ServiceSMBAccountRead(ctx context.Context, payload json.RawMessage) (json.R
 	if ctx.Err() != nil {
 		return nil, true, ctx.Err()
 	}
-	if request.RequestID != "" || request.AccountAccess != "" || request.GuestAccess != "" || request.Password != "" || request.Username != "" || request.Path != "" || request.Decision != "" || request.Direction != "" || request.Protocol != "" || request.Remote != "" || request.Port != 0 || request.ID != "" && !validStartupDisplayRequestID(request.ID) {
+	if request.PublicKey != "" || request.RequestID != "" || request.AccountAccess != "" || request.GuestAccess != "" || request.Password != "" || request.Username != "" || request.Path != "" || request.Decision != "" || request.Direction != "" || request.Protocol != "" || request.Remote != "" || request.Port != 0 || request.ID != "" && !validStartupDisplayRequestID(request.ID) {
 		return nil, true, fmt.Errorf("CORE_ACCOUNT_READ_INVALID")
 	}
 	connectioninstall.RecordSMBUIResult(request.ID, request.Action, "core-received")
@@ -240,6 +240,9 @@ func (u *modernUI) proxyAction(v desktopRequest) bool {
 					}
 				} else if len(reply) > 0 && string(reply) != "{}" {
 					deadline := time.Now().Add(55 * time.Second)
+					if opensshDesktopAction(v.Action) {
+						deadline = time.Now().Add(11 * time.Minute)
+					}
 					for {
 						var pending struct {
 							Event       string `json:"event"`

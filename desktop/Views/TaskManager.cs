@@ -149,7 +149,7 @@ internal sealed class TaskManagerView : IDisposable
     Control BuildToolbar()
     {
         search.Watermark = "搜尋程式、PID、簽署者或路徑"; search.MinWidth = 160;
-        search.InnerLeftContent = WithMargin(Icons.Make(Icons.Search, 14, "Subtle"), new Thickness(10, 0, 0, 0));
+        search.InnerLeftContent = WithMargin(Icons.Make(Icons.Search, 14, "Subtle"), new Thickness(12, 0, 0, 0));
         AutomationProperties.SetName(search, "搜尋執行中的程式");
         attention.Content = "只看需注意項"; attention.VerticalAlignment = VerticalAlignment.Center;
         automatic.IsChecked = true;
@@ -184,12 +184,12 @@ internal sealed class TaskManagerView : IDisposable
         }
         empty.VerticalAlignment = VerticalAlignment.Top; empty.Child = EmptyState.Make(Icons.Apps, "正在讀取執行中的程式…");
         var body = new Grid { Children = { list, empty } };
-        var grid = Rows("Auto,*", new Border { Child = header, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BackgroundProperty, "Field").Res(Border.BorderBrushProperty, "Stroke"), body);
+        var grid = Rows("Auto,*", new Border { Child = header, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "LineStrong"), body);
         grid.MinWidth = TableMinWidth;
         var scroll = new ScrollViewer { Content = grid, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
         // A horizontal ScrollViewer measures its content without a width limit; follow the viewport instead.
         scroll.SizeChanged += (_, e) => grid.Width = Math.Max(TableMinWidth, e.NewSize.Width);
-        return new Border { Child = scroll, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(Scale.CardRadius), ClipToBounds = true }.Res(Border.BorderBrushProperty, "Stroke").Res(Border.BackgroundProperty, "Card");
+        return new Border { Child = scroll, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     }
 
     Control BuildDetails()
@@ -200,8 +200,8 @@ internal sealed class TaskManagerView : IDisposable
         toggle.Click += (_, _) => { technical.IsVisible = !technical.IsVisible; toggleLabel.Text = technical.IsVisible ? "詳細資料 ▴" : "詳細資料 ▾"; };
         AutomationProperties.SetName(toggle, "顯示或隱藏路徑、憑證與技術細節");
         copy.IsEnabled = false;
-        var heading = Columns("Auto,Auto,*,Auto,Auto", detailTitle, detailPill, Gap(), toggle, copy); heading.ColumnSpacing = 10;
-        var card = Card(Column(4, heading, detailReason, technical), new Thickness(14, 10));
+        var heading = Columns("Auto,Auto,*,Auto,Auto", detailTitle, detailPill, Gap(), toggle, copy); heading.ColumnSpacing = 12;
+        var card = Card(Column(4, heading, detailReason, technical), new Thickness(16, 12));
         card.Margin = new Thickness(0, 8, 0, 0); return card;
     }
 
@@ -256,7 +256,7 @@ internal sealed class TaskManagerView : IDisposable
     Control BuildRow(RunningProgram item)
     {
         TextBlock Cell(string text, string key = "Ink") => WithAlign(Label(text, Scale.Secondary, key: key), HorizontalAlignment.Right);
-        var assessment = Row(7, new Border { Width = 7, Height = 7, CornerRadius = new CornerRadius(4) }.Res(Border.BackgroundProperty, item.Assessment.Tone == "Muted" ? "Idle" : item.Assessment.Tone),
+        var assessment = Row(8, new Border { Width = 7, Height = 7, CornerRadius = new CornerRadius(4) }.Res(Border.BackgroundProperty, item.Assessment.Tone == "Muted" ? "Idle" : item.Assessment.Tone),
             Label(item.Assessment.Label, Scale.Secondary, FontWeight.SemiBold, item.Assessment.Tone));
         var name = Columns("Auto,*", new ProgramIconView(item.Path), WithMargin(Label(item.Name, Scale.Body), new Thickness(8, 0, 0, 0)));
         name.Children[1].VerticalAlignment = VerticalAlignment.Center;
@@ -265,7 +265,7 @@ internal sealed class TaskManagerView : IDisposable
         row.ColumnSpacing = 8; row.Margin = new Thickness(12, 4);
         ToolTip.SetTip(row, item.Path + "\n" + item.SignatureLabel + (item.Trust.Publisher.Length > 0 ? " · " + item.Trust.Publisher : "") + "\n" + item.Assessment.Reason + "\n磁碟讀取：" + item.DiskReadText + "\n網路接收：" + ProcessRate.Format(item.NetworkReceive) + " · 發送：" + ProcessRate.Format(item.NetworkSend));
         AutomationProperties.SetName(row, $"{item.Name}，PID {item.Pid}，{item.Assessment.Label}，磁碟讀取 {item.DiskReadText}，網路收發 {item.NetworkText}，{item.SignatureLabel}，{item.Trust.Publisher}，{item.Assessment.Reason}");
-        return new Border { Child = row, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "Stroke");
+        return new Border { Child = row, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "Line");
     }
 
     internal static RunningProgram[] Filter(IEnumerable<RunningProgram> source, string search, bool attention, string sort, bool descending)

@@ -20,6 +20,10 @@ public sealed partial class Dashboard
                 labels.Contains("USB 連線") || labels.Contains("重新連線") || labels.Contains("複製 IP") || labels.Contains("Moonlight 電腦地址") || labels.Contains("撤銷這台電腦的信任") ||
                 labels.Contains("共享與帳戶") || labels.Contains("Windows SMB 修復") || labels.Contains("訪客連線"))
                 throw new InvalidOperationException("combined dashboard controls");
+            if (totalThroughputValue.Text != "197" || Math.Abs(ratioTrack.ColumnDefinitions[0].Width.Value - 131.6) > .001 || Math.Abs(ratioTrack.ColumnDefinitions[2].Width.Value - 65.6) > .001)
+                throw new InvalidOperationException("throughput total and device proportions must use MB/s");
+            if (smbQuickToggle.IsChecked != shareToggle.IsChecked || smbQuickToggle.IsEnabled != shareToggle.IsEnabled)
+                throw new InvalidOperationException("quick sharing must mirror the verified shared state");
             var reconnects = this.GetVisualDescendants().OfType<Button>().Where(b => AutomationProperties.GetName(b)?.StartsWith("重新連線 ") == true).ToArray();
             if (reconnects.Length != 2 || !reconnects.Any(b => AutomationProperties.GetName(b) == "重新連線 Mac") || !reconnects.Any(b => AutomationProperties.GetName(b) == "重新連線 iPad") || reconnects.Any(b => b.Content is TextBlock))
                 throw new InvalidOperationException("device reconnect icons");
@@ -61,7 +65,7 @@ public sealed partial class Dashboard
             using(var states=JsonDocument.Parse("""{"devices":[{"device":"Mac","title":"正在連線","connection_state":"connecting","retry_available":true},{"device":"iPad","title":"連線異常","connection_state":"error","retry_available":true}]}"""))Update(states.RootElement);
             var identities=this.GetVisualDescendants().OfType<Border>().Where(b=>AutomationProperties.GetName(b)?.Contains(" · ")==true).ToArray();
             if(!identities.Any(b=>AutomationProperties.GetName(b)=="Mac · 正在連線")||!identities.Any(b=>AutomationProperties.GetName(b)=="iPad · 連線異常"))throw new InvalidOperationException("connection states need accessible device labels");
-            if(identities.Single(b=>AutomationProperties.GetName(b)=="Mac · 正在連線").Background?.ToString()==identities.Single(b=>AutomationProperties.GetName(b)=="iPad · 連線異常").Background?.ToString())throw new InvalidOperationException("connection and error colors must differ");
+            if(identities.Single(b=>AutomationProperties.GetName(b)=="Mac · 正在連線").GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Shape>().First().Stroke?.ToString()==identities.Single(b=>AutomationProperties.GetName(b)=="iPad · 連線異常").GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Shape>().First().Stroke?.ToString())throw new InvalidOperationException("connection and error colors must differ");
             if(chipText.Text!="正在連線 · 1 台裝置")throw new InvalidOperationException("host transport alone must not claim a connected peer");
             CaptureConnectionPreview(this,"connecting-error");
             using(var waiting=JsonDocument.Parse("""{"event":"status","devices":[{"device":"Mac","title":"等候 USB 接線","connected":false},{"device":"iPad","title":"等候 USB 接線","connected":false}]}"""))Update(waiting.RootElement);
@@ -130,7 +134,7 @@ public sealed partial class Dashboard
                     if (internetToggle.IsChecked != (state is "preparing" or "waiting_client" or "ready") || internetToggle.IsEnabled != (state != "preparing"))
                         throw new InvalidOperationException("internet switch must reflect confirmed state: " + state);
                 }
-                if (detailRows.GetVisualRoot() != detailWindow)
+                if (!ReferenceEquals(detailRows.GetVisualRoot(), detailWindow!.Owner) || !detailWindow.IsVisible)
                     throw new InvalidOperationException("diagnostic controls must share the current window");
 #if USBLINK_LOCAL_DIAGNOSTICS
                 var localToggle = detailWindow!.GetVisualDescendants().OfType<ToggleSwitch>().Single(t => AutomationProperties.GetName(t) == "開發者調試");
@@ -343,6 +347,21 @@ public sealed partial class Dashboard
                 throw new InvalidOperationException($"compact layout must scroll without reducing Windows DPI text size (compact={compactLayout}, client={ClientSize}, font={addressValue.FontSize}, extent={bodyScroll.Extent.Height}, viewport={bodyScroll.Viewport.Height})");
             CaptureConnectionPreview(this, "compact");
             ResizeAndSettle(520, 420); UpdateLayout(); UpdateResponsiveLayout(); UpdateLayout();
+            foreach (var device in new[] { macStatus, ipadStatus })
+            {
+                foreach (var control in device.View.GetVisualDescendants().OfType<Control>().Where(c => c.IsEffectivelyVisible && (c is Button || c is TextBlock)))
+                {
+                    var origin = control.TranslatePoint(default, device.View);
+                    if (origin is not { } p || p.X < -1 || p.X + control.Bounds.Width > device.View.Bounds.Width + 1)
+                        throw new InvalidOperationException("small device row must keep text and actions inside its width");
+                }
+            }
+            foreach (var control in hostCard.GetVisualDescendants().OfType<TextBlock>().Where(c => c.IsEffectivelyVisible))
+            {
+                var point = control.TranslatePoint(default, hostCard);
+                if (point is not { } p || p.X < -1 || p.X + control.Bounds.Width > hostCard.Bounds.Width + 1)
+                    throw new InvalidOperationException("host address and throughput summary must fit the narrow viewport");
+            }
             CaptureConnectionPreview(this, "small");
             bodyScroll.Offset = new Vector(0, bodyScroll.Extent.Height); UpdateLayout();
             CaptureConnectionPreview(this, "small-bottom");
@@ -364,7 +383,7 @@ public sealed partial class Dashboard
             var dashboardTexts = this.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
             if (dashboardTexts.Contains("退出介面") || dashboardTexts.Contains("退出程序") || dashboardTexts.Contains("工作管理員") || !dashboardTexts.Any(t => t?.Contains("托盤圖示選單") == true) || footerControl.GetVisualDescendants().OfType<Button>().Any())
                 throw new InvalidOperationException("the dashboard has no exit button or task manager row; the footer points to the tray menu");
-            if (settingsList.RowDefinitions.Count != 4 || settingsList.Children.OfType<Button>().Count() != 2) throw new InvalidOperationException("settings keep two switches and two links without an empty row");
+            if (settingsList.RowDefinitions.Count != 3 || settingsList.Children.OfType<Button>().Any() || navItems.Count != 5) throw new InvalidOperationException("settings keep the two switches and appearance choices; the tools live in the page switcher");
             using (var trayExit = JsonDocument.Parse("""{"event":"program-exit-request"}""")) Update(trayExit.RootElement);
             if (programExitID != "" || programExitAwaiting || !notice.Text!.Contains("介面預覽")) throw new InvalidOperationException("tray exit must share the preview-safe program exit path");
             VerifyExitButtonWire();

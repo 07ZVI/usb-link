@@ -92,6 +92,17 @@ internal static class WindowFit
         window.PositionChanged += (_, _) => { if (state.Opened) OnMoved(window, state); };
     }
 
+    /// Changes a window's wanted minimum (the dashboard's pages need different ones), then grows and re-fits it in the work area.
+    public static void SetMinimum(Window window, double minWidth, double minHeight)
+    {
+        var state = States.GetOrCreateValue(window);
+        state.MinWidth = minWidth; state.MinHeight = minHeight;
+        Apply(window, state, opening: false, null);
+        if (!double.IsNaN(window.Width) && window.Width < window.MinWidth) window.Width = window.MinWidth;
+        if (!double.IsNaN(window.Height) && window.Height < window.MinHeight) window.Height = window.MinHeight;
+        if (state.Opened) { Apply(window, state, opening: true, null, keepCentre: true); Remember(window, state); }
+    }
+
     /// Re-checks a window that is shown again (for example from the tray) after displays changed.
     public static void Refit(Window window)
     {

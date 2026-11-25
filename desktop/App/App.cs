@@ -22,6 +22,7 @@ public sealed class App : Application
         RequestedThemeVariant = Program.DarkPreview ? ThemeVariant.Dark : ThemeVariant.Default;
         Styles.Add(new FluentTheme());
         Palette.Install(Resources);
+        Styles.Add(ThemeStyles.Build());
         using var iconStream = Avalonia.Platform.AssetLoader.Open(new Uri("avares://USBLink.Desktop/Assets/usb-link.ico"));
         var icon = new WindowIcon(iconStream);
         Styles.Add(new Style(x => x.Is<Window>()) { Setters = { new Setter(Window.IconProperty, icon) } });

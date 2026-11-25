@@ -33,7 +33,7 @@ public sealed partial class Dashboard
             var snapshot = LocalDiagnosticsText();
             try
             {
-                var clipboard = (detailWindow ?? this).Clipboard;
+                var clipboard = Clipboard;
                 if (clipboard == null) { status.Text = "目前無法使用剪貼簿。"; return; }
                 await clipboard.SetTextAsync(snapshot);
                 status.Text = "已複製目前診斷內容。";
@@ -45,7 +45,7 @@ public sealed partial class Dashboard
             var snapshot = LocalDiagnosticsText();
             try
             {
-                var storage = (detailWindow ?? this).StorageProvider;
+                var storage = StorageProvider;
                 if (!storage.CanSave) { status.Text = "目前無法開啟儲存視窗。"; return; }
                 var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
@@ -70,11 +70,11 @@ public sealed partial class Dashboard
         var experiments = new Expander
         {
             Header = "連線實驗", IsExpanded = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Content = Column(10,
+            Content = Column(12,
                 Hint("NCM Direct 為進階對照功能，預設不啟用。日常網路所需的 Apple 服務與照片介面策略由程式自動管理。"),
                 TrustExperimentControls()),
         };
-        var tools = Column(10, experiments,
+        var tools = Column(12, experiments,
             new Expander { Header = "完整診斷文字", IsExpanded = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, Content = Column(8, text, Row(8, copy, export)) });
         var experimentRecoveryStatus = TrustExperimentRecoveryStatus();
         void Refresh()
@@ -105,7 +105,7 @@ public sealed partial class Dashboard
         localDiagnosticsRefresh = Refresh;
         Refresh();
         return Section.Make("開發者調試", "開啟後可查看完整診斷，並允許 Mac 經 USB 推送已簽名的新版完整安裝包；關閉會撤銷推送授權。安裝時會中斷連線，Windows 仍保留管理員確認。開關狀態會保存，背景程式重啟後會恢復。",
-            Column(10, status, photoRecoveryStatus, experimentRecoveryStatus, tools), toggle);
+            Column(12, status, photoRecoveryStatus, experimentRecoveryStatus, tools), toggle);
     }
 
     void UpdateLocalDiagnostics(JsonElement d)

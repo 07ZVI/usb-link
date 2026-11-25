@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -17,10 +18,25 @@ import (
 	"time"
 )
 
-const ChunkBytes = 4 * 1024 * 1024
+// ChunkBytes is one HTTP request's payload. Larger requests amortise the
+// request round trip and JavaScript await gap that idle a stream between chunks;
+// at ~1 GB/s a 4 MiB chunk lasted only ~4 ms, so those gaps capped the result.
+const ChunkBytes = 16 * 1024 * 1024
 const MaxDirectionBytes int64 = 16 * 1024 * 1024 * 1024
-const Streams = 4
+
+// Streams stays one below Safari/WebKit's six HTTP/1.1 connections per host so
+// the concurrent RTT ping is not queued behind payload requests.
+const Streams = 5
+
+// IOBlockBytes is the per-call read/write size for payload bodies. 1 MiB keeps
+// syscall counts low enough that a single Windows core is not the ceiling.
+const IOBlockBytes = 1024 * 1024
 const sessionLifetime = 75 * time.Second
+
+// StallTimeout bounds how long one payload request may go without moving a
+// read/write operation. Progress renews the deadline, but never beyond the
+// session expiry; slow transfers can complete within that shared budget.
+const StallTimeout = 10 * time.Second
 
 type Measurement struct {
 	Bytes       int64   `json:"bytes"`
@@ -58,6 +74,8 @@ func (r Report) Summary() string {
 }
 
 type session struct {
+	ctx                                          context.Context
+	cancel                                       context.CancelFunc
 	id                                           string
 	expires                                      time.Time
 	report                                       Report
@@ -105,6 +123,7 @@ func New(ctx context.Context, peer string, guard func() bool, changed func(Repor
 				if s.run != nil && (s.run.report.Status == "download" || s.run.report.Status == "upload") && time.Now().After(s.run.expires) {
 					s.run.report.Status = "failed"
 					s.run.report.Error = "測速對端失去回應或測試逾時"
+					s.run.cancel()
 					r := s.run.report
 					s.mu.Unlock()
 					s.notify(r)
@@ -243,6 +262,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, q *http.Request) {
 		s.mu.Lock()
 		r.report.Status = "failed"
 		r.report.Error = "使用者取消測試"
+		r.cancel()
 		report := r.report
 		s.mu.Unlock()
 		s.notify(report)
@@ -256,15 +276,45 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// progressReader renews the connection's read deadline after every read, so
+// the deadline limits a stall rather than the duration of the whole chunk.
+type progressReader struct {
+	io.Reader
+	renew func() error
+}
+
+func (p progressReader) Read(b []byte) (int, error) {
+	n, err := p.Reader.Read(b)
+	if n > 0 && err == nil {
+		err = p.renew()
+	}
+	return n, err
+}
+
+// deadlineErr ignores writers that cannot hold deadlines, as the fixed
+// deadline did before; any other failure ends the request.
+func deadlineErr(err error) error {
+	if errors.Is(err, http.ErrNotSupported) {
+		return nil
+	}
+	return err
+}
+
 // uploadSink hides io.Discard's ReaderFrom: io.CopyBuffer would otherwise ignore
-// the supplied 64 KiB buffer and read the request body in 8 KiB pieces.
+// the supplied IOBlockBytes buffer and read the request body in 8 KiB pieces.
 type uploadSink struct{}
 
 func (uploadSink) Write(p []byte) (int, error) { return len(p), nil }
 
+// Share the non-ReaderFrom sink with the native download path so CopyBuffer
+// actually uses the requested block size in both directions.
+func discardPayload(r io.Reader) (int64, error) {
+	return io.CopyBuffer(uploadSink{}, r, make([]byte, IOBlockBytes))
+}
+
 func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up bool) {
 	// A browser can consume the final TCP bytes before the sending handler
-	// retires. Queue the replacement briefly rather than rejecting stream 5.
+	// retires. Queue the replacement briefly rather than rejecting the extra stream.
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {
@@ -272,7 +322,7 @@ func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up
 		defer func() { <-s.slots }()
 	case <-q.Context().Done():
 		return
-	case <-s.ctx.Done():
+	case <-r.ctx.Done():
 		return
 	case <-timer.C:
 		http.Error(w, "test streams busy", 429)
@@ -285,7 +335,7 @@ func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up
 		expected = "upload"
 		reserved = &r.upReserved
 	}
-	if s.run != r || time.Now().After(r.expires) || r.report.Status != expected || *reserved+ChunkBytes > MaxDirectionBytes {
+	if s.run != r || r.ctx.Err() != nil || time.Now().After(r.expires) || r.report.Status != expected || *reserved+ChunkBytes > MaxDirectionBytes {
 		s.mu.Unlock()
 		http.Error(w, "test limit or phase mismatch", 409)
 		return
@@ -304,19 +354,63 @@ func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up
 	var count int64
 	var err error
 	controller := http.NewResponseController(w)
+	// Serialize renewal with cancellation: a late renewal must never undo the
+	// immediate deadline that wakes a blocked read/write on cancel or expiry.
+	var deadlineMu sync.Mutex
+	renew := func() error {
+		deadlineMu.Lock()
+		defer deadlineMu.Unlock()
+		if err := r.ctx.Err(); err != nil {
+			return err
+		}
+		if err := q.Context().Err(); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(StallTimeout)
+		if deadline.After(r.expires) {
+			deadline = r.expires
+		}
+		if up {
+			return deadlineErr(controller.SetReadDeadline(deadline))
+		}
+		return deadlineErr(controller.SetWriteDeadline(deadline))
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(r.ctx, func() {
+		defer close(interrupted)
+		deadlineMu.Lock()
+		defer deadlineMu.Unlock()
+		if up {
+			controller.SetReadDeadline(time.Now())
+		} else {
+			controller.SetWriteDeadline(time.Now())
+		}
+	})
+	defer func() {
+		if !stop() {
+			<-interrupted
+		}
+		if up {
+			controller.SetReadDeadline(time.Time{})
+		} else {
+			controller.SetWriteDeadline(time.Time{})
+		}
+	}()
 	if up {
-		controller.SetReadDeadline(time.Now().Add(10 * time.Second))
-		defer controller.SetReadDeadline(time.Time{})
-		count, err = io.CopyBuffer(uploadSink{}, http.MaxBytesReader(w, q.Body, ChunkBytes), make([]byte, 64*1024))
+		if err = renew(); err == nil {
+			count, err = io.CopyBuffer(uploadSink{}, progressReader{http.MaxBytesReader(w, q.Body, ChunkBytes), renew}, make([]byte, IOBlockBytes))
+		}
 	} else {
-		controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		defer controller.SetWriteDeadline(time.Time{})
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", fmt.Sprint(ChunkBytes))
-		block := make([]byte, 64*1024)
+		block := make([]byte, IOBlockBytes)
 		for count < ChunkBytes && err == nil {
 			if s.ctx.Err() != nil || q.Context().Err() != nil {
 				err = context.Canceled
+				break
+			}
+			// Renewed per block: the limit is a stall of StallTimeout, not the whole chunk's duration.
+			if err = renew(); err != nil {
 				break
 			}
 			var n int
@@ -329,7 +423,7 @@ func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up
 	}
 	s.mu.Lock()
 	r.active--
-	if err == nil && count == ChunkBytes {
+	if err == nil && count == ChunkBytes && r.ctx.Err() == nil && time.Now().Before(r.expires) {
 		if up {
 			r.upBytes += count
 			r.upEnd = time.Now()
@@ -337,8 +431,21 @@ func (s *Server) transfer(w http.ResponseWriter, q *http.Request, r *session, up
 			r.downBytes += count
 		}
 	} else {
-		r.report.Status = "failed"
-		r.report.Error = "測試資料傳輸中斷"
+		if err == nil {
+			err = r.ctx.Err()
+			if err == nil {
+				err = io.ErrUnexpectedEOF
+			}
+		}
+		if r.report.Status != "failed" {
+			r.report.Status = "failed"
+			if errors.Is(r.ctx.Err(), context.DeadlineExceeded) || !time.Now().Before(r.expires) {
+				r.report.Error = "測速對端失去回應或測試逾時"
+			} else {
+				r.report.Error = "測試資料傳輸中斷"
+			}
+		}
+		r.cancel()
 	}
 	report := r.report
 	s.mu.Unlock()
@@ -364,7 +471,8 @@ type finishRequest struct {
 
 func latency(samples []float64) (Measurement, error) {
 	var m Measurement
-	if len(samples) > 256 {
+	// Allow RTT sampling throughout the 75-second budget (one ping per 180ms).
+	if len(samples) > 512 {
 		return m, fmt.Errorf("too many latency samples")
 	}
 	values := append([]float64(nil), samples...)
@@ -396,12 +504,12 @@ func (s *Server) finish(w http.ResponseWriter, q *http.Request, r *session) {
 	}
 	m, e := latency(v.RTT)
 	idle, ie := latency(v.Idle)
-	if e != nil || ie != nil || v.Seconds <= 0 || v.Seconds > 60 || math.IsNaN(v.Seconds) || math.IsInf(v.Seconds, 0) {
+	if e != nil || ie != nil || v.Seconds <= 0 || v.Seconds > sessionLifetime.Seconds() || math.IsNaN(v.Seconds) || math.IsInf(v.Seconds, 0) {
 		http.Error(w, "invalid measurement", 400)
 		return
 	}
 	s.mu.Lock()
-	if r.active != 0 || r.report.Status != v.Direction || v.Bytes <= 0 || v.Bytes > MaxDirectionBytes {
+	if r.ctx.Err() != nil || time.Now().After(r.expires) || r.active != 0 || r.report.Status != v.Direction || v.Bytes <= 0 || v.Bytes > MaxDirectionBytes {
 		s.mu.Unlock()
 		http.Error(w, "test not ready", 409)
 		return
@@ -430,6 +538,7 @@ func (s *Server) finish(w http.ResponseWriter, q *http.Request, r *session) {
 		r.report.Upload = m
 		r.report.Status = "complete"
 		r.report.CompletedUTC = time.Now().UTC().Format(time.RFC3339)
+		r.cancel()
 	}
 	report := r.report
 	s.mu.Unlock()

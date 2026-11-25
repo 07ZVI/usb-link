@@ -15,9 +15,9 @@ namespace Suhang.Desktop;
 internal sealed class ProcessSignatureWorker : IDisposable
 {
     Process? child;
-    internal async Task<ProcessTrust> CheckAsync(string path, string identity, CancellationToken cancellation) {
+    internal async Task<ProcessTrust> CheckAsync(string path, string identity, CancellationToken cancellation, bool fileAudit = false) {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        timeout.CancelAfter(TimeSpan.FromSeconds(fileAudit ? 30 : 8));
         try {
             if (child == null || child.HasExited) {
                 Dispose();
@@ -34,7 +34,7 @@ internal sealed class ProcessSignatureWorker : IDisposable
                 child = Process.Start(start) ?? throw new IOException("Worker did not start");
                 child.ErrorDataReceived += (_, _) => { }; child.BeginErrorReadLine();
             }
-            await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new SignatureRequest(path, identity)).AsMemory(), timeout.Token);
+            await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new SignatureRequest(path, identity, fileAudit)).AsMemory(), timeout.Token);
             await child.StandardInput.FlushAsync(timeout.Token);
             var result = await ReadLineAsync(child.StandardOutput, 16384, timeout.Token);
             return JsonSerializer.Deserialize<ProcessTrust>(result) ?? new("unverified", "簽章驗證結果無法讀取。");
@@ -68,7 +68,7 @@ internal sealed class ProcessSignatureWorker : IDisposable
             ProcessTrust result;
             try {
                 var request = JsonSerializer.Deserialize<SignatureRequest>(line);
-                result = request == null ? new("unverified", "程式身分不完整。") : NativeProcessSignature.Inspect(request.Path, request.Identity);
+                result = request == null ? new("unverified", "程式身分不完整。") : NativeProcessSignature.Inspect(request.Path, request.Identity, request.FileAudit);
             } catch { result = new("unverified", "驗證時無法讀取程式檔案。"); }
             Console.WriteLine(JsonSerializer.Serialize(result)); 
         }
@@ -78,7 +78,7 @@ internal sealed class ProcessSignatureWorker : IDisposable
         try { if (!child.HasExited) child.Kill(entireProcessTree: true); } catch { }
         child.Dispose(); child = null;
     }
-    sealed record SignatureRequest(string Path, string Identity);
+    sealed record SignatureRequest(string Path, string Identity, bool FileAudit);
 }
 
 // Independent implementation against Microsoft's documented APIs. Reference:
@@ -103,14 +103,14 @@ internal static class NativeProcessSignature
     [DllImport("kernel32.dll",EntryPoint="GetDriveTypeW",CharSet=CharSet.Unicode),DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     static extern uint GetDriveType(string root);
 
-    internal static ProcessTrust Inspect(string path, string expectedIdentity) {
+    internal static ProcessTrust Inspect(string path, string expectedIdentity, bool fileAudit = false) {
         if (!OperatingSystem.IsWindows()) return new("unverified", "需由 Windows 驗證。");
         if (!IsLocalPath(path) || expectedIdentity.Length == 0)
             return new("unverified", "需為本機程式檔案，遠端路徑不自動驗證。");
         using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (ProcessInventory.FileIdentity(file, path) != expectedIdentity) return new("unverified", "程式檔案已變更，等待重新整理後驗證。");
-        if (file.Length > 1L << 30) return new("unverified", "程式檔案超過 1 GB，未自動驗證。");
-        var hash = Convert.ToHexString(SHA256.HashData(file)); file.Position = 0;
+        if (!fileAudit && file.Length > 1L << 30) return new("unverified", "程式檔案超過 1 GB，未自動驗證。");
+        var hash = fileAudit ? "" : Convert.ToHexString(SHA256.HashData(file)); file.Position = 0;
         using var info = new NativeValue<FileInfo>(new() { Size = (uint)Marshal.SizeOf<FileInfo>(), Path = path, File = file.SafeFileHandle.DangerousGetHandle() });
         var result = Verify(info.Pointer, 1, "內嵌簽章");
         if (result.Status != "valid") {
@@ -120,6 +120,8 @@ internal static class NativeProcessSignature
                 if (catalog != null && (result.Code == $"0x{NoSignature:X8}" || catalog.Priority < result.Priority)) result = catalog;
             }
         }
+        if (fileAudit) return ProcessInventory.FileIdentity(file, path) == expectedIdentity
+            ? result : new("unverified", "驗證期間檔案已變更。");
         bool? protectedFile = null;
         string company = "", originalName = "";
         try { protectedFile = SfcIsFileProtected(IntPtr.Zero,path); } catch { }

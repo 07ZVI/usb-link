@@ -43,7 +43,7 @@ func getSMBUIResult(event, id string) json.RawMessage {
 	return b
 }
 func acknowledgeSMBUIResult(v desktopRequest) error {
-	if !validStartupDisplayRequestID(v.ID) || !localUIResultEvent(v.Decision) || v.Password != "" || v.Username != "" || v.Path != "" || v.RequestID != "" || v.AccountAccess != "" || v.GuestAccess != "" || v.Remember || v.Direction != "" || v.Protocol != "" || v.Port != 0 || v.Remote != "" {
+	if !validStartupDisplayRequestID(v.ID) || !localUIResultEvent(v.Decision) || v.PublicKey != "" || v.Password != "" || v.Username != "" || v.Path != "" || v.RequestID != "" || v.AccountAccess != "" || v.GuestAccess != "" || v.Remember || v.Direction != "" || v.Protocol != "" || v.Port != 0 || v.Remote != "" {
 		return fmt.Errorf("SMB_RESULT_ACK_INVALID")
 	}
 	smbUIResults.ack(v.Decision, v.ID)
@@ -55,9 +55,9 @@ func PendingSMBUIReply(payload json.RawMessage) json.RawMessage {
 	if json.Unmarshal(payload, &v) != nil {
 		return nil
 	}
-	if securityDesktopAction(v.Action) || gatewayDesktopAction(v.Action) {
+	if securityDesktopAction(v.Action) || gatewayDesktopAction(v.Action) || opensshDesktopAction(v.Action) {
 		if validStartupDisplayRequestID(v.RequestID) {
-			event := "security"
+			event := desktopRequestResultEvent(v.Action)
 			if gatewayDesktopAction(v.Action) {
 				event = "gateway"
 			}
@@ -89,7 +89,7 @@ func ServiceSMBDesktopRead(ctx context.Context, payload json.RawMessage) (json.R
 	}
 	d := json.NewDecoder(bytes.NewReader(payload))
 	d.DisallowUnknownFields()
-	if d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF || ctx.Err() != nil || v.Password != "" || v.Username != "" || v.Path != "" || v.Remember || v.AccountAccess != "" || v.GuestAccess != "" || v.Direction != "" || v.Remote != "" || v.Port != 0 || v.Protocol != "" {
+	if d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF || ctx.Err() != nil || v.PublicKey != "" || v.Password != "" || v.Username != "" || v.Path != "" || v.Remember || v.AccountAccess != "" || v.GuestAccess != "" || v.Direction != "" || v.Remote != "" || v.Port != 0 || v.Protocol != "" {
 		return nil, true, fmt.Errorf("SMB_RESULT_READ_INVALID")
 	}
 	if v.Action == "smb-ui-result-read" || v.Action == "ui-result-read" {
@@ -128,5 +128,5 @@ func ServiceSMBDesktopRead(ctx context.Context, payload json.RawMessage) (json.R
 }
 
 func localUIResultEvent(event string) bool {
-	return event == "smb-account" || event == "share-folders" || event == "security" || event == "gateway"
+	return event == "smb-account" || event == "share-folders" || event == "security" || event == "gateway" || event == "openssh"
 }

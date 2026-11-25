@@ -46,13 +46,14 @@ func ChangeExternalSMBShare(id string, remove bool, account, guest string, confi
 		return err
 	}
 	for _, share := range shares {
-		managed := false
+		var managed *nativeSMBShare
 		for _, s := range config.Shares {
 			if strings.EqualFold(s.Name, share.Name) || s.MigrationName != "" && strings.EqualFold(s.MigrationName, share.Name) {
-				managed = true
+				copy := s
+				managed = &copy
 			}
 		}
-		if managed {
+		if managed != nil && (!remove || managed.MigrationName != "") {
 			continue
 		}
 		got, free, rc, e := getNativeShare(share.Name)
@@ -64,6 +65,10 @@ func ChangeExternalSMBShare(id string, remove bool, account, guest string, confi
 		}
 		fingerprint, e := externalSMBSnapshot(got)
 		if e != nil || fingerprint != id {
+			free()
+			continue
+		}
+		if managed != nil && ownedNativeShare(*managed, got) {
 			free()
 			continue
 		}
@@ -125,6 +130,13 @@ func ChangeExternalSMBShare(id string, remove bool, account, guest string, confi
 		if e = writeRemote(backupPath, record); e != nil {
 			return e
 		}
+		if managed != nil {
+			// The user confirmed the currently displayed Windows snapshot,
+			// including external edits; revoke automated publication first.
+			if err := RemoveSharedFolder(managed.ID); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
 		// Re-read after saving, so a changed target cannot be mistaken for approval.
 		got, free, rc, e = getNativeShare(share.Name)
 		if e != nil {
@@ -162,6 +174,15 @@ func ChangeExternalSMBShare(id string, remove bool, account, guest string, confi
 			}
 			if rc != 2310 {
 				return fmt.Errorf("NATIVE_SMB_REMOVE_READBACK_FAILED")
+			}
+			if managed != nil {
+				forgetNativeSMBFolder(&config, managed.ID)
+				if err := saveNativeSMB(config); err != nil {
+					return err
+				}
+				if err := restoreSMBRoot(managed.ID); err != nil {
+					return fmt.Errorf("共享已取消；資料夾權限恢復待完成：%w", err)
+				}
 			}
 			return nil
 		}
