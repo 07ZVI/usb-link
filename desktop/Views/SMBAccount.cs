@@ -99,8 +99,13 @@ public sealed partial class Dashboard
         var generate = AccountAction("生成密碼", () => { var password = "Usb!" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant(); smbPassword.Text = smbConfirmPassword.Text = password; });
         smbCreate = AccountAction("保存帳戶", SaveSMBAccountForm, primary: true);
         smbConfirmationRow = Field("確認新密碼", smbConfirmPassword);
+        var copyPwd = AccountAction("複製密碼", () =>
+        {
+            if (!string.IsNullOrEmpty(smbPassword.Text)) Copy(smbPassword.Text, "SMB 密碼", showValue: false);
+            else SetNotice("請先勾選「顯示密碼」或輸入新密碼後再複製。");
+        });
         var names = Column(12, Field("使用者名稱", smbAccountName), Field("密碼", smbPassword));
-        smbPasswordEditor = Column(12, names, smbConfirmationRow, Row(12, smbShowNewPassword, generate), smbPasswordHint);
+        smbPasswordEditor = Column(12, names, smbConfirmationRow, Row(12, smbShowNewPassword, generate, copyPwd), smbPasswordHint);
         smbAccountActions.AddRange(new Control[] { smbAccountName, smbPassword, smbConfirmPassword, smbShowNewPassword });
         var save = Column(8, smbAccountProblem, smbCreate); smbCreate.HorizontalAlignment = HorizontalAlignment.Right;
         return Section.Make("帳戶與密碼", "Mac 與 iPad 以這個專用帳戶登入。名稱與密碼會一起保存。", Column(12, smbPasswordEditor, save), status: smbAccountStatus);

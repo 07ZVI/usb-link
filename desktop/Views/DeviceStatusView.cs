@@ -30,7 +30,9 @@ internal sealed class DeviceStatusView
     readonly Control deviceGlyph;
     readonly Border deviceTile;
     bool busy, connected;
-    string url = "";
+    string url = "", currentIp = "";
+    public double TotalMbps { get; private set; }
+    public event Action? TrafficUpdated;
     public Control View { get; }
     readonly Border card;
     readonly Grid layout;
@@ -53,8 +55,8 @@ internal sealed class DeviceStatusView
         {
             if (kind == "Mac" && busy) send("benchmark-cancel");
             else if (url != "") copy(url, kind + " 測速網址（請在 " + kind + " 瀏覽器開啟）");
-        });
-        benchmark.Content = benchmarkLabel; benchmark.Padding = new Thickness(Scale.Medium, 0); benchmark.Height = Scale.SmallControl; benchmark.CornerRadius = new CornerRadius(Scale.SmallControl / 2);
+        }, primary: kind == "Mac");
+        benchmark.Content = benchmarkLabel; benchmark.Padding = new Thickness(kind == "Mac" ? Scale.Medium : 4, 0); benchmark.Height = Scale.SmallControl; benchmark.CornerRadius = new CornerRadius(Scale.SmallControl / 2);
         reconnect = IconButton(Icons.Retry, "重新連線 " + kind, () => send(kind == "Mac" ? "retry-mac" : "retry-ipad"));
         reconnect.Content = Icons.Fixed(Icons.Retry, Scale.IconControl, "Muted");
         reconnect.Width = reconnect.Height = Scale.SmallControl; reconnect.Padding = new Thickness(0);
@@ -67,17 +69,16 @@ internal sealed class DeviceStatusView
         });
         void RetryAppearance() {
             reconnect.Opacity = reconnect.IsEnabled ? 1 : .35;
-            if (reconnect.IsEnabled && (reconnect.IsPointerOver || reconnect.IsKeyboardFocusWithin)) reconnect.Res(Button.BackgroundProperty, reconnect.IsPressed ? "AccentSoft" : "IdleSoft");
+            if (reconnect.IsEnabled && (reconnect.IsPointerOver || reconnect.IsKeyboardFocusWithin)) reconnect.Res(Button.BackgroundProperty, reconnect.IsPressed ? "ActiveTint" : "HoverTint");
             else reconnect.Background = Brushes.Transparent;
         }
         reconnect.PropertyChanged += (_,e) => { if(e.Property==Button.IsPressedProperty||e.Property==Control.IsPointerOverProperty||e.Property==Control.IsEnabledProperty||e.Property==Control.IsKeyboardFocusWithinProperty)RetryAppearance(); };
-        deviceGlyph = Icons.Fixed(kind == "Mac" ? Icons.Laptop : Icons.Tablet, Scale.IconLead, "Idle");
-        deviceTile = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(12), Child = deviceGlyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty,"IdleSoft");
-        // A borderless row (the overview has no cards): identity on the left, the live numbers and actions on the right.
-        var dot = new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty, seriesTone);
-        ToolTip.SetTip(dot, "圖表中 " + kind + " 的線條顏色");
-        var name = Row(8, dot, Label(kind, Scale.Title3, FontWeight.SemiBold), health, pill);
-        var identity = Columns("Auto,12,*", deviceTile, Gap(), Column(2, name, peerAddress));
+        deviceGlyph = Icons.Fixed(kind == "Mac" ? Icons.Laptop : Icons.Tablet, 18, "Idle");
+        deviceTile = new Border { Width = 22, Height = 22, Background = Brushes.Transparent, Child = deviceGlyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) };
+        peerAddress.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+        peerAddress.PointerPressed += (_, e) => { if (e.GetCurrentPoint(peerAddress).Properties.IsLeftButtonPressed && currentIp != "") { copy(currentIp, kind + " 地址"); e.Handled = true; } };
+        var name = Row(8, Label(kind, Scale.Title3, FontWeight.SemiBold), health, pill);
+        var identity = Columns("Auto,10,*", deviceTile, Gap(), Column(2, name, peerAddress));
         ((Control)identity.Children[2]).VerticalAlignment = VerticalAlignment.Center;
         traffic.HorizontalAlignment = HorizontalAlignment.Right;
         peak.HorizontalAlignment = HorizontalAlignment.Right; peak.VerticalAlignment = VerticalAlignment.Top; peak.IsHitTestVisible = false;
@@ -93,7 +94,7 @@ internal sealed class DeviceStatusView
         bool? compactRow = null;
         void FitRow()
         {
-            var compact = line.Bounds.Width < 900;
+            var compact = line.Bounds.Width < 540;
             if (compactRow == compact) return;
             compactRow = compact;
             line.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "*,24,Auto,20,Auto");
@@ -102,9 +103,9 @@ internal sealed class DeviceStatusView
             Grid.SetRow(actions, compact ? 2 : 0); Grid.SetColumn(actions, compact ? 0 : 4);
             numbers.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             traffic.HorizontalAlignment = notes.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-            numbers.Margin = new Thickness(0, compact ? Scale.Small : 0, 0, 0);
-            actions.Margin = new Thickness(0, compact ? Scale.Small : 0, 0, 0);
-            actions.HorizontalAlignment = compact ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+            numbers.Margin = new Thickness(compact ? 32 : 0, compact ? Scale.Small : 0, 0, 0);
+            actions.Margin = new Thickness(compact ? 32 : 0, compact ? Scale.Small : 0, 0, 0);
+            actions.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
         }
         line.SizeChanged += (_, _) => FitRow();
         extras = Column(4, progress, summary, benchmarkAddress);
@@ -120,9 +121,8 @@ internal sealed class DeviceStatusView
     public void SetDensity(int level)
     {
         density = level;
-        card.Padding = new Thickness(Scale.Tight, level switch { 0 => 14, 1 => 10, _ => 6 });
+        card.Padding = new Thickness(0, level switch { 0 => 14, 1 => 10, _ => 6 });
         notes.IsVisible = level < 2;
-        deviceTile.Width = deviceTile.Height = level == 2 ? 32 : 40;
         RefreshExtras();
     }
 
@@ -140,6 +140,7 @@ internal sealed class DeviceStatusView
         if ((connected && !active) || !data.IsPresent) chart.Clear();
         connected = active;
         var address = data.PeerIPv4; var addressState = data.PeerAddressState;
+        currentIp = address;
         peerAddress.Text = address == "" ? "裝置地址 · 尚未分配" : address + (addressState == "待確認" ? " · 待確認" : "");
         ToolTip.SetTip(peerAddress, address == "" ? "連接並分配地址後顯示。" : kind + " 裝置地址：" + address + (addressState == "待確認" ? "\n已發送地址分配確認，等待裝置套用。" : ""));
         ToolTip.SetTip(reconnect, "重新連線 " + kind + (data.RetryAvailable ? "" : active ? " · 連線運行中" : " · 等候裝置或連線準備完成"));
@@ -151,15 +152,17 @@ internal sealed class DeviceStatusView
         var tone = state switch { DeviceConnectionState.Connected => "Ok", DeviceConnectionState.Connecting => "Warn", DeviceConnectionState.Error => "Error", _ => "Idle" };
         var stateText = state switch { DeviceConnectionState.Connected => "已連線", DeviceConnectionState.Connecting => "正在連線", DeviceConnectionState.Error => "連線異常", _ => "離線" };
         pill.Set(tone);
-        deviceTile.Res(Border.BackgroundProperty, tone + "Soft");
-        foreach (var path in deviceGlyph.GetVisualDescendants().OfType<Shape>()) path.Res(Shape.StrokeProperty, tone);
+        deviceTile.Background = Brushes.Transparent;
+        foreach (var path in deviceGlyph.GetVisualDescendants().OfType<Shape>()) path.Res(Shape.StrokeProperty, tone == "Idle" ? "Muted" : tone);
         Avalonia.Automation.AutomationProperties.SetName(deviceTile, kind + " · " + stateText);
         ToolTip.SetTip(deviceTile, kind + " · " + stateText);
         ToolTip.SetTip(title, data.Subtitle); ToolTip.SetTip(health, data.Health);
         var tx = data.Tx / 8; var rx = data.Rx / 8;
+        TotalMbps = active ? tx + rx : 0;
         traffic.Text = active ? $"↑ {tx:0.0}    ↓ {rx:0.0}  MB/s" : "↑ —    ↓ —  MB/s";
         ToolTip.SetTip(traffic, "↑ 傳送至裝置 · ↓ 從裝置接收；即時介面流量，近 60 秒" + (active ? "\n" + (data.Speed is { Length: > 0 } ? data.Speed : "USB 協商速率尚未取得") + "\n" + (data.Latency is { Length: > 0 } ? data.Latency : "延遲 · 未測得") : ""));
         if (data.IsPresent) chart.Push(tx, rx);
+        TrafficUpdated?.Invoke();
         peak.Text = chart.Peak > 0 ? $"峰值 {chart.Peak:0.#} MB/s" : "";
         speed.Text = data.Speed is { Length: > 0 } sp ? sp : "USB 協商速率尚未取得";
         ToolTip.SetTip(speed, speed.Text);
@@ -167,6 +170,7 @@ internal sealed class DeviceStatusView
         ToolTip.SetTip(latency, "往返延遲包含協定與應用處理時間，不等於 Moonlight 畫面延遲。\n" + latency.Text);
         busy = data.MeasurementBusy; url = data.BenchmarkURL;
         benchmarkLabel.Text = kind == "Mac" ? busy ? "取消測速" : "瀏覽器測速" : "測速網址";
+        benchmarkLabel.Res(TextBlock.ForegroundProperty, kind == "Mac" ? "PrimaryInk" : "Accent");
         Avalonia.Automation.AutomationProperties.SetName(benchmark, benchmarkLabel.Text + " " + kind);
         benchmark.IsEnabled = kind == "Mac" ? busy || url != "" : url != "";
         benchmark.IsVisible = kind == "Mac" || url != "";

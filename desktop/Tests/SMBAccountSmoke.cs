@@ -25,7 +25,7 @@ public sealed partial class Dashboard
         smbAccountLoaded=false;smbNameEdited=false;UpdateSMBAccount(existing.RootElement);
         if(smbAccountName.Text!="USBLink" || smbAccountName.IsReadOnly || smbPassword.Text!="" || !smbPasswordEditor.IsVisible || smbConfirmationRow.IsVisible)throw new InvalidOperationException("combined editable form");
         if(window.GetVisualDescendants().OfType<TextBox>().Any(t=>t.Text==SMBServerAddress))throw new InvalidOperationException("duplicate server address");
-        if(window.GetVisualDescendants().OfType<Button>().Any(t=>t.Content is TextBlock label && new[]{"複製登入使用者名稱","複製密碼","查看密碼"}.Contains(label.Text)))throw new InvalidOperationException("credential copy buttons retained");
+        if(window.GetVisualDescendants().OfType<Button>().Any(t=>t.Content is TextBlock label && new[]{"複製登入使用者名稱","查看密碼"}.Contains(label.Text)))throw new InvalidOperationException("credential copy buttons retained");
         if(smbAccountName.ContextMenu==null||smbPassword.ContextMenu==null)throw new InvalidOperationException("text copy unavailable");
         if(smbCreate.IsEnabled)throw new InvalidOperationException("unchanged account form");
         smbAccountName.Text="Simple";UpdateSMBControls();if(!smbCreate.IsEnabled)throw new InvalidOperationException("name-only save disabled");

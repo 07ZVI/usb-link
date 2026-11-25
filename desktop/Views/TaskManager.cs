@@ -184,12 +184,12 @@ internal sealed class TaskManagerView : IDisposable
         }
         empty.VerticalAlignment = VerticalAlignment.Top; empty.Child = EmptyState.Make(Icons.Apps, "正在讀取執行中的程式…");
         var body = new Grid { Children = { list, empty } };
-        var grid = Rows("Auto,*", new Border { Child = header, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "Stroke"), body);
+        var grid = Rows("Auto,*", new Border { Child = header, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "LineStrong"), body);
         grid.MinWidth = TableMinWidth;
         var scroll = new ScrollViewer { Content = grid, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
         // A horizontal ScrollViewer measures its content without a width limit; follow the viewport instead.
         scroll.SizeChanged += (_, e) => grid.Width = Math.Max(TableMinWidth, e.NewSize.Width);
-        return new Border { Child = scroll, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.CardRadius), ClipToBounds = true }.Res(Border.BackgroundProperty, "Card");
+        return new Border { Child = scroll, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     }
 
     Control BuildDetails()
@@ -265,7 +265,7 @@ internal sealed class TaskManagerView : IDisposable
         row.ColumnSpacing = 8; row.Margin = new Thickness(12, 4);
         ToolTip.SetTip(row, item.Path + "\n" + item.SignatureLabel + (item.Trust.Publisher.Length > 0 ? " · " + item.Trust.Publisher : "") + "\n" + item.Assessment.Reason + "\n磁碟讀取：" + item.DiskReadText + "\n網路接收：" + ProcessRate.Format(item.NetworkReceive) + " · 發送：" + ProcessRate.Format(item.NetworkSend));
         AutomationProperties.SetName(row, $"{item.Name}，PID {item.Pid}，{item.Assessment.Label}，磁碟讀取 {item.DiskReadText}，網路收發 {item.NetworkText}，{item.SignatureLabel}，{item.Trust.Publisher}，{item.Assessment.Reason}");
-        return new Border { Child = row, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "Stroke");
+        return new Border { Child = row, BorderThickness = new Thickness(0, 0, 0, 1) }.Res(Border.BorderBrushProperty, "Line");
     }
 
     internal static RunningProgram[] Filter(IEnumerable<RunningProgram> source, string search, bool attention, string sort, bool descending)

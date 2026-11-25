@@ -43,8 +43,8 @@ internal sealed class StatusPill : Border
     public StatusPill(string text = "", double size = Scale.Secondary)
     {
         Label = ViewControls.Label(text, size, FontWeight.SemiBold);
-        // A 22-pt capsule: 3 above and below a 12-pt label line (16), dot and text 6 apart.
-        CornerRadius = new CornerRadius(11); Padding = new Thickness(Scale.Small, 3, Scale.Medium - 2, 3);
+        Background = Brushes.Transparent;
+        Padding = new Thickness(0);
         HorizontalAlignment = HorizontalAlignment.Left; VerticalAlignment = VerticalAlignment.Center;
         var content = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = Scale.Snug };
         dot.VerticalAlignment = VerticalAlignment.Center;
@@ -60,7 +60,6 @@ internal sealed class StatusPill : Border
     {
         if (text != null) Label.Text = text;
         if (Tone != tone) { Tone = tone; ToneChanged?.Invoke(tone); }
-        this.Res(BackgroundProperty, tone + "Soft");
         dot.Res(BackgroundProperty, tone);
         Label.Res(TextBlock.ForegroundProperty, tone == "Idle" ? "Muted" : tone);
     }
@@ -106,11 +105,16 @@ internal static class SettingRow
         if (detail != null) lines.Children.Add(detail);
         lines.VerticalAlignment = VerticalAlignment.Center; lines.Margin = new Thickness(Scale.Medium, 0, Scale.Medium, 0);
         end.VerticalAlignment = VerticalAlignment.Center;
-        var grid = Columns("Auto,*,Auto", IconTile.Solid(icon, tone), lines, end);
+        var glyph = Icons.Make(icon, Scale.IconControl, "Muted");
+        glyph.VerticalAlignment = VerticalAlignment.Center;
+        var grid = Columns("Auto,*,Auto", glyph, lines, end);
         grid.MinHeight = Scale.RowHeight - 2 * Scale.Small;
         grid.VerticalAlignment = VerticalAlignment.Center;
         return grid;
     }
+
+    public static Control Custom(string icon, string title, string description, Control end, string tone = "Accent") =>
+        new Border { Padding = new Thickness(Scale.Medium, Scale.Small), Child = Layout(icon, title, description, null, end, null, tone), Classes = { "row" } };
 
     /// A row whose trailing control is a switch; the row itself is not a button.
     public static Control Toggle(string icon, string title, string description, ToggleSwitch toggle, string? tip = null, Control? detail = null, string tone = "Accent") =>
@@ -158,8 +162,7 @@ internal static class SettingRow
         {
             Grid.SetRow(rows[i], i); grid.Children.Add(rows[i]);
             if (i == rows.Length - 1) continue;
-            // Separators start under the text, as in grouped lists: 12 + 28 + 12.
-            var line = WithMargin(Rule(), new Thickness(Scale.Medium + Scale.RowIcon + Scale.Medium, 0, 0, 0));
+            var line = Rule();
             line.VerticalAlignment = VerticalAlignment.Bottom;
             Grid.SetRow(line, i); grid.Children.Add(line);
         }

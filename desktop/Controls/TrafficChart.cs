@@ -1,6 +1,7 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using static Suhang.Desktop.TreemapView;
 
@@ -14,10 +15,54 @@ internal sealed class TrafficChart : Control
     readonly List<(Sparkline Source, string Tone)> series = new();
     const double AxisLeft = 40, AxisBottom = 22, TopPad = 8;
     bool firstDrawRecorded;
+    int? hoverIndex;
+    string? focusTone;
 
-    public TrafficChart() { ActualThemeVariantChanged += (_, _) => InvalidateVisual(); ClipToBounds = false; }
+    public string? FocusTone { get => focusTone; set { if (focusTone == value) return; focusTone = value; InvalidateVisual(); } }
+    public event Action<int?, double?, double?>? HoverSampleChanged;
 
-    public void Add(Sparkline source, string tone) { series.Add((source, tone)); source.Changed += InvalidateVisual; }
+    public TrafficChart()
+    {
+        ActualThemeVariantChanged += (_, _) => InvalidateVisual();
+        ClipToBounds = false;
+        PointerMoved += OnPointerMoved;
+        PointerExited += (_, _) => SetHoverIndex(null);
+    }
+
+    public void Add(Sparkline source, string tone) { series.Add((source, tone)); source.Changed += () => { InvalidateVisual(); if (hoverIndex != null) EmitHover(); }; }
+
+    void OnPointerMoved(object? sender, PointerEventArgs e)
+    {
+        var w = Bounds.Width; var h = Bounds.Height;
+        if (w < 80 || h < 60 || series.All(x => x.Source.Tx.Count < 2)) { SetHoverIndex(null); return; }
+        var plot = new Rect(AxisLeft, TopPad, w - AxisLeft, h - TopPad - AxisBottom);
+        var pos = e.GetPosition(this);
+        if (pos.X < plot.X || pos.X > plot.Right || pos.Y < plot.Top || pos.Y > plot.Bottom) { SetHoverIndex(null); return; }
+        var ratio = Math.Clamp((pos.X - plot.X) / Math.Max(1, plot.Width), 0, 1);
+        SetHoverIndex((int)Math.Round(ratio * (Sparkline.Capacity - 1)));
+    }
+
+    void SetHoverIndex(int? index)
+    {
+        if (hoverIndex == index) return;
+        hoverIndex = index;
+        InvalidateVisual();
+        EmitHover();
+    }
+
+    void EmitHover()
+    {
+        if (hoverIndex is not { } idx) { HoverSampleChanged?.Invoke(null, null, null); return; }
+        double? Val(int si)
+        {
+            if (si >= series.Count) return null;
+            var s = series[si].Source;
+            var local = idx - (Sparkline.Capacity - s.Tx.Count);
+            return local >= 0 && local < s.Tx.Count ? Total(s, local) : null;
+        }
+        var secAgo = (int)Math.Round((Sparkline.Capacity - 1 - idx) * (60.0 / (Sparkline.Capacity - 1)));
+        HoverSampleChanged?.Invoke(secAgo, Val(0), Val(1));
+    }
 
     Color C(string key) => this.TryFindResource(key, ActualThemeVariant, out var v) && v is SolidColorBrush b ? b.Color : Colors.Gray;
 
@@ -37,20 +82,20 @@ internal sealed class TrafficChart : Control
         var ink = C("Subtle"); var grid = A(C("Ink"), ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark ? .07 : .06);
         var gridPen = new Pen(new SolidColorBrush(grid), 1);
 
-        // Value axis: four steps, labels right-aligned to the plot's edge.
-        for (var k = 0; k <= 4; k++)
+        // Value axis: three clean steps, labels right-aligned to the plot's edge.
+        for (var k = 0; k <= 2; k++)
         {
-            var y = Math.Round(plot.Bottom - plot.Height * k / 4) + .5;
+            var y = Math.Round(plot.Bottom - plot.Height * k / 2) + .5;
             cx.DrawLine(gridPen, new Point(plot.X, y), new Point(plot.Right, y));
-            var label = Text((top * k / 4).ToString(top >= 20 ? "0" : "0.#", CultureInfo.InvariantCulture), ink);
+            var label = Text((top * k / 2).ToString(top >= 20 ? "0" : "0.#", CultureInfo.InvariantCulture), ink);
             cx.DrawText(label, new Point(plot.X - 10 - label.Width, y - label.Height / 2));
         }
-        // Time axis: 60 s ago on the left, now on the right.
-        for (var k = 0; k <= 6; k++)
+        // Time axis: 60 s ago on the left, 30 s mid, now on the right.
+        for (var k = 0; k <= 2; k++)
         {
-            var x = plot.X + plot.Width * k / 6;
-            var label = Text(k == 6 ? "現在" : $"{60 - k * 10} 秒", ink);
-            var lx = k == 0 ? x : k == 6 ? x - label.Width : x - label.Width / 2;
+            var x = plot.X + plot.Width * k / 2;
+            var label = Text(k == 2 ? "現在" : $"{60 - k * 30} 秒", ink);
+            var lx = k == 0 ? x : k == 2 ? x - label.Width : x - label.Width / 2;
             cx.DrawText(label, new Point(lx, plot.Bottom + 6));
         }
 
@@ -58,6 +103,8 @@ internal sealed class TrafficChart : Control
         foreach (var (s, tone) in series)
         {
             var n = s.Tx.Count; if (n < 2) continue;
+            var dimmed = focusTone != null && focusTone != tone;
+            var alpha = dimmed ? .2 : 1.0;
             var c = C(tone);
             var x0 = plot.Right - step * (n - 1);
             Point At(int i) => new(x0 + step * i, plot.Bottom - plot.Height * Math.Min(1, Total(s, i) / top));
@@ -78,13 +125,26 @@ internal sealed class TrafficChart : Control
             cx.DrawGeometry(new LinearGradientBrush
             {
                 StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                GradientStops = { new GradientStop(A(c, .26), 0), new GradientStop(A(c, 0), 1) },
+                GradientStops = { new GradientStop(A(c, .26 * alpha), 0), new GradientStop(A(c, 0), 1) },
             }, null, area);
-            cx.DrawGeometry(null, new Pen(new SolidColorBrush(c), 2.25, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), line);
+            cx.DrawGeometry(null, new Pen(new SolidColorBrush(A(c, alpha)), 2.25, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), line);
             // The latest value as a dot on the right edge.
             var last = At(n - 1);
-            cx.DrawEllipse(new SolidColorBrush(A(c, .22)), null, last, 7, 7);
-            cx.DrawEllipse(new SolidColorBrush(c), null, last, 3.5, 3.5);
+            cx.DrawEllipse(new SolidColorBrush(A(c, .22 * alpha)), null, last, 7, 7);
+            cx.DrawEllipse(new SolidColorBrush(A(c, alpha)), null, last, 3.5, 3.5);
+        }
+        if (hoverIndex is { } hIdx && series.Any(x => x.Source.Tx.Count >= 2))
+        {
+            var hx = plot.X + step * hIdx;
+            var crossPen = new Pen(new SolidColorBrush(A(C("Accent"), .65)), 1, new DashStyle([2, 3], 0));
+            cx.DrawLine(crossPen, new Point(hx, plot.Top), new Point(hx, plot.Bottom));
+            foreach (var (s, tone) in series)
+            {
+                var local = hIdx - (Sparkline.Capacity - s.Tx.Count);
+                if (local < 0 || local >= s.Tx.Count) continue;
+                var hy = plot.Bottom - plot.Height * Math.Min(1, Total(s, local) / top);
+                cx.DrawEllipse(new SolidColorBrush(C(tone)), new Pen(Brushes.White, 1.5), new Point(hx, hy), 4.2, 4.2);
+            }
         }
         if (series.All(x => x.Source.Tx.Count < 2))
         {

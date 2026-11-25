@@ -107,8 +107,9 @@ public sealed partial class Dashboard
         foreach (var (k, (pill, text)) in navItems)
         {
             var on = k == key;
-            if (on) pill.Res(Border.BackgroundProperty, "PrimaryFill"); else pill.Background = Brushes.Transparent;
-            text.Res(TextBlock.ForegroundProperty, on ? "PrimaryInk" : "Muted");
+            if (on) pill.Res(Border.BorderBrushProperty, "Accent"); else pill.BorderBrush = Brushes.Transparent;
+            pill.Background = Brushes.Transparent;
+            text.Res(TextBlock.ForegroundProperty, on ? "Ink" : "Muted");
             text.FontWeight = on ? FontWeight.SemiBold : FontWeight.Normal;
         }
         ApplySky();
@@ -125,27 +126,30 @@ public sealed partial class Dashboard
             GradientStops = { new GradientStop(C("BgFrom"), 0), new GradientStop(C("BgFrom"), .35), new GradientStop(C("BgTo"), 1) } };
     }
 
-    /// The centered pill switcher (Mole's top bar), sized like a large segmented control: 28-pt segments, 2-pt inset,
-    /// a 32-pt capsule around them.
+    /// Open typographic underline navigation (no capsule or box frame).
     Control NavBar()
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Scale.Hair };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Scale.Small };
         foreach (var (key, label, _) in Pages)
         {
             var text = Label(label, Scale.Body, key: "Muted");
             text.HorizontalAlignment = HorizontalAlignment.Center;
             text.VerticalAlignment = VerticalAlignment.Center;
-            var pill = new Border { Child = text, Height = 28, Padding = new Thickness(14, 0), CornerRadius = new CornerRadius(14), MinWidth = 60, Cursor = new Cursor(StandardCursorType.Hand), Background = Brushes.Transparent };
-            pill.Transitions = [new BrushTransition { Property = Border.BackgroundProperty, Duration = TimeSpan.FromMilliseconds(180) }];
+            var pill = new Border
+            {
+                Child = text, Height = 28, Padding = new Thickness(Scale.Small, 0, Scale.Small, 4),
+                CornerRadius = new CornerRadius(0), BorderThickness = new Thickness(0, 0, 0, 2),
+                BorderBrush = Brushes.Transparent, MinWidth = 52, Cursor = new Cursor(StandardCursorType.Hand),
+                Background = Brushes.Transparent
+            };
+            pill.Transitions = [new BrushTransition { Property = Border.BackgroundProperty, Duration = TimeSpan.FromMilliseconds(160) }];
             Avalonia.Automation.AutomationProperties.SetName(pill, label);
             var k = key;
-            pill.PointerEntered += (_, _) => { if (navItems[k].Text.FontWeight != FontWeight.SemiBold) pill.Res(Border.BackgroundProperty, "IdleSoft"); };
-            pill.PointerExited += (_, _) => { if (navItems[k].Text.FontWeight != FontWeight.SemiBold) pill.Background = Brushes.Transparent; };
+            pill.PointerEntered += (_, _) => { if (navItems[k].Text.FontWeight != FontWeight.SemiBold) pill.Res(Border.BackgroundProperty, "HoverTint"); };
+            pill.PointerExited += (_, _) => { pill.Background = Brushes.Transparent; };
             pill.PointerPressed += (_, e) => { if (e.GetCurrentPoint(pill).Properties.IsLeftButtonPressed) { Navigate(k); e.Handled = true; } };
             navItems[key] = (pill, text); row.Children.Add(pill);
         }
-        var bar = new Border { Child = row, Padding = new Thickness(Scale.Hair), CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-            .Res(Border.BackgroundProperty, "Card");
-        return bar;
+        return new Border { Child = row, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     }
 }

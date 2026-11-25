@@ -42,6 +42,7 @@ internal static class Icons
     public const string Plus = "M12 5v14 M5 12h14";
     public const string Usb = "M12 3v14 M12 17a2 2 0 1 0 0 4a2 2 0 1 0 0-4z M12 9l-4-2v3 M12 12l4-2 M8 5.5h-1.5v3H8z M15.5 8a1.3 1.3 0 1 0 0 2.6a1.3 1.3 0 1 0 0-2.6z";
     public const string Link = "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1";
+    public const string Sun = "M12 7a5 5 0 1 1 0 10a5 5 0 1 1 0-10z M12 2.5v2 M12 19.5v2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M2.5 12h2 M19.5 12h2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4";
 
     // Path data stays immutable; views, strokes and theme bindings remain per icon.
     static readonly Dictionary<string, Geometry> geometry = new(StringComparer.Ordinal);

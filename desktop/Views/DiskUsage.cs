@@ -23,8 +23,8 @@ internal sealed class DiskUsageView : IDisposable
     readonly Window owner;
     readonly string? autoRoot;
     readonly Grid root = new(), homePage = new(), workPage = new();
-    readonly TreemapView map = new();
-    readonly SunburstView sun = new() { IsVisible = false };
+    readonly TreemapView map = new() { IsVisible = false };
+    readonly SunburstView sun = new();
     readonly DiskListView list = new() { IsVisible = false };
     readonly StackPanel inspector = new() { Spacing = 16 }, crumbs = new() { Orientation = Orientation.Horizontal, Spacing = 2 }, drives = new();
     readonly TextBox search = new() { Watermark = "篩選，例如 *.mp4  >100MB  older:90d" };
@@ -53,7 +53,7 @@ internal sealed class DiskUsageView : IDisposable
     /// Sunburst rings and the narrowest slice (degrees) per detail step.
     static readonly (int Rings, double MinDegrees)[] RingDetail = [(3, 1.6), (4, 1.1), (5, .8), (6, .55), (7, .4)];
     internal enum Mode { Treemap, Sunburst, List }
-    Mode mode = Mode.Treemap; bool largestFiles;
+    Mode mode = Mode.Sunburst; bool largestFiles;
     Action<int> setMode = _ => { }, setListMode = _ => { };
     const string TreemapIcon = "M4 4.5h16v15H4z M11 4.5v15 M11 12h9 M15.5 12v7.5",
         SunburstIcon = "M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18z M12 8a4 4 0 1 1 0 8a4 4 0 1 1 0-8z M12 3v5 M19.8 16.5l-4.3-2.5 M4.2 16.5l4.3-2.5",
@@ -221,13 +221,13 @@ internal sealed class DiskUsageView : IDisposable
         top.ColumnSpacing = 12;
         foreach (var c in top.Children) c.VerticalAlignment = VerticalAlignment.Center;
 
-        var views = Segmented([("方塊", TreemapIcon), ("環狀", SunburstIcon), ("清單", ListIcon)], 82, 0, i => SetMode((Mode)i), out setMode, "顯示方式");
+        var views = Segmented([("方塊", TreemapIcon), ("環狀", SunburstIcon), ("清單", ListIcon)], 82, 1, i => SetMode((Mode)i), out setMode, "顯示方式");
         Action<int> setColors = _ => { }, setRingColors = _ => { };
         void Colorize(int i) { map.ColorByAge = sun.ColorByAge = list.ColorByAge = i == 1; setColors(i); setRingColors(i); RenderInspector(); }
         // The rings colour by branch (which folder a slice belongs to); the other views by file type.
         colors = Segmented([("類型", null), ("修改時間", null)], 74, 0, Colorize, out setColors, "著色方式");
+        colors.IsVisible = false;
         ringColors = Segmented([("資料夾", null), ("修改時間", null)], 74, 0, Colorize, out setRingColors, "環狀著色方式");
-        ringColors.IsVisible = false;
         listModeBox = Segmented([("資料夾內容", null), ("最大檔案", null)], 88, 0, i => { Remember(); largestFiles = i == 1; Render(false); }, out setListMode, "清單內容");
         listModeBox.IsVisible = false;
         detailBox = Row(8, Label("細節", Scale.Secondary, key: "Muted"), detail);

@@ -9,8 +9,8 @@ using Avalonia.Styling;
 
 namespace Suhang.Desktop;
 
-/// App-wide control shapes on top of Fluent (Mole-inspired): pill tabs with a filled selection instead of an underline,
-/// rounder fields, flyouts and tooltips. Colors stay palette tokens so both themes follow.
+/// App-wide control shapes on top of Fluent: open underline tabs, borderless bottom-line fields,
+/// subtle flyouts and tooltips. Colors stay palette tokens so both themes follow.
 internal static class ThemeStyles
 {
     public static Styles Build()
@@ -22,24 +22,32 @@ internal static class ThemeStyles
             foreach (var (p, v) in setters) style.Setters.Add(new Setter(p, v is string key ? new DynamicResourceExtension(key) : v));
             styles.Add(style); return style;
         }
-        // Tabs: a row of pills; the selected one is filled like Mole's top switcher.
-        S(x => x.OfType<TabItem>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(Scale.PillRadius)), (TemplatedControl.PaddingProperty, new Thickness(14, 0)),
-            (Layoutable.MinHeightProperty, Scale.ControlHeight), (Layoutable.HeightProperty, Scale.ControlHeight), (Layoutable.MarginProperty, new Thickness(0, 0, Scale.Tight, 0)),
-            (TemplatedControl.ForegroundProperty, "Muted"), (TemplatedControl.FontSizeProperty, Scale.Body), (TemplatedControl.FontWeightProperty, FontWeight.Medium));
+        // Tabs: open typographic underline tabs (no capsule or box frames).
+        S(x => x.OfType<TabItem>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(0)), (TemplatedControl.PaddingProperty, new Thickness(2, 0, 2, 4)),
+            (Layoutable.MinHeightProperty, Scale.ControlHeight), (Layoutable.HeightProperty, Scale.ControlHeight), (Layoutable.MarginProperty, new Thickness(0, 0, Scale.Large, 0)),
+            (TemplatedControl.ForegroundProperty, "Muted"), (TemplatedControl.FontSizeProperty, Scale.Body), (TemplatedControl.FontWeightProperty, FontWeight.Medium),
+            (TemplatedControl.BackgroundProperty, "Transparent"), (TemplatedControl.BorderThicknessProperty, new Thickness(0)));
         S(x => x.OfType<TabItem>().Template().Is<Control>().Name("PART_SelectedPipe"), (Visual.IsVisibleProperty, false), (Visual.OpacityProperty, 0d));
         S(x => x.OfType<TabItem>().Class(":selected").Template().Is<Control>().Name("PART_SelectedPipe"), (Visual.IsVisibleProperty, false), (Visual.OpacityProperty, 0d));
-        S(x => x.OfType<TabItem>().Template().OfType<Border>().Name("PART_LayoutRoot"), (Border.CornerRadiusProperty, new CornerRadius(Scale.PillRadius)));
-        S(x => x.OfType<TabItem>().Class(":pointerover").Template().OfType<Border>().Name("PART_LayoutRoot"), (Border.BackgroundProperty, "IdleSoft"));
-        S(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("PART_LayoutRoot"), (Border.BackgroundProperty, "PrimaryFill"));
-        S(x => x.OfType<TabItem>().Class(":selected"), (TemplatedControl.ForegroundProperty, "PrimaryInk"));
-        S(x => x.OfType<TabItem>().Class(":selected").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"), (ContentPresenter.ForegroundProperty, "PrimaryInk"));
-        S(x => x.OfType<TabItem>().Class(":selected").Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"), (ContentPresenter.ForegroundProperty, "PrimaryInk"));
+        S(x => x.OfType<TabItem>().Template().OfType<Border>().Name("PART_LayoutRoot"),
+            (Border.CornerRadiusProperty, new CornerRadius(0)), (Border.BackgroundProperty, "Transparent"),
+            (Border.BorderThicknessProperty, new Thickness(0, 0, 0, 2)), (Border.BorderBrushProperty, "Transparent"));
+        S(x => x.OfType<TabItem>().Class(":pointerover").Template().OfType<Border>().Name("PART_LayoutRoot"), (Border.BackgroundProperty, "HoverTint"));
+        S(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("PART_LayoutRoot"),
+            (Border.BackgroundProperty, "Transparent"), (Border.BorderBrushProperty, "Accent"));
+        S(x => x.OfType<TabItem>().Class(":selected"), (TemplatedControl.ForegroundProperty, "Ink"), (TemplatedControl.FontWeightProperty, FontWeight.SemiBold));
+        S(x => x.OfType<TabItem>().Class(":selected").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"), (ContentPresenter.ForegroundProperty, "Ink"));
+        S(x => x.OfType<TabItem>().Class(":selected").Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"), (ContentPresenter.ForegroundProperty, "Ink"));
 
-        // Fields: 30 tall, radius 8, 10 side padding, 13-pt text (the regular control size of docs/DESIGN.md).
-        S(x => x.OfType<TextBox>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(Scale.ControlRadius)), (Layoutable.MinHeightProperty, Scale.ControlHeight),
-            (TemplatedControl.PaddingProperty, new Thickness(10, 5)), (TemplatedControl.FontSizeProperty, Scale.Body));
-        S(x => x.OfType<ComboBox>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(Scale.ControlRadius)), (Layoutable.MinHeightProperty, Scale.ControlHeight),
-            (TemplatedControl.FontSizeProperty, Scale.Body));
+        // Fields: clean underline inputs without enclosed rectangle boxes.
+        S(x => x.OfType<TextBox>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(0)), (Layoutable.MinHeightProperty, Scale.ControlHeight),
+            (TemplatedControl.PaddingProperty, new Thickness(2, 5)), (TemplatedControl.FontSizeProperty, Scale.Body),
+            (TemplatedControl.BackgroundProperty, "Transparent"), (TemplatedControl.BorderThicknessProperty, new Thickness(0, 0, 0, 1)),
+            (TemplatedControl.BorderBrushProperty, "LineStrong"));
+        S(x => x.OfType<TextBox>().Class(":focus"), (TemplatedControl.BorderBrushProperty, "Accent"), (TemplatedControl.BorderThicknessProperty, new Thickness(0, 0, 0, 2)));
+        S(x => x.OfType<ComboBox>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(0)), (Layoutable.MinHeightProperty, Scale.ControlHeight),
+            (TemplatedControl.FontSizeProperty, Scale.Body), (TemplatedControl.BackgroundProperty, "Transparent"),
+            (TemplatedControl.BorderThicknessProperty, new Thickness(0, 0, 0, 1)), (TemplatedControl.BorderBrushProperty, "LineStrong"));
         S(x => x.OfType<CheckBox>(), (TemplatedControl.FontSizeProperty, Scale.Body));
         S(x => x.OfType<Expander>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(Scale.CardRadius)), (TemplatedControl.FontSizeProperty, Scale.Body));
         S(x => x.OfType<ToolTip>(), (TemplatedControl.CornerRadiusProperty, new CornerRadius(Scale.ControlRadius)), (TemplatedControl.FontSizeProperty, Scale.Callout),

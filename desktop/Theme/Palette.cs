@@ -19,11 +19,16 @@ internal static class Palette
 
     static readonly (string Key, string Light, string Dark)[] Tokens =
     {
-        // Warm espresso and gold (Mole's status board): a soft gradient window, borderless translucent tiles, gold accents.
-        ("Window", "#F8F0DF", "#221F1A"),
-        ("BgFrom", "#FCF8EF", "#211E19"), ("BgTo", "#EFD9AA", "#3A2D1B"),
+        // Warm espresso and gold (Mole's status board): an open borderless canvas on a warm gold gradient, crisp hairlines for multi-row lists.
+        ("Window", "#F8F0DF", "#1D1A15"),
+        ("BgFrom", "#FCF8EF", "#1D1A15"), ("BgTo", "#EAD09B", "#392A17"),
         ("Card", "#99FFFFFF", "#0FFFF3DC"),
         ("CardHover", "#CCFFFFFF", "#1AFFF3DC"),
+        ("HoverTint", "#58FFFFFF", "#0EFFF4E0"),
+        ("ActiveTint", "#1EA46C17", "#24E8B556"),
+        ("Line", "#162B2116", "#17FFF3DC"),
+        ("LineStrong", "#292B2116", "#2BFFF3DC"),
+        ("Transparent", "#00000000", "#00000000"),
         ("Field", "#B3FFFFFF", "#12FFF3DC"),
         ("Control", "#CCFFFFFF", "#17FFF3DC"),
         ("Stroke", "#0F2B2116", "#0FFFF3DC"),
@@ -71,7 +76,7 @@ internal static class Palette
     // with a white knob when off and the accent when on, in both themes.
     static readonly (string Key, string Light, string Dark)[] SwitchTokens =
     {
-        ("ButtonBackgroundDisabled", "#80FDFDFD", "#08FFFFFF"), ("ButtonBorderBrushDisabled", "#14000000", "#17FFFFFF"),
+        ("ButtonBackgroundDisabled", "#222B2116", "#16FFF3DC"), ("ButtonBorderBrushDisabled", "#00000000", "#00000000"),
         ("ToggleSwitchFillOff", "#D9CDB6", "#4A443A"), ("ToggleSwitchFillOffPointerOver", "#CDBFA5", "#565046"),
         ("ToggleSwitchFillOffPressed", "#AEAEAE", "#767676"), ("ToggleSwitchFillOffDisabled", "#E6E6E6", "#383838"),
         ("ToggleSwitchStrokeOff", "#D9CDB6", "#4A443A"), ("ToggleSwitchStrokeOffPointerOver", "#CDBFA5", "#565046"),

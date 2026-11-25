@@ -1,7 +1,7 @@
 # Desktop design system
 
 The Windows desktop app follows Apple's macOS Human Interface Guidelines for type, spacing and control sizes, and
-Mole's status board for its look: one borderless window on a warm gold gradient, a centered pill switcher, translucent tiles without outlines and big numbers. Only the overview has an illustration (the connection orb); the other pages get their weight from a 26-pt title and whitespace.
+Mole's status board for its look: one open borderless canvas on a warm gold gradient, typographic underline tabs, unboxed rows separated by 1px horizontal hairlines (`Line` / `LineStrong`), and big tabular numbers. No closed card borders or planet illustrations; pages get their weight from typography, whitespace, and clean hairline dividers.
 Every value below is a token in `desktop/Controls/Components.cs` (`Scale`) or `desktop/Theme/Palette.cs`; views use the
 names, never ad-hoc numbers. 1 pt = 1 DIP, so Windows display scaling stays the only scale.
 
@@ -11,11 +11,11 @@ The switcher holds five pages; each has one job, and nothing appears on two page
 
 | Page | Content |
 | --- | --- |
-| 總覽 | No cards. A hero line (「Windows 主機地址」 with the state pill, the 40-pt address with a copy button, who is connected, the warm planet), one shared traffic chart (Mac in `Accent`, iPad in `Olive`, 60 s with value and time axes), then one borderless row per device split by hairlines: tile, name and address, state pill, ↑ / ↓ numbers with link speed and latency, speed-test and reconnect. |
-| 共享 | A full-width address banner (SMB address, Mac and iPad how-to chips, the sharing switch and its state, copy), then the shared folders as the main column and a 340-pt side column with account, guest access and repair. Below 820 pt the side column moves under the folders. |
-| 安全 | Security center tabs and the task manager. |
-| 磁碟 | Disk space map (treemap, sunburst, list) with its inspector. |
-| 設定 | 「一般」 switches (start at login, network-only), then 「連線診斷」: internet sharing and the folded detailed diagnostics. |
+| 總覽 | Asymmetric 2-column Bento Cockpit (`7*,36,5*` on width ≥ 880 pt, single column below). Left column: 「Windows 主機地址」 (clickable 40-pt IP + copy button + dot status) paired with live total throughput (`MB/s`) and Mac/iPad bandwidth ratio bar, followed by a `Rule()` and the 60-s shared traffic chart (interactive hover crosshair readout + clickable Mac/iPad legend focus). Right column: Mac row, `Rule()`, iPad row, `Rule()`, and the `SMB 快速共享` quick row (toggle, status, clickable URL, `管理共享 →`). |
+| 共享 | A full-width address banner (SMB address, Mac and iPad how-to chips, the sharing switch and its state, copy), then the shared folders as the main column and a 340-pt side column with account (including copy password), guest access and repair. Below 820 pt the side column moves under the folders. |
+| 安全 | Security center underline tabs (including OpenSSH installation, service controls and per-account public keys) and the task manager (borderless scroll container with `1px` `LineStrong` header and `Line` row dividers). |
+| 磁碟 | Disk space map (defaults to Sunburst, switchable to Treemap or List) with its inspector. |
+| 設定 | 「一般」 switches (start at login, network-only, and 「外觀主題」: 跟隨系統 / 淺色 / 深色), then 「連線診斷」: internet sharing and the folded detailed diagnostics. |
 
 The overview is a column of at most 1120 pt, centered. Only the chart flexes: it takes the height the window leaves
 (140–400 pt) so nothing else stretches. The default window is 1040 × 700. When the window is short, the overview
@@ -67,8 +67,7 @@ Dense layouts (small windows) use `Scale.Pad(level, value)`, which scales a valu
 | `PanelRadius` | 20 — large surfaces |
 | capsules | height / 2 — buttons, pills, the switcher, segmented controls |
 
-Tiles are borderless: a translucent `Card` fill on the gradient, no outline and no shadow (except the selected pill of a
-segmented control). Hairline `Stroke` is only for separators and input fields.
+Tiles and cards are transparent and borderless on the warm gradient (`Card()` uses `CornerRadius(0)` and `Brushes.Transparent`). Hairline `Line` / `LineStrong` (`1px`) is used for horizontal dividers between multi-row lists and tables, and bottom-line text/combo inputs.
 
 ## Controls
 
@@ -77,12 +76,12 @@ segmented control). Hairline `Stroke` is only for separators and input fields.
 | Push button (`Action`) | 30 tall capsule, 14 side padding, 13-pt Medium label, 14-pt symbol 6 away |
 | Small button (inside cards) | 26 tall capsule, 12-pt label |
 | Icon button | 30 × 30 circle, 16-pt symbol |
-| Text field, combo box | 30 tall, radius 8, 10 side padding |
+| Text field, combo box | 30 tall, borderless bottom-line (`0,0,0,1` `LineStrong` → `Accent` on focus) |
 | Segmented control | 30 tall capsule: 24-pt segments inside a 2-pt inset |
-| Page switcher | 28-pt segments in a 2-pt inset capsule, centered in the title bar |
-| Tabs (security) | 30-pt capsules; the selected one is filled, no underline |
-| Status pill | 22 tall: 6-pt dot, 12-pt Semibold label |
-| Settings row | at least 44 tall: 12 · 28-pt solid tile · 12 · title and description · 12 · control · 12; separators start under the text (inset 52) |
+| Page switcher | Open typographic tabs with `2px` `Accent` bottom underline, centered in the title bar |
+| Tabs (security) | Open typographic tabs with `2px` `Accent` bottom underline and `HoverTint` hover |
+| Status pill | Unboxed dot + 12-pt Semibold label |
+| Settings row | at least 44 tall: 12 · 16-pt unboxed line icon · 12 · title and description · 12 · control · 12; full-width `Rule()` separators |
 
 ## Color
 

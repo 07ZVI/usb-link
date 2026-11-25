@@ -50,7 +50,18 @@ public sealed partial class Dashboard : Window
 
     bool KeepInTray => !preview && !Program.NoBackendReader && OperatingSystem.IsWindows();
 
-    // ---------- building blocks ----------
+    readonly TextBlock totalThroughputValue = Label("0.0 MB/s", Scale.Title1, FontWeight.Bold),
+        totalThroughputState = Label("待命", Scale.Caption, key: "Subtle"),
+        ratioMacText = Label("Mac 0%", Scale.Caption, key: "Subtle"),
+        ratioIpadText = Label("iPad 0%", Scale.Caption, key: "Subtle"),
+        chartReadout = Label("MB/s · 傳送與接收合計", Scale.Callout, key: "Subtle"),
+        smbQuickStatus = Label("請先連接 USB 裝置", Scale.Secondary, key: "Muted"),
+        smbQuickUrl = Label(SMBServerAddress, Scale.Secondary, key: "Accent");
+    readonly Border ratioMacBar = new() { Height = 3, CornerRadius = new CornerRadius(1.5), HorizontalAlignment = HorizontalAlignment.Stretch },
+        ratioIpadBar = new() { Height = 3, CornerRadius = new CornerRadius(1.5), HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly Grid ratioTrack = new() { ColumnDefinitions = new ColumnDefinitions("0*,2,100*"), Height = 3 };
+    readonly ToggleSwitch smbQuickToggle = Switch();
+    Grid leftColumn = null!, rightColumn = null!;
 
     // ---------- backend bridge ----------
 
@@ -60,10 +71,11 @@ public sealed partial class Dashboard : Window
         if (preview) { SetNotice("介面預覽，不會執行系統操作。"); return; }
         DesktopClient.SendRaw(JsonSerializer.Serialize(new { action })); 
     }
-    async void Copy(string value, string what)
+    void Copy(string value, string what) => Copy(value, what, showValue: true);
+    async void Copy(string value, string what, bool showValue)
     {
         if (Clipboard is { } c) await c.SetTextAsync(value);
-        SetNotice("已複製" + what + "：" + value);
+        SetNotice("已複製" + what + (showValue ? "：" + value : ""));
     }
     void SetNotice(string text)
     {
@@ -84,24 +96,26 @@ public sealed partial class Dashboard : Window
 
         noticeBar.Res(Border.BackgroundProperty, "AccentSoft");
         Avalonia.Automation.AutomationProperties.SetName(shareToggle, "檔案共享");
+        Avalonia.Automation.AutomationProperties.SetName(smbQuickToggle, "SMB 快速共享");
         Avalonia.Automation.AutomationProperties.SetName(startup, "登入 Windows 後自動啟動");
         Avalonia.Automation.AutomationProperties.SetName(networkOnly, "僅保留網路連線");
         Avalonia.Automation.AutomationProperties.SetName(networkOnlyStatus, "僅保留網路連線狀態");
         networkOnlyStatus.TextWrapping = TextWrapping.Wrap; networkOnlyStatus.TextTrimming = TextTrimming.None; networkOnlyStatus.IsVisible = false;
         noticeBar.Child = Row(8, Icons.Make(Icons.Info, 16, "Accent"), notice);
 
-        // Window anatomy (docs/DESIGN.md): 20 margins, title bar row, 16 to the page, 12 between cards.
-        root.RowDefinitions = new RowDefinitions("Auto,16,*");
+        root.RowDefinitions = new RowDefinitions("Auto,12,*");
         root.Margin = new Thickness(Scale.Margin, UsesCustomTitleBar ? 8 : Scale.Margin, Scale.Margin, Scale.Margin);
-        AddAt(root, Header(), 0);
+        AddAt(root, Column(Scale.Small, Header(), Rule()), 0);
         connectionCard = ConnectionCard(); settingsCard = SettingsCard();
         hero = HeroCard();
-        // The overview is the connection alone; sharing lives on its page and settings on the settings page.
-        body.Children.Add(connectionCard);
+        leftColumn = LeftBentoColumn();
+        rightColumn = RightBentoColumn();
+        body.Children.Add(leftColumn);
+        body.Children.Add(rightColumn);
         backendFailure.Res(TextBlock.ForegroundProperty, "Warn");
-        backendFailureBanner = new Border { CornerRadius = new CornerRadius(Scale.CardRadius), Padding = new Thickness(Scale.Inset, Scale.Medium), Child = Columns("Auto,12,*", Icons.Make(Icons.Info, Scale.IconControl, "Warn"), Gap(), backendFailure) };
+        backendFailureBanner = new Border { CornerRadius = new CornerRadius(Scale.ControlRadius), Padding = new Thickness(Scale.Inset, Scale.Medium), Child = Columns("Auto,12,*", Icons.Make(Icons.Info, Scale.IconControl, "Warn"), Gap(), backendFailure) };
         backendFailureBanner.IsVisible = false;
-        bodyScroll.Content = bodyHost = Column(Scale.Gutter, backendFailureBanner, hero, body);
+        bodyScroll.Content = bodyHost = Column(Scale.Gutter, backendFailureBanner, body);
         // Fill the available width up to BodyMaxWidth so responsive device rows
         // measure against the viewport rather than their own compact content.
         bodyHost.MaxWidth = BodyMaxWidth; bodyHost.HorizontalAlignment = HorizontalAlignment.Stretch; bodyHost.VerticalAlignment = VerticalAlignment.Center;
@@ -122,6 +136,7 @@ public sealed partial class Dashboard : Window
         SizeChanged += (_, _) => UpdateResponsiveLayout();
 
         shareToggle.Click += (_, _) => { Send(shareEnabled ? "share-off" : "share-on"); shareToggle.IsChecked = shareEnabled; };
+        smbQuickToggle.Click += (_, _) => { Send(shareEnabled ? "share-off" : "share-on"); smbQuickToggle.IsChecked = shareEnabled; };
         startup.Click += (_, _) => {
             if (preview) { Send("startup-on"); return; }
             if (startupPendingID != "") return;
@@ -158,7 +173,6 @@ public sealed partial class Dashboard : Window
     StackPanel bodyHost = null!;
     Grid overview = null!;
     Control hero = null!;
-    readonly Orb heroOrb = new(92);
     Border hostCard = null!, settingsBorder = null!;
     Grid connectionColumn = null!, settingsList = null!;
     // Density levels: 0 roomy, 1 compact, 2 dense. Each column picks the roomiest level whose natural height fits
@@ -195,7 +209,7 @@ public sealed partial class Dashboard : Window
                 for (var level = 0; level <= 2; level++)
                 {
                     ApplyLeft(level); ApplyRight(level, false); UpdateLayout();
-                    natural = hero.DesiredSize.Height + bodyHost.Spacing + body.DesiredSize.Height;
+                    natural = body.DesiredSize.Height;
                     if (natural <= available + .5) break;
                 }
                 trafficChart.Height = Math.Floor(Math.Clamp(ChartMin + available - natural - 1, ChartMin, ChartMax));
@@ -210,7 +224,7 @@ public sealed partial class Dashboard : Window
     {
         if (compactLayout != false || (leftDensity >= 2 && rightDensity >= 2)) return;
         var banner = backendFailureBanner.IsVisible ? backendFailureBanner.Bounds.Height + Scale.Gutter : 0;
-        if (hero.DesiredSize.Height + bodyHost.Spacing + body.DesiredSize.Height > bodyScroll.Viewport.Height - banner + .5) FitBodyToViewport();
+        if (body.DesiredSize.Height > bodyScroll.Viewport.Height - banner + .5) FitBodyToViewport();
     }
 
     /// Outer margins and row gaps follow the window height alone, so they cannot feed back into the measuring.
@@ -229,9 +243,8 @@ public sealed partial class Dashboard : Window
     {
         if (leftDensity == level) return;
         leftDensity = level;
-        bodyHost.Spacing = level switch { 0 => Scale.XLarge, 1 => Scale.Large, _ => Scale.Medium };
-        hostCard.Padding = new Thickness(Scale.Tight, level == 0 ? Scale.Medium : Scale.Tight, Scale.Tight, 0);
-        heroOrb.Width = heroOrb.Height = level switch { 0 => 128, 1 => 104, _ => 72 };
+        bodyHost.Spacing = level switch { 0 => Scale.Large, 1 => Scale.Medium, _ => Scale.Small };
+        hostCard.Padding = new Thickness(0, level == 0 ? Scale.Tight : 0, 0, level == 0 ? Scale.Medium : Scale.Small);
         heroDevices.IsVisible = level < 2;
         macStatus.SetDensity(level); ipadStatus.SetDensity(level);
     }
@@ -262,8 +275,10 @@ public sealed partial class Dashboard : Window
     void RebuildBodyGrid()
     {
         if (compactLayout is not { } compact) return;
-        body.ColumnDefinitions = new ColumnDefinitions("*");
-        body.RowDefinitions = new RowDefinitions("Auto");
+        body.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "7*,36,5*");
+        body.RowDefinitions = new RowDefinitions(compact ? "Auto,20,Auto" : "Auto");
+        Grid.SetColumn(leftColumn, 0); Grid.SetRow(leftColumn, 0);
+        Grid.SetColumn(rightColumn, compact ? 0 : 2); Grid.SetRow(rightColumn, compact ? 2 : 0);
     }
 
     async Task ReadBackend()
@@ -311,8 +326,7 @@ public sealed partial class Dashboard : Window
         var mark = new Image { Width = 28, Height = 28, Stretch = Stretch.Uniform,
             Source = new Avalonia.Media.Imaging.Bitmap(brandStream) };
 
-        var version = new Border { CornerRadius = new CornerRadius(9), Padding = new Thickness(Scale.Snug, 1), Child = versionText }
-            .Res(Border.BackgroundProperty, "IdleSoft");
+        var version = new Border { Padding = new Thickness(0), Child = versionText, VerticalAlignment = VerticalAlignment.Center };
         var name = Label("USB Link", Scale.Title3, FontWeight.SemiBold);
         var brand = Row(12, mark, name, version);
         brand.HorizontalAlignment = HorizontalAlignment.Left;
@@ -326,21 +340,49 @@ public sealed partial class Dashboard : Window
     /// one shared traffic chart, and one borderless row per device.
     Control HeroCard()
     {
-        chip.ToneChanged += t => heroOrb.Tone = t;
-        heroOrb.Tone = chip.Tone;
-        var copyAddress = IconButton(Icons.Copy, "複製主機地址", () => Copy(WindowsHostIp, "主機地址"));
-        copyAddress.Res(Button.BackgroundProperty, "IdleSoft"); copyAddress.VerticalAlignment = VerticalAlignment.Center;
         addressValue.FontWeight = FontWeight.Bold; addressValue.LetterSpacing = -1;
+        addressValue.Cursor = new Cursor(StandardCursorType.Hand);
+        ToolTip.SetTip(addressValue, "點擊複製主機地址");
+        addressValue.PointerPressed += (_, _) => Copy(WindowsHostIp, "主機地址");
+        var copyAddress = IconButton(Icons.Copy, "複製主機地址", () => Copy(WindowsHostIp, "主機地址"));
+        copyAddress.VerticalAlignment = VerticalAlignment.Center;
         var caption = Row(Scale.Medium, Label("Windows 主機地址", Scale.Callout, FontWeight.Medium, "Muted"), chip);
         var address = Row(Scale.Medium, addressValue, copyAddress);
         heroDevices.TextTrimming = TextTrimming.CharacterEllipsis;
         var text = Column(Scale.Snug, caption, address, heroDevices);
         text.VerticalAlignment = VerticalAlignment.Center;
-        heroOrb.Width = heroOrb.Height = 128;
-        heroOrb.VerticalAlignment = VerticalAlignment.Center; heroOrb.Margin = new Thickness(0, -12, 0, -12);
-        var grid = Columns("*,Auto", text, heroOrb);
-        grid.ColumnSpacing = Scale.Large;
-        return hostCard = new Border { Child = grid, Padding = new Thickness(Scale.Tight, 0) };
+
+        ratioMacBar.Height = 6; ratioMacBar.Res(Border.BackgroundProperty, "Accent");
+        ratioIpadBar.Height = 6; ratioIpadBar.Res(Border.BackgroundProperty, "Olive");
+        ratioTrack.Children.Add(ratioMacBar);
+        Grid.SetColumn(ratioIpadBar, 2); ratioTrack.Children.Add(ratioIpadBar);
+        ratioTrack.Height = 6; ratioTrack.ClipToBounds = true;
+        ratioTrack.Res(Border.BackgroundProperty, "HoverTint");
+        ratioTrack.SizeChanged += (_, _) => UpdateThroughputSummary();
+
+        var totalRow = Row(Scale.Snug, totalThroughputValue, WithMargin(totalThroughputState, new Thickness(0, 0, 0, 5)));
+        totalThroughputState.VerticalAlignment = VerticalAlignment.Bottom;
+        var ratioLabels = Columns("*,Auto", ratioMacText, ratioIpadText);
+        var throughput = Column(6,
+            Label("即時總吞吐", Scale.Callout, FontWeight.Medium, "Muted"),
+            totalRow,
+            ratioTrack,
+            ratioLabels);
+        throughput.MinWidth = 196;
+        throughput.VerticalAlignment = VerticalAlignment.Center;
+
+        var grid = Columns("*,24,Auto", text, Gap(), throughput);
+        bool? stacked = null;
+        grid.SizeChanged += (_, _) => {
+            var narrow = grid.Bounds.Width < 540;
+            if (stacked == narrow) return;
+            stacked = narrow;
+            grid.ColumnDefinitions = new ColumnDefinitions(narrow ? "*" : "*,24,Auto");
+            grid.RowDefinitions = new RowDefinitions(narrow ? "Auto,12,Auto" : "Auto");
+            Grid.SetRow(grid.Children[1], narrow ? 1 : 0); Grid.SetColumn(grid.Children[1], narrow ? 0 : 1);
+            Grid.SetRow(throughput, narrow ? 2 : 0); Grid.SetColumn(throughput, narrow ? 0 : 2);
+        };
+        return hostCard = new Border { Child = grid, Padding = new Thickness(0, 0, 0, Scale.Medium) };
     }
 
     readonly TextBlock heroDevices = Label("尚未連接裝置", Scale.Body, key: "Muted");
@@ -354,22 +396,86 @@ public sealed partial class Dashboard : Window
         heroDevices.Text = parts.Count > 0 ? "已連線：" + string.Join("　·　", parts.Select(p => p.Trim())) : "Mac 與 iPad 經 USB 連到這個地址";
     }
 
-    // The chart with its title and legend, then the device rows split by hairlines.
+    void UpdateThroughputSummary()
+    {
+        var macMbps = macStatus?.TotalMbps ?? 0;
+        var ipadMbps = ipadStatus?.TotalMbps ?? 0;
+        var total = macMbps + ipadMbps;
+        totalThroughputValue.Text = total >= 100 ? $"{total:0}" : total >= 10 ? $"{total:0.0}" : $"{total:0.00}";
+        totalThroughputState.Text = total > 0.05 ? "MB/s · 即時總吞吐" : "MB/s · 等待傳輸";
+        totalThroughputState.Res(TextBlock.ForegroundProperty, total > 0.05 ? "Ink" : "Muted");
+        ratioMacText.Text = $"Mac {macMbps:0.0} MB/s";
+        ratioIpadText.Text = $"iPad {ipadMbps:0.0} MB/s";
+        ratioMacBar.IsVisible = macMbps > 0;
+        ratioIpadBar.IsVisible = ipadMbps > 0;
+        ratioTrack.ColumnDefinitions[0].Width = new GridLength(macMbps, GridUnitType.Star);
+        ratioTrack.ColumnDefinitions[1].Width = new GridLength(macMbps > 0 && ipadMbps > 0 ? 2 : 0);
+        ratioTrack.ColumnDefinitions[2].Width = new GridLength(total > 0 ? ipadMbps : 1, GridUnitType.Star);
+    }
+
     Control ConnectionCard()
     {
         macStatus = new DeviceStatusView("Mac", Send, Copy, "Accent");
         ipadStatus = new DeviceStatusView("iPad", Send, Copy, "Olive");
+        macStatus.TrafficUpdated += UpdateThroughputSummary;
+        ipadStatus.TrafficUpdated += UpdateThroughputSummary;
         trafficChart.Add(macStatus.History, "Accent"); trafficChart.Add(ipadStatus.History, "Olive");
-        Control Key(string name, string tone) => Row(Scale.Snug,
-            new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty, tone),
-            Label(name, Scale.Callout, key: "Muted"));
-        var legend = Row(Scale.Regular, Key("Mac", "Accent"), Key("iPad", "Olive"));
+        trafficChart.HoverSampleChanged += (secondsAgo, macVal, ipadVal) =>
+        {
+            chartReadout.Text = secondsAgo is int s
+                ? $"{(s == 0 ? "現在" : $"{s} 秒前")} · Mac {macVal?.ToString("0.0") ?? "—"} · iPad {ipadVal?.ToString("0.0") ?? "—"} MB/s"
+                : "MB/s · 傳送與接收合計";
+            chartReadout.Res(TextBlock.ForegroundProperty, secondsAgo.HasValue ? "Ink" : "Subtle");
+        };
+        Control Key(string name, string tone)
+        {
+            var item = new Button
+            {
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Padding = new Thickness(6, 3),
+                CornerRadius = new CornerRadius(6),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Content = Row(Scale.Snug,
+                    new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), VerticalAlignment = VerticalAlignment.Center }.Res(Border.BackgroundProperty, tone),
+                    Label(name, Scale.Callout, key: "Muted"))
+            };
+            ToolTip.SetTip(item, $"點擊聚焦 {name} 曲線");
+            Avalonia.Automation.AutomationProperties.SetName(item, "聚焦 " + name + " 傳輸曲線");
+            item.Click += (_, _) => trafficChart.FocusTone = trafficChart.FocusTone == tone ? null : tone;
+            return item;
+        }
+        var legend = Row(Scale.Small, Key("Mac", "Accent"), Key("iPad", "Olive"));
         legend.VerticalAlignment = VerticalAlignment.Center;
-        var title = Row(Scale.Small, Label("傳輸速率", Scale.Title3, FontWeight.SemiBold), Label("MB/s · 傳送與接收合計", Scale.Callout, key: "Subtle"));
+        var title = Column(4, Label("傳輸速率", Scale.Title3, FontWeight.SemiBold), chartReadout);
         var head = Columns("*,Auto", title, legend);
-        Control Rule() => new Border { Height = 1 }.Res(Border.BackgroundProperty, "Stroke");
-        connectionColumn = Rows("Auto,12,Auto,16,Auto,Auto,Auto,Auto", head, Gap(), trafficChart, Gap(), Rule(), macStatus.View, Rule(), ipadStatus.View);
-        return connectionColumn;
+        return connectionColumn = Rows("Auto,12,*", head, Gap(), trafficChart);
+    }
+
+    Grid LeftBentoColumn() => Rows("Auto,Auto,16,*", hero, Rule(), Gap(), connectionCard);
+
+    Grid RightBentoColumn()
+    {
+        smbQuickUrl.Cursor = new Cursor(StandardCursorType.Hand);
+        ToolTip.SetTip(smbQuickUrl, "點擊複製共享位址");
+        smbQuickUrl.PointerPressed += (_, _) => Copy(ShareUrl, "共享位址");
+
+        var manageShare = Action("管理共享 →", OpenSMBManager);
+        var quickHead = Columns("Auto,*,Auto",
+            Icons.Make(Icons.Folder, 18, "Accent"),
+            Column(2, Label("SMB 快速共享", Scale.Title3, FontWeight.SemiBold), smbQuickStatus),
+            smbQuickToggle);
+        quickHead.ColumnSpacing = Scale.Medium;
+        foreach (Control c in quickHead.Children) c.VerticalAlignment = VerticalAlignment.Center;
+
+        var quickFoot = Columns("*,Auto", smbQuickUrl, manageShare);
+        foreach (Control c in quickFoot.Children) c.VerticalAlignment = VerticalAlignment.Center;
+
+        var smbQuickRow = new Border
+        {
+            Padding = new Thickness(0, Scale.Medium, 0, 0),
+            Child = Column(Scale.Small, quickHead, quickFoot)
+        };
+        return Rows("Auto,Auto,Auto,Auto,Auto", macStatus.View, Rule(), ipadStatus.View, Rule(), smbQuickRow);
     }
 
     Control SettingsCard()
@@ -379,6 +485,32 @@ public sealed partial class Dashboard : Window
         Add(SettingRow.Toggle(Icons.Play, "開機自動啟動", "登入 Windows 後在背景待命", startup, tone: "TileGray"));
         Add(SettingRow.Toggle(Icons.Globe, "僅保留網路連線", "避免 iPad 出現「信任這部電腦」提示", networkOnly,
             "封鎖 Windows 對此 iPad 的照片匯入與儲存空間瀏覽，避免出現「信任這部電腦」提示。\n關閉此開關、結束程式或解除安裝時會還原。", networkOnlyStatus, tone: "TileOrange"));
+        var themeButtons = new List<(Button Btn, ThemeVariant Variant)>();
+        void SyncThemeButtons()
+        {
+            var current = Application.Current?.RequestedThemeVariant ?? ThemeVariant.Default;
+            foreach (var (b, v) in themeButtons)
+            {
+                var active = current == v;
+                b.Res(Button.BackgroundProperty, active ? "HoverTint" : "Transparent");
+                b.Res(Button.ForegroundProperty, active ? "Ink" : "Muted");
+                b.FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
+            }
+        }
+        Button ThemeBtn(string text, ThemeVariant variant)
+        {
+            var b = Action(text, () =>
+            {
+                if (Application.Current is { } app) app.RequestedThemeVariant = variant;
+                SyncThemeButtons();
+            });
+            b.Padding = new Thickness(10, 5);
+            themeButtons.Add((b, variant));
+            return b;
+        }
+        var themeRow = Row(4, ThemeBtn("跟隨系統", ThemeVariant.Default), ThemeBtn("淺色", ThemeVariant.Light), ThemeBtn("深色", ThemeVariant.Dark));
+        SyncThemeButtons();
+        Add(SettingRow.Custom(Icons.Sun, "外觀主題", "切換淺色、深色或跟隨系統外觀", themeRow, tone: "TileGray"));
         var title = WithMargin(Label("一般", Scale.Title3, FontWeight.SemiBold), new Thickness(Scale.Medium, 0, 0, Scale.Tight));
         settingsList = SettingRow.List(rows.ToArray());
         // Rows keep their natural height (grouped-list rows do not stretch); the tool tiles sit on the card's floor.
@@ -637,6 +769,11 @@ public sealed partial class Dashboard : Window
         if(nativeSMB){shareToggle.IsEnabled=true;shareStatus.Text=shareProblem!=""?"Windows SMB · 需要處理":!shareReady?"Windows SMB · 服務未就緒":shareEnabled?"Windows SMB · 持續共享":"Windows SMB · 共享已關閉";}
         ToolTip.SetTip(shareStatus,shareProblem!=""?shareProblem:shareStatus.Text);
         shareStatus.Res(TextBlock.ForegroundProperty, shareProblem!=""?"Warn":shareEnabled && shareReady ? "Ok" : "Muted");
+        smbQuickToggle.IsChecked = shareEnabled;
+        smbQuickToggle.IsEnabled = shareToggle.IsEnabled;
+        smbQuickStatus.Text = shareStatus.Text;
+        smbQuickStatus.Res(TextBlock.ForegroundProperty, shareProblem != "" ? "Warn" : shareEnabled && shareReady ? "Ok" : "Muted");
+        smbQuickUrl.Text = ShareUrl;
     }
 
     void Update(JsonElement d)
@@ -698,6 +835,7 @@ public sealed partial class Dashboard : Window
         if (S("windows_ipv4") != "") { WindowsHostIp = S("windows_ipv4"); ShareUrl = S("share_url") != "" ? S("share_url") : "smb://" + WindowsHostIp; addressValue.Text = WindowsHostIp; shareUrlValue.Text = ShareUrl; }
         var devices = DeviceStatusSnapshot.Parse(d);
         macStatus.Update(devices.Mac); ipadStatus.Update(devices.IPad); UpdateHeroDevices(devices);
+        UpdateThroughputSummary();
         ApplyConnectionSummary(devices.ConnectedCount, devices.ConnectingCount, devices.HasError);
         Dispatcher.UIThread.Post(RefitIfOverflow, DispatcherPriority.Loaded);
 

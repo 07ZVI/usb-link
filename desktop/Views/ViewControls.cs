@@ -16,10 +16,11 @@ internal static class ViewControls
     internal static ToggleSwitch Switch() => new() { OnContent = "", OffContent = "", MinWidth = 0, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
     internal static Border Card(Control child, Thickness? padding = null) => new Border
     {
-        // Borderless tile: a translucent fill on the window's gradient, no outline.
-        Child = child, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(Scale.CardRadius), Padding = padding ?? new Thickness(Scale.Inset),
-    }.Res(Border.BackgroundProperty, "Card");
-    internal static Border Rule() => new Border { Height = 1 }.Res(Border.BackgroundProperty, "Stroke");
+        // Open frameless surface: content breathes directly on the sky canvas without a card box.
+        Child = child, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(0), Padding = padding ?? new Thickness(0),
+        Background = Brushes.Transparent,
+    };
+    internal static Border Rule() => new Border { Height = 1 }.Res(Border.BackgroundProperty, "Line");
     internal static Grid Columns(string defs, params Control[] children)
     {
         var g = new Grid { ColumnDefinitions = new ColumnDefinitions(defs) };
@@ -51,16 +52,19 @@ internal static class ViewControls
     {
         var fill = primary ? danger ? "Error" : "PrimaryFill" : null;
         var ink = primary ? "PrimaryInk" : danger ? "Error" : "Ink";
-        // Capsule push button: 30 tall, 14 side padding, 14-pt symbol 6 from a 13-pt label.
+        // Primary keeps a soft matte pill without outline; secondary is a borderless text/hover action.
         var label = Label(text, Scale.Body, primary ? FontWeight.SemiBold : FontWeight.Medium, ink);
         Control content = icon is null ? label : Row(Scale.Snug, Icons.Make(icon, Scale.IconInline, ink), label);
-        var b = new Button { Content = content, Padding = new Thickness(14, 0), CornerRadius = new CornerRadius(Scale.PillRadius), Height = Scale.ControlHeight,
-            VerticalContentAlignment = VerticalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var b = new Button { Content = content, Padding = new Thickness(primary ? 14 : 10, 0), CornerRadius = new CornerRadius(Scale.PillRadius), Height = Scale.ControlHeight,
+            VerticalContentAlignment = VerticalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, BorderThickness = new Thickness(0) };
         if (icon != null && text != "") Avalonia.Automation.AutomationProperties.SetName(b, text);
-        b.BorderThickness = new Thickness(1);
-        if (fill != null) b.Res(Button.BackgroundProperty, fill).Res(Button.BorderBrushProperty, fill);
-        else if (danger) b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Stroke");
-        else b.Res(Button.BackgroundProperty, "Control").Res(Button.BorderBrushProperty, "Stroke");
+        if (fill != null) b.Res(Button.BackgroundProperty, fill);
+        else
+        {
+            b.Background = Brushes.Transparent;
+            b.PointerEntered += (_, _) => { if (b.IsEnabled) b.Res(Button.BackgroundProperty, "HoverTint"); };
+            b.PointerExited += (_, _) => b.Background = Brushes.Transparent;
+        }
         b.Click += (_, _) => onClick();
         // Fluent's disabled grey fill fights the palette; dim the whole button instead.
         b.PropertyChanged += (_, e) => { if (e.Property == Button.IsEnabledProperty) b.Opacity = b.IsEnabled ? 1 : .45; };

@@ -40,14 +40,12 @@ public sealed partial class Dashboard
         Button Caption(string icon, string name, Action click, bool close = false)
         {
             var button = new Button {
-                Width = 46, Height = 40, Padding = new Thickness(0), CornerRadius = new CornerRadius(0), BorderThickness = new Thickness(0),
+                Width = 30, Height = 30, Padding = new Thickness(0), CornerRadius = new CornerRadius(15), BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent, Content = CaptionGlyph(icon), RenderTransform = new ScaleTransform(1,1),
                 HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
             };
-            // Caption controls use rectangular hover targets without the main
-            // action buttons' border, rounded corners or press animation.
             button.Template = new FuncControlTemplate<Button>((host, _) => {
-                var presenter = new ContentPresenter { Name = "CaptionPresenter", HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+                var presenter = new ContentPresenter { Name = "CaptionPresenter", CornerRadius = new CornerRadius(15), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
                 presenter.Bind(ContentPresenter.ContentProperty, new Binding(nameof(Button.Content)) { Source = host });
                 presenter.Bind(ContentPresenter.BackgroundProperty, new Binding(nameof(Button.Background)) { Source = host });
                 return presenter;
@@ -64,9 +62,8 @@ public sealed partial class Dashboard
         captionClose = Caption("M3 3l10 10 M13 3L3 13", "關閉視窗", Close, close:true);
         PropertyChanged += (_, e) => { if (e.Property == WindowStateProperty) UpdateWindowCaption(); };
         UpdateWindowCaption();
-        var captions=Row(0, captionMinimize, captionMaximize, captionClose);
-        // Align to the physical client edge while the brand keeps its inset.
-        captions.Margin=new Thickness(0,-8,-24,0);
+        var captions=Row(4, captionMinimize, captionMaximize, captionClose);
+        captions.Margin=new Thickness(0,-2,-4,0);
         return Columns("*,8,Auto", drag, Gap(), captions);
     }
 
